@@ -11,25 +11,17 @@ base_folder = os.path.dirname(os.path.abspath(__file__))
 long_term_memory_file = os.path.join(base_folder, 'memory.txt')
 short_term_memory = []
 
+
+
 def load_long_term_memory():
     if os.path.exists(long_term_memory_file):
         try:
             with open(long_term_memory_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            friday_speak("Failed to load long-term memory:", {e})
+            friday_speak(f"Failed to load long-term memory: {e}")
     return []
     
-def save_long_term_memory(memory_data):
-    try:
-        with open(long_term_memory_file, 'w', encoding='utf-8') as f:
-            json.dump(memory_data, f, indent=2)
-    except Exception as e:
-        friday_speak("Failed to save long-term memory:", e)
-
-# ✅ Initialize global memory right here:
-long_term_memory = load_long_term_memory()
-
 def add_to_memory(role, content):
     short_term_memory.append({"role": role, "content": content})
 
@@ -42,7 +34,7 @@ def friday_speak(message):
     add_to_memory("assistant", message)
     save_to_memory("assistant", message)
 
-    # Append message to display output with timestamp
+    # ✅ Define timestamp before writing
     timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]")
     try:
         with open("display_output.txt", "a", encoding="utf-8") as out_file:
@@ -50,7 +42,16 @@ def friday_speak(message):
     except Exception as e:
         print(f"[Display Output Error] {e}")
 
+       
+def save_long_term_memory(memory_data):
+    try:
+        with open(long_term_memory_file, 'w', encoding='utf-8') as f:
+            json.dump(memory_data, f, indent=2)
+    except Exception as e:
+        friday_speak("Failed to save long-term memory:", e)
 
+# ✅ Initialize global memory right here:
+long_term_memory = load_long_term_memory()
 
 # --- STARTUP LOGIC ---
 friday_speak("Initializing core systems...")
@@ -111,7 +112,7 @@ def reorganize_memory(short_term, long_term):
             long_term.append(msg)
     return long_term
 
-long_term_memory = load_long_term_memory()
+
 
 def ask_friday(user_input):
     global short_term_memory
