@@ -11,11 +11,7 @@ base_folder = os.path.dirname(os.path.abspath(__file__))
 long_term_memory_file = os.path.join(base_folder, 'memory.txt')
 short_term_memory = []
 
-# Add this check before the crashing line (line 74)
-if check_results is None or len(check_results) == 0:
-    friday_speak("No differences found.")
-else:
-    friday_speak("\n".join(check_results[0]) if check_results[0] else "No differences found.")
+
 
 def load_long_term_memory():
     if os.path.exists(long_term_memory_file):
