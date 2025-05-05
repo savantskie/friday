@@ -75,10 +75,15 @@ startup_message = (
 friday_speak(startup_message)
 add_to_memory("assistant", startup_message)
 
-friday_speak("\n".join(check_results[0]) if check_results[0] else "No differences found.")
+# Fixed line 78
+if check_results is None or len(check_results) == 0:
+    friday_speak("No differences found.")
+else:
+    friday_speak("\n".join(check_results[0]) if check_results[0] else "No differences found.")
+
 summary = (
     "No changes found."
-    if not check_results[0]
+    if not check_results or not check_results[0]
     else "Differences detected. Summary:\n" +
          "\n".join(
              line for line in check_results[0]
