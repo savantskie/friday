@@ -1,0 +1,8 @@
+[2025-05-06 08:00] Refactored communication architecture:
+- Removed socket-based message passing between Friday and her display.
+- Replaced with direct function call: friday.ask_friday(user_input)
+- Display now imports Friday’s core directly instead of using TCP/IP sockets.
+- All startup behavior (integrity checks, socket server) disabled unless Friday is run directly.
+- Retained all critical functions (ask_friday, schedule_integrity_checks, reorganize_memory, etc.)
+- Significantly reduced CPU load and port conflict risks.
+- Heartbeat thread removed from display; display now confirms connection via direct response.

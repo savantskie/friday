@@ -1,0 +1,49 @@
+Friday System Summary - v1.0
+
+1. Memory System
+
+Long-term memory is stored in memory.txt located in the memory folder.
+
+Short-term memory is kept in RAM for the current session.
+
+add_to_memory(role, content) adds to short-term memory.
+
+save_to_memory(role, content) appends to long-term memory and writes it to disk.
+
+At shutdown (on end session), meaningful entries are merged and saved using reorganize_memory().
+
+2. Integrity Check System
+
+A script in integrity/code_check.py compares friday.py with friday_backup.py.
+
+Differences are logged to update_log.txt.
+
+If differences are found, Friday summarizes them in her display output.
+
+A blank intended_changes.txt is checked so future entries can document expected changes.
+
+Checks run:
+
+Once at startup.
+
+Every 3 hours via a background thread.
+
+3. Output Logging
+
+Friday speaks using friday_speak(), which:
+
+Prints to console for debug.
+
+Appends to memory.
+
+Writes to display_output.txt so the visual interface can pick it up.
+
+4. Testing Instructions
+
+Startup Test: Reboot Friday. Look for the startup greeting and scan summary in display_output.txt.
+
+Memory Test: Interact with Friday. Then check that both short- and long-term memory structures are logging inputs/responses correctly.
+
+Code Change Test: Edit a line in friday.py. Restart Friday. She should detect the change and summarize it.
+
+Periodic Test: Let Friday run for 3+ hours. She should recheck code and log results again.

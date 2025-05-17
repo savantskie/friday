@@ -1,0 +1,555 @@
+[2025-04-30 20:06:09,304] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-04-30 20:06:09,304] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 20:06:09,309] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 20:06:15,356] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-04-30 20:06:15,400] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-04-30 20:06:15,400] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-04-30 20:06:15,465] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-04-30 20:06:15,465] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-04-30 20:06:15,473] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x246efd98b90 at 246937305d0>)
+[2025-04-30 20:06:15,473] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-04-30 20:06:15,475] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-04-30 20:06:15,475] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x246efd98bd0 at 2469191bcd0>
+[2025-04-30 20:06:15,475] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-04-30 20:06:15,475] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-04-30 20:06:15,475] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x246efd98bd0 at 2469191bdd0>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x246efd98bf0 at 2469191b8d0>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x2469260f728 at 2469191b950>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x2469260f780 at 2469191b9d0>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x246979144a0 at 2469191bcd0>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x246efd98b90 at 246937305d0>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x246efd98bd0 at 2469191bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 20:06:15,476] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x246efd98bf0 at 246937305d0>
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-04-30 20:06:15,477] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-04-30 20:06:15,478] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 20:06:15,478] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-04-30 20:06:15,478] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024698C53230>
+[2025-04-30 20:07:42,812] [INFO] [FridayLauncher] Shutting down Friday via system tray...
+[2025-04-30 20:07:42,812] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-04-30 20:07:42,855] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-04-30 20:07:43,344] [WARNING] [FridayLauncher] Core process stopped unexpectedly. Restarting...
+[2025-04-30 20:07:43,344] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-04-30 20:07:43,344] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-04-30 20:07:44,344] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 20:07:44,348] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 20:07:50,396] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-04-30 20:07:50,446] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-04-30 20:07:50,447] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-04-30 20:07:50,533] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-04-30 20:07:50,533] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-04-30 20:07:50,542] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x271b71a8be0 at 271dab645d0>)
+[2025-04-30 20:07:50,542] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-04-30 20:07:50,543] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x271b71a8c20 at 271d8d5bcd0>
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x271b71a8c20 at 271d8d5bdd0>
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x271b71a8c40 at 271d8d5b8d0>
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x271e221fae8 at 271d8d5b950>
+[2025-04-30 20:07:50,544] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x271e221fb40 at 271d8d5b9d0>
+[2025-04-30 20:07:50,545] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x271deca8b10 at 271d8d5bcd0>
+[2025-04-30 20:07:50,545] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x271b71a8be0 at 271dab645d0>
+[2025-04-30 20:07:50,545] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x271b71a8c20 at 271d8d5bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 20:07:50,545] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x271b71a8c40 at 271dab645d0>
+[2025-04-30 20:07:50,546] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-04-30 20:07:50,546] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-04-30 20:07:50,546] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-04-30 20:07:50,546] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-04-30 20:07:50,547] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000271E0083230>
+[2025-04-30 20:42:56,079] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-04-30 20:42:56,080] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 20:42:56,085] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 20:47:34,317] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-04-30 20:47:34,318] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 20:47:34,323] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 23:52:28,862] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-04-30 23:52:28,863] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 23:52:28,868] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 23:52:36,384] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-04-30 23:52:36,427] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-04-30 23:52:36,427] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-04-30 23:52:36,581] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-04-30 23:52:36,581] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-04-30 23:52:36,589] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x299e6a98b20 at 2998a3705d0>)
+[2025-04-30 23:52:36,589] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-04-30 23:52:36,591] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-04-30 23:52:36,591] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x299e6a98b60 at 2998855bcd0>
+[2025-04-30 23:52:36,591] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-04-30 23:52:36,591] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x299e6a98b60 at 2998855bdd0>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x299e6a98b80 at 2998855b8d0>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x2998e6b6328 at 2998855b950>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x2998e6b6380 at 2998855b9d0>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x2998e4cd680 at 2998855bcd0>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x299e6a98b20 at 2998a3705d0>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x299e6a98b60 at 2998855bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 23:52:36,592] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x299e6a98b80 at 2998a3705d0>
+[2025-04-30 23:52:36,593] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-04-30 23:52:36,593] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-04-30 23:52:36,593] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-04-30 23:52:36,593] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-04-30 23:52:36,593] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-04-30 23:52:36,594] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-04-30 23:52:36,594] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-04-30 23:52:36,594] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 23:52:36,594] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-04-30 23:52:36,594] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000002998F893230>
+[2025-04-30 23:55:28,815] [INFO] [FridayLauncher] Shutting down Friday via system tray...
+[2025-04-30 23:55:28,816] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-04-30 23:55:28,848] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-04-30 23:55:28,930] [WARNING] [FridayLauncher] Core process stopped unexpectedly. Restarting...
+[2025-04-30 23:55:28,930] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-04-30 23:55:28,930] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-04-30 23:55:29,930] [INFO] [FridayLauncher] Starting Friday core...
+[2025-04-30 23:55:29,934] [INFO] [FridayLauncher] Starting Friday display...
+[2025-04-30 23:55:35,791] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-04-30 23:55:35,834] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-04-30 23:55:35,835] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-04-30 23:55:35,901] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-04-30 23:55:35,901] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-04-30 23:55:35,909] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x11d9e508b20 at 11dc1d7c5d0>)
+[2025-04-30 23:55:35,910] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-04-30 23:55:35,911] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x11d9e508b60 at 11dbff6bcd0>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x11d9e508b60 at 11dbff6bdd0>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x11d9e508b80 at 11dbff6b8d0>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x11dc6362dc8 at 11dbff6b950>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x11dc6362e20 at 11dbff6b9d0>
+[2025-04-30 23:55:35,912] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x11dc5f31510 at 11dbff6bcd0>
+[2025-04-30 23:55:35,913] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x11d9e508b20 at 11dc1d7c5d0>
+[2025-04-30 23:55:35,913] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x11d9e508b60 at 11dbff6bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 23:55:35,913] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x11d9e508b80 at 11dc1d7c5d0>
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-04-30 23:55:35,914] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000011DC72A3230>
+[2025-05-01 00:03:09,010] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-05-01 00:03:09,011] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 00:03:09,016] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 00:03:14,684] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 00:03:14,726] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 00:03:14,726] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 00:03:14,790] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 00:03:14,790] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 00:03:14,798] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x1bc92e18b20 at 1bcb66905d0>)
+[2025-05-01 00:03:14,798] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1bc92e18b60 at 1bcb487bcd0>
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x1bc92e18b60 at 1bcb487bdd0>
+[2025-05-01 00:03:14,800] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x1bc92e18b80 at 1bcb487b8d0>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x1bcbab18038 at 1bcb487b950>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x1bcbab18090 at 1bcb487b9d0>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x1bcba826510 at 1bcb487bcd0>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1bc92e18b20 at 1bcb66905d0>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x1bc92e18b60 at 1bcb487bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:03:14,801] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x1bc92e18b80 at 1bcb66905d0>
+[2025-05-01 00:03:14,802] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 00:03:14,802] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 00:03:14,802] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 00:03:14,802] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 00:03:14,802] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 00:03:14,803] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 00:03:14,803] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 00:03:14,803] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:03:14,803] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 00:03:14,803] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001BCBBBB3230>
+[2025-05-01 00:03:26,028] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:03:26,031] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:03:31,033] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:03:31,036] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:03:35,037] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:03:35,040] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:03:41,043] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:03:41,046] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:47:16,040] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 00:47:16,084] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 00:47:16,084] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 00:47:16,149] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 00:47:16,149] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 00:47:16,157] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x1fc490a8b90 at 1fc6ca005d0>)
+[2025-05-01 00:47:16,158] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 00:47:16,159] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 00:47:16,160] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1fc490a8bd0 at 1fc6abebcd0>
+[2025-05-01 00:47:16,160] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:47:16,160] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 00:47:16,160] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x1fc490a8bd0 at 1fc6abebdd0>
+[2025-05-01 00:47:16,160] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x1fc490a8bf0 at 1fc6abeb8d0>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x1fc6bb3d168 at 1fc6abeb950>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x1fc6bb3d1c0 at 1fc6abeb9d0>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x1fc70bd0170 at 1fc6abebcd0>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1fc490a8b90 at 1fc6ca005d0>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x1fc490a8bd0 at 1fc6abebdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:47:16,161] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x1fc490a8bf0 at 1fc6ca005d0>
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 00:47:16,162] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 00:47:16,163] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 00:47:16,163] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:47:16,163] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 00:47:16,163] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>
+[2025-05-01 00:47:16,163] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>.AddRef() -> 1
+[2025-05-01 00:47:16,166] [Core] [DEBUG]: Release <POINTER(IConnectionPointContainer) ptr=0x1fc490a8bf8 at 1fc6ca00d50>
+[2025-05-01 00:47:16,220] [Core] [DEBUG]: wrap_outparam(<POINTER(ISpeechObjectToken) ptr=0x1fc490a96a0 at 1fc6ca00d50>)
+[2025-05-01 00:47:16,220] [Core] [DEBUG]: Release <POINTER(ISpeechObjectToken) ptr=0x1fc490a96a0 at 1fc6ca00d50>
+[2025-05-01 00:47:16,220] [Core] [DEBUG]: wrap_outparam(<POINTER(ISpeechObjectTokens) ptr=0x1fc7297e180 at 1fc6ca00d50>)
+[2025-05-01 00:47:16,221] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1fc73684d30 at 1fc7204e9d0>
+[2025-05-01 00:47:16,221] [Core] [DEBUG]: wrap_outparam(<POINTER(IDispatch) ptr=0x1fc736877a0 at 1fc7204e4d0>)
+[2025-05-01 00:47:16,221] [Core] [DEBUG]: GetBestInterface(<POINTER(IDispatch) ptr=0x1fc736877a0 at 1fc7204e4d0>)
+[2025-05-01 00:47:16,221] [Core] [DEBUG]: Does NOT implement IProvideClassInfo, trying IProvideClassInfo2
+[2025-05-01 00:47:16,221] [Core] [DEBUG]: Does NOT implement IProvideClassInfo/IProvideClassInfo2
+[2025-05-01 00:47:16,222] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1fc6bb3d270 at 1fc6ac68ed0>
+[2025-05-01 00:47:16,222] [Core] [DEBUG]: Default interface is {C74A3ADC-B727-4500-A84A-B526721C8B8C}
+[2025-05-01 00:47:16,222] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x1fc736877a0 at 1fc6ac691d0>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechObjectToken'>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Final result is <POINTER(ISpeechObjectToken) ptr=0x1fc736877a0 at 1fc6ac692d0>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(IDispatch) ptr=0x1fc736877a0 at 1fc6ac69050>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x1fc6bb3d270 at 1fc6ac68fd0>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x1fc70bd0170 at 1fc6ac691d0>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(IDispatch) ptr=0x1fc736877a0 at 1fc7204e4d0>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(IEnumVARIANT) ptr=0x1fc73684d30 at 1fc7204e950>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(ISpeechObjectTokens) ptr=0x1fc7297e180 at 1fc6ca00d50>
+[2025-05-01 00:47:16,223] [Core] [DEBUG]: Release <POINTER(ISpeechObjectToken) ptr=0x1fc736877a0 at 1fc6ac692d0>
+[2025-05-01 00:47:16,226] [Core] [DEBUG]: Starting new HTTPS connection (1): huggingface.co:443
+[2025-05-01 00:47:16,373] [Core] [DEBUG]: https://huggingface.co:443 "HEAD /mrm8488/bert-small-finetuned-sarcasm-twitter/resolve/main/config.json HTTP/1.1" 401 0
+[2025-05-01 00:47:16,461] [Core] [DEBUG]: Calling CoUninitialize()
+[2025-05-01 00:47:16,461] [Core] [DEBUG]: CoUninitialize() done.
+[2025-05-01 00:47:16,743] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>.Release() -> 0
+[2025-05-01 00:47:16,744] [Core] [DEBUG]: 0 active COM objects: Removed <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x000001FC71F1F230>
+[2025-05-01 00:47:16,744] [Core] [DEBUG]: Remaining: []
+[2025-05-01 00:49:48,408] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 00:49:48,449] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 00:49:48,449] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 00:49:48,513] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 00:49:48,513] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 00:49:48,522] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x24bd3f88b90 at 24bf78305d0>)
+[2025-05-01 00:49:48,522] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 00:49:48,524] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 00:49:48,524] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x24bd3f88bd0 at 24bf5a1bcd0>
+[2025-05-01 00:49:48,524] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:49:48,524] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x24bd3f88bd0 at 24bf5a1bdd0>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x24bd3f88bf0 at 24bf5a1b8d0>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x24bf68405a8 at 24bf5a1b950>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x24bf6840600 at 24bf5a1b9d0>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x24bfba56180 at 24bf5a1bcd0>
+[2025-05-01 00:49:48,525] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x24bd3f88b90 at 24bf78305d0>
+[2025-05-01 00:49:48,526] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x24bd3f88bd0 at 24bf5a1bdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:49:48,526] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x24bd3f88bf0 at 24bf78305d0>
+[2025-05-01 00:49:48,526] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>
+[2025-05-01 00:49:48,527] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>.AddRef() -> 1
+[2025-05-01 00:49:48,531] [Core] [DEBUG]: Release <POINTER(IConnectionPointContainer) ptr=0x24bd3f88bf8 at 24bf7830d50>
+[2025-05-01 00:49:48,574] [Core] [DEBUG]: wrap_outparam(<POINTER(ISpeechObjectToken) ptr=0x24bd3f896a0 at 24bf7830d50>)
+[2025-05-01 00:49:48,574] [Core] [DEBUG]: Release <POINTER(ISpeechObjectToken) ptr=0x24bd3f896a0 at 24bf7830d50>
+[2025-05-01 00:49:48,575] [Core] [DEBUG]: wrap_outparam(<POINTER(ISpeechObjectTokens) ptr=0x24bfd79e000 at 24bf7830d50>)
+[2025-05-01 00:49:48,575] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x24bfe624c70 at 24bfce7e9d0>
+[2025-05-01 00:49:48,575] [Core] [DEBUG]: wrap_outparam(<POINTER(IDispatch) ptr=0x24bfe626630 at 24bfce7e4d0>)
+[2025-05-01 00:49:48,575] [Core] [DEBUG]: GetBestInterface(<POINTER(IDispatch) ptr=0x24bfe626630 at 24bfce7e4d0>)
+[2025-05-01 00:49:48,576] [Core] [DEBUG]: Does NOT implement IProvideClassInfo, trying IProvideClassInfo2
+[2025-05-01 00:49:48,576] [Core] [DEBUG]: Does NOT implement IProvideClassInfo/IProvideClassInfo2
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x24bf68406b0 at 24bf5a98ed0>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Default interface is {C74A3ADC-B727-4500-A84A-B526721C8B8C}
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x24bfe626630 at 24bf5a991d0>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechObjectToken'>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Final result is <POINTER(ISpeechObjectToken) ptr=0x24bfe626630 at 24bf5a992d0>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Release <POINTER(IDispatch) ptr=0x24bfe626630 at 24bf5a99050>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x24bf68406b0 at 24bf5a98fd0>
+[2025-05-01 00:49:48,577] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x24bfba56180 at 24bf5a991d0>
+[2025-05-01 00:49:48,578] [Core] [DEBUG]: Release <POINTER(IDispatch) ptr=0x24bfe626630 at 24bfce7e4d0>
+[2025-05-01 00:49:48,578] [Core] [DEBUG]: Release <POINTER(IEnumVARIANT) ptr=0x24bfe624c70 at 24bfce7e950>
+[2025-05-01 00:49:48,578] [Core] [DEBUG]: Release <POINTER(ISpeechObjectTokens) ptr=0x24bfd79e000 at 24bf7830d50>
+[2025-05-01 00:49:48,578] [Core] [DEBUG]: Release <POINTER(ISpeechObjectToken) ptr=0x24bfe626630 at 24bf5a992d0>
+[2025-05-01 00:49:48,580] [Core] [DEBUG]: Starting new HTTPS connection (1): huggingface.co:443
+[2025-05-01 00:49:48,689] [Core] [DEBUG]: https://huggingface.co:443 "HEAD /mrm8488/bert-small-finetuned-sarcasm-twitter/resolve/main/config.json HTTP/1.1" 401 0
+[2025-05-01 00:49:48,696] [Core] [DEBUG]: Calling CoUninitialize()
+[2025-05-01 00:49:48,696] [Core] [DEBUG]: CoUninitialize() done.
+[2025-05-01 00:49:48,978] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>.Release() -> 0
+[2025-05-01 00:49:48,978] [Core] [DEBUG]: 0 active COM objects: Removed <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000024BFCD4F230>
+[2025-05-01 00:49:48,978] [Core] [DEBUG]: Remaining: []
+[2025-05-01 00:56:24,303] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-05-01 00:56:24,304] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 00:56:24,309] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 00:56:30,375] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 00:56:30,419] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 00:56:30,419] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 00:56:30,485] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 00:56:30,485] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 00:56:30,494] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x249bb558b20 at 249decc05d0>)
+[2025-05-01 00:56:30,494] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 00:56:30,495] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x249bb558b60 at 249dceabcd0>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x249bb558b60 at 249dceabdd0>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x249bb558b80 at 249dceab8d0>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x249ddf671a8 at 249dceab950>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x249ddf67200 at 249dceab9d0>
+[2025-05-01 00:56:30,496] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x249e2e92000 at 249dceabcd0>
+[2025-05-01 00:56:30,497] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x249bb558b20 at 249decc05d0>
+[2025-05-01 00:56:30,497] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x249bb558b60 at 249dceabdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:56:30,497] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x249bb558b80 at 249decc05d0>
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 00:56:30,498] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000249E41DF230>
+[2025-05-01 00:57:58,344] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:57:58,347] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:58:01,349] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:58:01,352] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:58:04,353] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:58:04,357] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:58:09,358] [WARNING] [FridayLauncher] Display process stopped unexpectedly. Restarting display...
+[2025-05-01 00:58:09,362] [INFO] [FridayLauncher] Display restarted successfully.
+[2025-05-01 00:58:12,357] [INFO] [FridayLauncher] Shutting down Friday via system tray...
+[2025-05-01 00:58:12,357] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-01 00:58:52,661] [INFO] [FridayLauncher] Starting Friday unified launcher...
+[2025-05-01 00:58:52,662] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 00:58:52,667] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 00:58:58,681] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 00:58:58,724] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 00:58:58,725] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 00:58:58,789] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 00:58:58,789] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 00:58:58,797] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x280ccf88b20 at 280f07ac5d0>)
+[2025-05-01 00:58:58,797] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x280ccf88b60 at 280ee9abcd0>
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x280ccf88b60 at 280ee9abdd0>
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x280ccf88b80 at 280ee9ab8d0>
+[2025-05-01 00:58:58,799] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x280f4bb34e8 at 280ee9ab950>
+[2025-05-01 00:58:58,800] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x280f4bb3540 at 280ee9ab9d0>
+[2025-05-01 00:58:58,800] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x280f439c5d0 at 280ee9abcd0>
+[2025-05-01 00:58:58,800] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x280ccf88b20 at 280f07ac5d0>
+[2025-05-01 00:58:58,800] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x280ccf88b60 at 280ee9abdd0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:58:58,800] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x280ccf88b80 at 280f07ac5d0>
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 00:58:58,801] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x00000280F5CD3230>
+[2025-05-01 01:04:55,987] [INFO] [FridayLauncher] Launching Friday unified launcher…
+[2025-05-01 01:04:55,988] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 01:04:55,994] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 01:05:01,885] [Core] [DEBUG]: CoInitializeEx(None, 2)
+[2025-05-01 01:05:01,928] [Core] [INFO]: Imported existing <module 'comtypes.gen' from 'C:\\Users\\Dad\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+[2025-05-01 01:05:01,928] [Core] [INFO]: Using writeable comtypes cache directory: 'C:\Users\Dad\AppData\Local\Programs\Python\Python313\Lib\site-packages\comtypes\gen'
+[2025-05-01 01:05:01,994] [Core] [DEBUG]: SAPI.SPVoice -> {96749377-3391-11D2-9EE3-00C04F797396}
+[2025-05-01 01:05:01,994] [Core] [DEBUG]: CoCreateInstance({96749377-3391-11D2-9EE3-00C04F797396}, clsctx=None, interface=None)
+[2025-05-01 01:05:02,002] [Core] [DEBUG]: GetBestInterface(<POINTER(IUnknown) ptr=0x26c67bc8b20 at 26c01f98150>)
+[2025-05-01 01:05:02,002] [Core] [DEBUG]: Does implement IProvideClassInfo
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: Default interface is {269316D8-57BD-11D2-9EEE-00C04F797396}
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x26c67bc8b60 at 26c099b01d0>
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: GetModule(TLIBATTR(GUID={C866CA3A-32F7-11D2-9602-00C04F8EE628}, Version=5.4, LCID=0, FLags=0x8))
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: Implements default interface from typeinfo <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4.ISpeechVoice'>
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: Final result is <POINTER(ISpeechVoice) ptr=0x26c67bc8b60 at 26c099b02d0>
+[2025-05-01 01:05:02,004] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo) ptr=0x26c67bc8b80 at 26c0994bd50>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x26c0fcffb48 at 26c0994bdd0>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: Release <POINTER(ITypeInfo) ptr=0x26c0fcffba0 at 26c0994be50>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: Release <POINTER(ITypeLib) ptr=0x26c0f995e60 at 26c099b01d0>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: Release <POINTER(IUnknown) ptr=0x26c67bc8b20 at 26c01f98150>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: <POINTER(ISpeechVoice) ptr=0x26c67bc8b60 at 26c099b02d0> using sinkinterface from clsid <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 01:05:02,005] [Core] [DEBUG]: Release <POINTER(IProvideClassInfo2) ptr=0x26c67bc8b80 at 26c01f98150>
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.VoiceChange not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.Bookmark not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.Sentence not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.Phoneme not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.Viseme not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.AudioLevel not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>: _ISpeechVoiceEvents.EnginePrivate not implemented
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: Start advise <class 'comtypes.gen._C866CA3A_32F7_11D2_9602_00C04F8EE628_0_5_4._ISpeechVoiceEvents'>
+[2025-05-01 01:05:02,006] [Core] [DEBUG]: <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>.QueryInterface({A372ACD1-3BEF-4BBD-8FFB-CB3E2B416AF8}) -> S_OK
+[2025-05-01 01:05:02,007] [Core] [DEBUG]: 1 active COM objects: Added   <comtypes.client._events.CreateEventReceiver.<locals>.Sink object at 0x0000026C10C7B0E0>
+[2025-05-01 01:08:50,774] [INFO] [FridayLauncher] Tray quit selected. Shutting down Friday.
+[2025-05-01 01:08:50,774] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-01 01:08:50,811] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-05-01 01:36:19,823] [INFO] [FridayLauncher] Monitor exiting on KeyboardInterrupt.
+[2025-05-01 15:52:21,810] INFO: Friday's code is valid.
+[2025-05-01 15:52:21,820] INFO: Greeting displayed to user.
+[2025-05-01 18:45:38,661] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 18:45:38,662] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 18:45:38,669] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 18:51:35,685] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 18:51:35,686] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 18:51:35,692] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:04:06,589] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:04:06,590] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:04:06,595] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:07:43,146] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:07:43,147] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:07:43,153] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:12:56,231] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:12:56,233] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:12:56,239] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:12:56,343] INFO: Friday's code is valid.
+[2025-05-01 19:12:56,344] INFO: Greeting displayed to user.
+[2025-05-01 19:15:41,090] [INFO] [FridayLauncher] Tray quit selected. Shutting down Friday.
+[2025-05-01 19:15:41,090] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-01 19:15:41,090] [INFO] [FridayLauncher] Sending 'end session' to Friday.
+[2025-05-01 19:15:41,093] INFO: Session memory saved.
+[2025-05-01 19:15:41,102] [INFO] [FridayLauncher] Friday core exited gracefully.
+[2025-05-01 19:15:41,103] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-05-01 19:15:41,115] [INFO] [FridayLauncher] Friday display terminated.
+[2025-05-01 19:16:56,639] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:16:56,640] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:16:56,646] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:16:56,739] INFO: Friday's code is valid.
+[2025-05-01 19:16:56,751] INFO: Greeting displayed to user.
+[2025-05-01 19:20:20,610] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:20:20,611] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:20:20,617] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:20:21,972] INFO: Friday's code is valid.
+[2025-05-01 19:20:21,972] INFO: Greeting displayed to user.
+[2025-05-01 19:20:51,248] DEBUG: connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=None socket_options=None
+[2025-05-01 19:20:51,264] DEBUG: connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x0000025E72456F90>
+[2025-05-01 19:20:51,264] DEBUG: send_request_headers.started request=<Request [b'POST']>
+[2025-05-01 19:20:51,264] DEBUG: send_request_headers.complete
+[2025-05-01 19:20:51,264] DEBUG: send_request_body.started request=<Request [b'POST']>
+[2025-05-01 19:20:51,264] DEBUG: send_request_body.complete
+[2025-05-01 19:20:51,264] DEBUG: receive_response_headers.started request=<Request [b'POST']>
+[2025-05-01 19:21:21,779] DEBUG: receive_response_headers.failed exception=ReadError(ConnectionAbortedError(10053, 'An established connection was aborted by the software in your host machine', None, 10053, None))
+[2025-05-01 19:21:21,780] DEBUG: response_closed.started
+[2025-05-01 19:21:21,780] DEBUG: response_closed.complete
+[2025-05-01 19:25:44,383] INFO: Friday's code is valid.
+[2025-05-01 19:25:44,384] INFO: Greeting displayed to user.
+[2025-05-01 19:33:52,164] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:33:52,165] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:33:52,171] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:33:52,971] INFO: Friday's code is valid.
+[2025-05-01 19:33:52,971] INFO: Greeting displayed to user.
+[2025-05-01 19:34:42,032] DEBUG: connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=None socket_options=None
+[2025-05-01 19:34:42,035] DEBUG: connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000001F15CB56F90>
+[2025-05-01 19:34:42,035] DEBUG: send_request_headers.started request=<Request [b'POST']>
+[2025-05-01 19:34:42,035] DEBUG: send_request_headers.complete
+[2025-05-01 19:34:42,035] DEBUG: send_request_body.started request=<Request [b'POST']>
+[2025-05-01 19:34:42,036] DEBUG: send_request_body.complete
+[2025-05-01 19:34:42,036] DEBUG: receive_response_headers.started request=<Request [b'POST']>
+[2025-05-01 19:35:24,423] DEBUG: receive_response_headers.failed exception=ReadError(ConnectionAbortedError(10053, 'An established connection was aborted by the software in your host machine', None, 10053, None))
+[2025-05-01 19:35:24,424] DEBUG: response_closed.started
+[2025-05-01 19:35:24,424] DEBUG: response_closed.complete
+[2025-05-01 19:40:40,109] INFO: Session memory saved.
+[2025-05-01 19:57:49,623] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 19:57:49,624] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 19:57:49,631] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 19:57:50,465] INFO: Friday's code is valid.
+[2025-05-01 19:57:50,476] INFO: Greeting displayed to user.
+[2025-05-01 19:58:26,564] DEBUG: connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=None socket_options=None
+[2025-05-01 19:58:26,566] DEBUG: connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000001DDEB592F90>
+[2025-05-01 19:58:26,566] DEBUG: send_request_headers.started request=<Request [b'POST']>
+[2025-05-01 19:58:26,567] DEBUG: send_request_headers.complete
+[2025-05-01 19:58:26,567] DEBUG: send_request_body.started request=<Request [b'POST']>
+[2025-05-01 19:58:26,567] DEBUG: send_request_body.complete
+[2025-05-01 19:58:26,567] DEBUG: receive_response_headers.started request=<Request [b'POST']>
+[2025-05-01 19:58:45,959] DEBUG: receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=utf-8'), (b'Date', b'Fri, 02 May 2025 00:58:45 GMT'), (b'Content-Length', b'778')])
+[2025-05-01 19:58:45,960] INFO: HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+[2025-05-01 19:58:45,960] DEBUG: receive_response_body.started request=<Request [b'POST']>
+[2025-05-01 19:58:45,960] DEBUG: receive_response_body.complete
+[2025-05-01 19:58:45,960] DEBUG: response_closed.started
+[2025-05-01 19:58:45,960] DEBUG: response_closed.complete
+[2025-05-01 20:00:19,496] DEBUG: close.started
+[2025-05-01 20:00:19,496] DEBUG: close.complete
+[2025-05-01 20:00:19,496] DEBUG: connect_tcp.started host='127.0.0.1' port=11434 local_address=None timeout=None socket_options=None
+[2025-05-01 20:00:19,496] DEBUG: connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000001DDEB5AAAD0>
+[2025-05-01 20:00:19,496] DEBUG: send_request_headers.started request=<Request [b'POST']>
+[2025-05-01 20:00:19,496] DEBUG: send_request_headers.complete
+[2025-05-01 20:00:19,496] DEBUG: send_request_body.started request=<Request [b'POST']>
+[2025-05-01 20:00:19,497] DEBUG: send_request_body.complete
+[2025-05-01 20:00:19,497] DEBUG: receive_response_headers.started request=<Request [b'POST']>
+[2025-05-01 20:00:24,414] DEBUG: receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Content-Type', b'application/json; charset=utf-8'), (b'Date', b'Fri, 02 May 2025 01:00:24 GMT'), (b'Content-Length', b'411')])
+[2025-05-01 20:00:24,415] INFO: HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+[2025-05-01 20:00:24,415] DEBUG: receive_response_body.started request=<Request [b'POST']>
+[2025-05-01 20:00:24,415] DEBUG: receive_response_body.complete
+[2025-05-01 20:00:24,415] DEBUG: response_closed.started
+[2025-05-01 20:00:24,415] DEBUG: response_closed.complete
+[2025-05-01 20:04:46,078] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-01 20:04:46,079] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-01 20:04:46,086] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-01 20:04:46,984] INFO: Friday's code is valid.
+[2025-05-01 20:04:46,984] INFO: Greeting displayed to user.
+[2025-05-01 20:40:03,648] INFO: Friday's code is valid.
+[2025-05-01 20:40:03,658] INFO: Greeting displayed to user.
+[2025-05-01 20:43:36,818] INFO: Friday's code is valid.
+[2025-05-01 20:43:36,819] INFO: Greeting displayed to user.
+[2025-05-01 20:44:28,836] INFO: Friday's code is valid.
+[2025-05-01 20:44:28,837] INFO: Greeting displayed to user.
+[2025-05-03 19:35:23,279] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 19:35:23,306] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 19:35:23,312] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 19:37:26,475] [INFO] [FridayLauncher] Tray quit selected. Shutting down Friday.
+[2025-05-03 19:37:26,476] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-03 19:37:26,476] [INFO] [FridayLauncher] Sending 'end session' to Friday.
+[2025-05-03 19:37:26,541] [INFO] [FridayLauncher] Friday core exited gracefully.
+[2025-05-03 19:37:26,541] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-05-03 19:37:26,552] [INFO] [FridayLauncher] Friday display terminated.
+[2025-05-03 19:38:44,770] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 19:38:44,772] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 19:38:44,778] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 19:39:49,338] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 19:39:49,339] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 19:39:49,345] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 19:40:15,849] [INFO] [FridayLauncher] Tray quit selected. Shutting down Friday.
+[2025-05-03 19:40:15,849] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-03 19:40:15,849] [INFO] [FridayLauncher] Sending 'end session' to Friday.
+[2025-05-03 19:40:15,911] [INFO] [FridayLauncher] Friday core exited gracefully.
+[2025-05-03 19:40:15,911] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-05-03 19:40:15,922] [INFO] [FridayLauncher] Friday display terminated.
+[2025-05-03 19:40:46,307] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 19:40:46,308] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 19:40:46,313] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 20:04:14,541] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 20:04:14,543] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 20:04:14,551] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 23:18:09,376] [INFO] [FridayLauncher] Friday launcher started with system tray icon.
+[2025-05-03 23:18:09,377] [INFO] [FridayLauncher] Starting Friday core...
+[2025-05-03 23:18:11,384] [INFO] [FridayLauncher] Starting Friday display...
+[2025-05-03 23:18:29,703] [INFO] [FridayLauncher] Tray quit selected. Shutting down Friday.
+[2025-05-03 23:18:29,703] [INFO] [FridayLauncher] Stopping Friday core...
+[2025-05-03 23:18:29,703] [INFO] [FridayLauncher] Friday core was already stopped.
+[2025-05-03 23:18:29,703] [INFO] [FridayLauncher] Stopping Friday display...
+[2025-05-03 23:18:29,704] [INFO] [FridayLauncher] Friday display was already stopped.

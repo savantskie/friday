@@ -1,0 +1,13 @@
+# Intended Changes Log for Friday
+
+## Version 1.0 - Initial Stable Build [2025-05-04]
+- [Feature] Enabled persistent memory with text flushing every 6 messages
+- [Command] Added "Flush Memory" and "End Session" commands
+- [Fix] Removed 5-second LLM delay for faster response time
+- [Stability] Isolated display from core to ensure modular design
+
+## Version 1.1 - Planned Updates
+- [Feature] Integrate self-code integrity checker (code_check.py)
+- [Enhancement] Add timestamp and category support to memory entries
+- [Refactor] Streamline memory flushing logic
+- [UI] Improve Pygame display performance on slower hardware
