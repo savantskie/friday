@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<!-- Friday Mobile Version: 2.0.0-memory-aware -->
+	<!-- Features: Flush-safe memory, device switch tagging, self-awareness primer -->
+
+    <meta charset="UTF-8">
+    <title>Friday</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            font-family: "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 10px;
+        }
+        #chat {
+			max-width: 800px;
+			margin: auto;
+			padding-bottom: 100px;
+			max-height: calc(100vh - 140px); /* fits under input area */
+			overflow-y: auto;
+			display: flex;
+			flex-direction: column;
+		}
+        .message {
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 6px;
+        }
+        .user {
+            background-color: #1a1a1a;
+            text-align: right;
+        }
+        .friday {
+            background-color: #222;
+            text-align: left;
+        }
+        #input-area {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background: #000;
+        }
+        input, button {
+            font-size: 16px;
+            padding: 10px;
+        }
+        input {
+            width: 75%;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat"></div>
+
+    <div id="input-area">
+        <input type="text" id="userInput" placeholder="Talk to Friday..." autofocus>
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+		async function sendMessage() {
+			const input = document.getElementById('userInput');
+			const message = input.value.trim();
+			if (!message) return;
+
+			appendMessage('You', message, 'user');
+			input.value = '';
+
+			const response = await fetch('/ask', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': 'Bearer 051407A1007b1982C!'
+				},
+				body: JSON.stringify({ message })
+			});
+
+			appendMessage('Friday', 'Thinking...', 'friday');
+
+			const reply = await response.text();
+			updateLastMessage('Friday', reply.trim());
+
+		}
+
+		function updateLastMessage(sender, text) {
+			const chat = document.getElementById('chat');
+			const messages = chat.getElementsByClassName('message');
+			if (messages.length > 0) {
+				messages[messages.length - 1].innerText = `${sender}: ${text}`;
+				scrollChatToBottom();
+			}
+		}
+
+        function appendMessage(sender, text, className) {
+            const chat = document.getElementById('chat');
+            const div = document.createElement('div');
+            div.className = `message ${className}`;
+            div.innerText = `${sender}: ${text}`;
+            chat.appendChild(div);
+            scrollChatToBottom();
+        }
+		
+		function scrollChatToBottom() {
+			const chat = document.getElementById('chat');
+			setTimeout(() => {
+				chat.scrollTop = chat.scrollHeight;
+			}, 50); // small delay ensures DOM has rendered new message
+		}
+
+    </script>
+</body>
+</html>
