@@ -482,6 +482,40 @@ class VSCodeProjectDatabase(DatabaseManager):
         
         return session_id
     
+    async def store_development_conversation(self, content: str, session_id: str = None,
+                                          chat_context_id: str = None, decisions_made: str = None,
+                                          code_changes: Dict = None) -> str:
+        """Store a development conversation from VS Code
+        
+        Args:
+            content: The conversation content
+            session_id: Optional project session ID (will create new if none)
+            chat_context_id: Optional VS Code chat context ID
+            decisions_made: Summary of decisions made in conversation
+            code_changes: Dictionary of files changed and their changes
+        """
+        conversation_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc).isoformat()
+        
+        # Create session if none provided
+        if not session_id:
+            session_id = await self.save_development_session(
+                workspace_path=os.getcwd(),  # Current workspace
+                session_summary="Auto-created session for development conversation"
+            )
+        
+        # Store conversation
+        await self.execute_update(
+            """INSERT INTO development_conversations 
+               (conversation_id, session_id, timestamp, chat_context_id,
+                conversation_content, decisions_made, code_changes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (conversation_id, session_id, timestamp, chat_context_id,
+             content, decisions_made, json.dumps(code_changes) if code_changes else None)
+        )
+        
+        return conversation_id
+
     async def store_project_insight(self, content: str, insight_type: str = None,
                                   related_files: List[str] = None, importance_level: int = 5,
                                   source_conversation_id: str = None) -> str:
@@ -729,6 +763,281 @@ class MCPToolCallDatabase(DatabaseManager):
 
 
 class ConversationFileMonitor:
+    async def _import_characterai_conversation(self, file_path: str, content: str):
+        """Import a Character.ai conversation file with deduplication."""
+        try:
+            data = json.loads(content)
+            metadata = {
+                "source_file": file_path,
+                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "file_type": "characterai_conversation",
+                "application": "character.ai"
+            }
+            messages = self._parse_conversation_data(data, file_path)
+            session_id = None
+            conversation_id = None
+            imported_count = 0
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                content_data = msg.get("content", msg.get("text", ""))
+                if isinstance(content_data, str):
+                    msg_content = content_data
+                elif isinstance(content_data, dict):
+                    msg_content = json.dumps(content_data)
+                else:
+                    msg_content = str(content_data)
+                msg_id = msg.get("id") or msg.get("message_id")
+                timestamp = msg.get("timestamp")
+                if not timestamp:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                duplicate = False
+                if msg_id:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role=role,
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} Character.ai messages from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing Character.ai conversation {file_path}: {e}")
+
+    async def _import_localai_conversation(self, file_path: str, content: str):
+        """Import a Local.ai conversation file with deduplication."""
+        try:
+            data = json.loads(content)
+            metadata = {
+                "source_file": file_path,
+                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "file_type": "localai_conversation",
+                "application": "local.ai"
+            }
+            messages = self._parse_conversation_data(data, file_path)
+            session_id = None
+            conversation_id = None
+            imported_count = 0
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                content_data = msg.get("content", msg.get("text", ""))
+                if isinstance(content_data, str):
+                    msg_content = content_data
+                elif isinstance(content_data, dict):
+                    msg_content = json.dumps(content_data)
+                else:
+                    msg_content = str(content_data)
+                msg_id = msg.get("id") or msg.get("message_id")
+                timestamp = msg.get("timestamp")
+                if not timestamp:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                duplicate = False
+                if msg_id:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role=role,
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} Local.ai messages from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing Local.ai conversation {file_path}: {e}")
+
+    async def _import_textgenwebui_conversation(self, file_path: str, content: str):
+        """Import a text-generation-webui conversation file with deduplication."""
+        try:
+            # Assume log format: one message per line, JSON or plain text
+            lines = content.strip().split('\n')
+            metadata = {
+                "source_file": file_path,
+                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "file_type": "textgenwebui_conversation",
+                "application": "text-generation-webui"
+            }
+            session_id = None
+            conversation_id = None
+            imported_count = 0
+            for line in lines:
+                msg_content = line.strip()
+                if not msg_content:
+                    continue
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                duplicate = False
+                existing = await self.conversations_db.execute_query(
+                    "SELECT content FROM messages WHERE content = ?", (msg_content,)
+                )
+                if existing:
+                    duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role="unknown",
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} text-generation-webui messages from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing text-generation-webui conversation {file_path}: {e}")
+    async def _import_lmstudio_conversation(self, file_path: str, content: str):
+        """Import an LM Studio conversation file with deduplication."""
+        try:
+            data = json.loads(content)
+            metadata = {
+                "source_file": file_path,
+                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "file_type": "lmstudio_conversation",
+                "application": "lm_studio"
+            }
+            messages = self._parse_conversation_data(data, file_path)
+            session_id = None
+            conversation_id = None
+            imported_count = 0
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                content_data = msg.get("content", msg.get("text", ""))
+                if isinstance(content_data, str):
+                    msg_content = content_data
+                elif isinstance(content_data, dict):
+                    msg_content = json.dumps(content_data)
+                else:
+                    msg_content = str(content_data)
+                msg_id = msg.get("id") or msg.get("message_id")
+                timestamp = msg.get("timestamp")
+                if not timestamp:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                duplicate = False
+                if msg_id:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role=role,
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} LM Studio messages from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing LM Studio conversation {file_path}: {e}")
+
+    async def _import_ollama_conversation(self, file_path: str, content: str):
+        """Import an Ollama conversation file with deduplication."""
+        try:
+            data = json.loads(content)
+            metadata = {
+                "source_file": file_path,
+                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "file_type": "ollama_conversation",
+                "application": "ollama"
+            }
+            messages = self._parse_conversation_data(data, file_path)
+            session_id = None
+            conversation_id = None
+            imported_count = 0
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                content_data = msg.get("content", msg.get("text", ""))
+                if isinstance(content_data, str):
+                    msg_content = content_data
+                elif isinstance(content_data, dict):
+                    msg_content = json.dumps(content_data)
+                else:
+                    msg_content = str(content_data)
+                msg_id = msg.get("id") or msg.get("message_id")
+                timestamp = msg.get("timestamp")
+                if not timestamp:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                duplicate = False
+                if msg_id:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role=role,
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} Ollama messages from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing Ollama conversation {file_path}: {e}")
     """Monitors conversation files from various chat applications and imports them to memory"""
     
     def __init__(self, memory_system, watch_directories: List[str] = None):
@@ -1296,6 +1605,12 @@ class ConversationFileMonitor:
             # Create a consistent session ID based on the file path and initial metadata
             file_session_id = hashlib.md5(f"vscode:{file_path}".encode()).hexdigest()
             
+            # Create a development session for this VS Code chat
+            dev_session_id = await self.vscode_db.save_development_session(
+                workspace_path=os.path.dirname(file_path),
+                session_summary=f"Imported VS Code chat session from {os.path.basename(file_path)}"
+            )
+            
             # Extract metadata from VS Code chat session
             metadata = {
                 "source_file": file_path,
@@ -1307,6 +1622,9 @@ class ConversationFileMonitor:
                 "responder": data.get("responderUsername"),
                 "initial_location": data.get("initialLocation")
             }
+            
+            # Build full conversation content for development tracking
+            full_conversation = []
             
             # Process each request-response pair
             requests = data.get("requests", [])
@@ -1340,6 +1658,7 @@ class ConversationFileMonitor:
                             skipped_duplicates += 1
                         else:
                             new_message_count += 1
+                            full_conversation.append(f"User: {user_content}")
                         
                         # Use the consistent session for the assistant response
                         session_id = result["session_id"]
@@ -1372,6 +1691,16 @@ class ConversationFileMonitor:
                                 skipped_duplicates += 1
                             else:
                                 new_message_count += 1
+                                full_conversation.append(f"Assistant: {assistant_content}")
+            
+            if full_conversation:
+                # Store the complete development conversation
+                await self.vscode_db.store_development_conversation(
+                    content="\n\n".join(full_conversation),
+                    session_id=dev_session_id,
+                    chat_context_id=file_session_id,
+                    code_changes=data.get("codeActions", {})  # Store any code actions if present
+                )
             
             logger.info(f"Imported {new_message_count} new messages from VS Code chat session {file_path} (skipped {skipped_duplicates} duplicates)")
             
@@ -1447,52 +1776,61 @@ class ConversationFileMonitor:
             logger.error(f"Error importing JSON conversation {file_path}: {e}")
     
     async def _import_jsonl_conversation(self, file_path: str, content: str):
-        """Import a JSONL conversation file (one JSON object per line)"""
+        """Import a JSONL conversation file (one JSON object per line), with deduplication."""
         try:
             metadata = {
                 "source_file": file_path,
                 "import_timestamp": datetime.now(timezone.utc).isoformat(),
                 "file_type": "jsonl_conversation"
             }
-            
             lines = content.strip().split('\n')
             message_count = 0
             session_id = None
             conversation_id = None
-            
             for line in lines:
                 if line.strip():
                     try:
                         msg = json.loads(line)
                         role = msg.get("role", "unknown")
                         content_data = msg.get("content", "")
-                        
                         if isinstance(content_data, str):
                             msg_content = content_data
                         else:
                             msg_content = json.dumps(content_data)
-                        
-                        if msg_content.strip():
+                        # Deduplication: use id, timestamp, and content hash
+                        msg_id = msg.get("id") or msg.get("message_id")
+                        timestamp = msg.get("timestamp")
+                        if not timestamp:
+                            timestamp = datetime.now(timezone.utc).isoformat()
+                        content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                        duplicate = False
+                        if msg_id:
+                            existing = await self.conversations_db.execute_query(
+                                "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                            )
+                            if existing:
+                                duplicate = True
+                        if not duplicate:
+                            existing = await self.conversations_db.execute_query(
+                                "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                            )
+                            if existing:
+                                duplicate = True
+                        if not duplicate and msg_content.strip():
                             result = await self.conversations_db.store_message(
                                 content=msg_content,
                                 role=role,
                                 session_id=session_id,
                                 conversation_id=conversation_id,
-                                metadata=metadata
+                                metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                             )
-                            
-                            # Use same session/conversation for subsequent messages
                             if session_id is None:
                                 session_id = result["session_id"]
                                 conversation_id = result["conversation_id"]
-                            
                             message_count += 1
-                    
                     except json.JSONDecodeError:
                         continue  # Skip invalid JSON lines
-            
             logger.info(f"Imported {message_count} messages from {file_path}")
-            
         except Exception as e:
             logger.error(f"Error importing JSONL conversation {file_path}: {e}")
     
@@ -1534,39 +1872,37 @@ class ConversationFileMonitor:
         return conversations
     
     async def _import_conversation_file(self, file_path: str, content: str):
-        """Import a conversation file (JSON, markdown, etc.), deduplicating using the memory database only."""
+        """Import a conversation file into the memory system, only importing new messages after the first scan."""
         try:
-            # Parse the file content
-            data = self._parse_file_content(content, file_path)
-            messages = self._parse_conversation_data(data, file_path)
-
-            imported = 0
-            skipped = 0
-            for msg in messages:
-                msg_id = msg.get('id') or msg.get('message_id') or msg.get('timestamp')
-                content_hash = hashlib.md5(msg.get('content', '').encode('utf-8')).hexdigest()
-                # Check for existing message in the database (by session_id/file_path, role, content hash, and id/timestamp if available)
-                query = (
-                    "SELECT 1 FROM messages WHERE "
-                    "session_id = ? AND role = ? AND content = ? AND (metadata LIKE ? OR ? = '') LIMIT 1"
-                )
-                meta_str = f'%"source_file": "{file_path}"%'
-                params = (file_path, msg.get('role', 'user'), msg.get('content', ''), meta_str, meta_str)
-                exists = await self.memory_system.conversation_db.execute_query(query, params)
-                if exists:
-                    skipped += 1
-                    continue
-                await self.memory_system.store_conversation(
-                    content=msg['content'],
-                    role=msg.get('role', 'user'),
-                    session_id=file_path,
-                    metadata={"source_file": file_path, "imported_at": datetime.now(timezone.utc).isoformat()}
-                )
-                imported += 1
-
-            logger.info(f"Imported {imported} new messages from {file_path} (skipped {skipped} duplicates)")
+            mcp_running = self._check_mcp_server() if hasattr(self, '_check_mcp_server') else False
+            file_lower = file_path.lower()
+            # VS Code chat session files
+            if 'chatsessions' in file_lower and file_path.endswith('.json'):
+                await self._import_vscode_chat_session(file_path, content, mcp_running)
+            # LM Studio conversation files
+            elif 'lmstudio' in file_lower or ('lm studio' in file_lower) or ('lm_studio' in file_lower):
+                await self._import_lmstudio_conversation(file_path, content)
+            # Ollama conversation files
+            elif 'ollama' in file_lower:
+                await self._import_ollama_conversation(file_path, content)
+            # Character.ai conversation files
+            elif 'character.ai' in file_lower or 'character-ai' in file_lower:
+                await self._import_characterai_conversation(file_path, content)
+            # Local.ai conversation files
+            elif 'local.ai' in file_lower or 'localai' in file_lower:
+                await self._import_localai_conversation(file_path, content)
+            # text-generation-webui conversation files
+            elif 'text-generation-webui' in file_lower or 'textgenwebui' in file_lower:
+                await self._import_textgenwebui_conversation(file_path, content)
+            # Other JSON conversation files
+            elif file_path.endswith('.json'):
+                await self._import_json_conversation(file_path, content, mcp_running)
+            elif file_path.endswith('.jsonl'):
+                await self._import_jsonl_conversation(file_path, content, mcp_running)
+            else:
+                await self._import_text_conversation(file_path, content)
         except Exception as e:
-            logger.error(f"Error importing conversation file {file_path}: {e}")
+            logger.error(f"Error importing conversation from {file_path}: {e}")
 
     # The following block had indentation and variable errors. Fixing only those, not refactoring.
     async def _import_text_conversation(self, file_path, lines, session_id=None, conversation_id=None, metadata=None):
@@ -1577,20 +1913,36 @@ class ConversationFileMonitor:
             for line in lines:
                 if line.startswith(("User:", "Human:", "You:")):
                     if current_message:
-                        result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                        if session_id is None:
-                            session_id = result["session_id"]
-                            conversation_id = result["conversation_id"]
-                        message_count += 1
+                        msg_content = '\n'.join(current_message).strip()
+                        duplicate = False
+                        existing = await self.conversations_db.execute_query(
+                            "SELECT content FROM messages WHERE content = ?", (msg_content,)
+                        )
+                        if existing:
+                            duplicate = True
+                        if not duplicate:
+                            result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
+                            if session_id is None:
+                                session_id = result["session_id"]
+                                conversation_id = result["conversation_id"]
+                            message_count += 1
                     current_message = [line[line.find(":")+1:].strip()]
                     current_role = "user"
                 elif line.startswith(("Assistant:", "AI:", "Bot:", "Friday:")):
                     if current_message:
-                        result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                        if session_id is None:
-                            session_id = result["session_id"]
-                            conversation_id = result["conversation_id"]
-                        message_count += 1
+                        msg_content = '\n'.join(current_message).strip()
+                        duplicate = False
+                        existing = await self.conversations_db.execute_query(
+                            "SELECT content FROM messages WHERE content = ?", (msg_content,)
+                        )
+                        if existing:
+                            duplicate = True
+                        if not duplicate:
+                            result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
+                            if session_id is None:
+                                session_id = result["session_id"]
+                                conversation_id = result["conversation_id"]
+                            message_count += 1
                     current_message = [line[line.find(":")+1:].strip()]
                     current_role = "assistant"
                 else:
@@ -1598,8 +1950,13 @@ class ConversationFileMonitor:
                     current_message.append(line)
             # Save the last message
             if current_message:
-                await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                message_count += 1
+                msg_content = '\n'.join(current_message).strip()
+                existing = await self.conversations_db.execute_query(
+                    "SELECT content FROM messages WHERE content = ?", (msg_content,)
+                )
+                if not existing:
+                    await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
+                    message_count += 1
             logger.info(f"Imported {message_count} messages from {file_path}")
         except Exception as e:
             logger.error(f"Error importing text conversation {file_path}: {e}")
