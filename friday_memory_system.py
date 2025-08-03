@@ -958,22 +958,22 @@ class ConversationFileMonitor:
             return 'Unknown'
             
     def _parse_conversation_data(self, data: Union[Dict, List], file_path: str) -> List[Dict]:
-        """Parse conversation data based on known formats"""
-        if isinstance(data, dict):
-            if 'mapping' in data:  # ChatGPT web/desktop format
-                return self._parse_chatgpt_format(data)
-            elif 'messages' in data:  # Claude/Anthropic format
-                return self._parse_claude_format(data)
-            elif 'conversation' in data:  # Character.ai format
-                return self._parse_character_ai_format(data)
-            elif 'history' in data:  # text-generation-webui format
-                return self._parse_text_gen_format(data)
-        elif isinstance(data, list):
-            # Determine format from file path and content structure
-            if any('role' in msg for msg in data if isinstance(msg, dict)):
-                return self._parse_simple_array(data)  # OpenAI-like format
-            elif any('character' in msg for msg in data if isinstance(msg, dict)):
-                return self._parse_character_ai_format({'conversation': data})
+        """Parse conversation data using a registry of format handlers for future-proofing."""
+        # Registry of format handlers: (predicate, handler)
+        format_handlers = [
+            (lambda d: isinstance(d, dict) and 'mapping' in d, self._parse_chatgpt_format),
+            (lambda d: isinstance(d, dict) and 'messages' in d, self._parse_claude_format),
+            (lambda d: isinstance(d, dict) and 'conversation' in d, self._parse_character_ai_format),
+            (lambda d: isinstance(d, dict) and 'history' in d, self._parse_text_gen_format),
+            (lambda d: isinstance(d, list) and any('role' in msg for msg in d if isinstance(msg, dict)), self._parse_simple_array),
+            (lambda d: isinstance(d, list) and any('character' in msg for msg in d if isinstance(msg, dict)), lambda d: self._parse_character_ai_format({'conversation': d})),
+        ]
+        for predicate, handler in format_handlers:
+            if predicate(data):
+                return handler(data)
+        # Fallback: treat as a list of dicts with 'content' and 'role', or empty
+        if isinstance(data, list):
+            return [msg for msg in data if isinstance(msg, dict) and 'content' in msg]
         return []
     
     def _parse_markdown_format(self, content: str) -> List[Dict]:
@@ -1206,7 +1206,7 @@ class ConversationFileMonitor:
         except Exception as e:
             logger.error(f"Error importing conversation from {file_path}: {e}")
     
-    async def _import_vscode_chat_session(self, file_path: str, content: str):
+    async def _import_vscode_chat_session(self, file_path: str, content: str, mcp_running: bool = False):
         """Import a VS Code chat session file (Copilot format) with duplicate prevention"""
         try:
             data = json.loads(content)
@@ -1298,68 +1298,67 @@ class ConversationFileMonitor:
         except Exception as e:
             logger.error(f"Error importing VS Code chat session {file_path}: {e}")
     
-    async def _import_json_conversation(self, file_path: str, content: str):
-        """Import a JSON conversation file (LM Studio format)"""
+    async def _import_json_conversation(self, file_path: str, content: str, mcp_running: bool = False):
+        """Import a JSON conversation file (future-proof, extensible format support)"""
         try:
             data = json.loads(content)
-            
-            # Extract metadata
             metadata = {
                 "source_file": file_path,
                 "import_timestamp": datetime.now(timezone.utc).isoformat(),
                 "file_type": "json_conversation",
+                "mcp_enabled": mcp_running,
                 "application": "lm_studio" if "lm" in file_path.lower() else "unknown"
             }
-            
-            # Handle different JSON conversation formats
-            messages = []
-            
-            if isinstance(data, dict):
-                # LM Studio format with metadata
-                if "messages" in data:
-                    messages = data["messages"]
-                elif "conversation" in data:
-                    messages = data["conversation"]
-                else:
-                    # Treat the whole object as a single message
-                    messages = [data]
-            elif isinstance(data, list):
-                messages = data
-            
-            # Let store_message auto-create session/conversation for the first message
+            # Use extensible parser
+            messages = self._parse_conversation_data(data, file_path)
             session_id = None
             conversation_id = None
-            
-            # Import each message
+            imported_count = 0
             for msg in messages:
-                if isinstance(msg, dict):
-                    role = msg.get("role", "unknown")
-                    content_data = msg.get("content", "")
-                    
-                    # Handle different content formats
-                    if isinstance(content_data, str):
-                        content = content_data
-                    elif isinstance(content_data, dict):
-                        content = json.dumps(content_data)
-                    else:
-                        content = str(content_data)
-                    
-                    if content.strip():  # Only import non-empty messages
-                        result = await self.conversations_db.store_message(
-                            content=content,
-                            role=role,
-                            session_id=session_id,
-                            conversation_id=conversation_id,
-                            metadata=metadata
-                        )
-                        
-                        # Use same session/conversation for subsequent messages
-                        if session_id is None:
-                            session_id = result["session_id"]
-                            conversation_id = result["conversation_id"]
-            
-            logger.info(f"Imported {len(messages)} messages from {file_path}")
-            
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                content_data = msg.get("content", msg.get("text", ""))
+                # Handle different content formats
+                if isinstance(content_data, str):
+                    msg_content = content_data
+                elif isinstance(content_data, dict):
+                    msg_content = json.dumps(content_data)
+                else:
+                    msg_content = str(content_data)
+                # Deduplication: use id, timestamp, and content hash
+                msg_id = msg.get("id") or msg.get("message_id")
+                timestamp = msg.get("timestamp")
+                if not timestamp:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+                # Check for duplicate by id or content hash
+                duplicate = False
+                if msg_id:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    existing = await self.conversations_db.execute_query(
+                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
+                    )
+                    if existing:
+                        duplicate = True
+                if not duplicate:
+                    result = await self.conversations_db.store_message(
+                        content=msg_content,
+                        role=role,
+                        session_id=session_id,
+                        conversation_id=conversation_id,
+                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
+                    )
+                    if session_id is None:
+                        session_id = result["session_id"]
+                        conversation_id = result["conversation_id"]
+                    imported_count += 1
+            logger.info(f"Imported {imported_count} messages from {file_path}")
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {file_path}: {e}")
         except Exception as e:
@@ -1530,38 +1529,41 @@ class EmbeddingService:
         self.embeddings_endpoint = f"{base_url}/v1/embeddings"
     
     async def generate_embedding(self, text: str, model: str = "text-embedding-nomic-embed-text-v1.5") -> List[float]:
-        """Generate embedding for text using LM Studio"""
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "model": model,
-                    "input": text
-                }
-                
-                headers = {
-                    "Content-Type": "application/json"
-                }
-                
-                async with session.post(self.embeddings_endpoint, json=payload, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if data and "data" in data and len(data["data"]) > 0:
-                            return data["data"][0].get("embedding")
+        """Generate embedding for text using LM Studio, with retry if model is not found (JIT loading race)."""
+        import asyncio
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    payload = {
+                        "model": model,
+                        "input": text
+                    }
+                    async with session.post(self.embeddings_endpoint, json=payload) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if data and "data" in data and len(data["data"]) > 0:
+                                return data["data"][0].get("embedding")
+                            else:
+                                logger.error(f"Invalid response format: {data}")
+                                return None
                         else:
-                            logger.error(f"Invalid response format: {data}")
+                            error_text = await response.text()
+                            logger.error(f"Embedding API error {response.status}: {error_text}")
+                            # Retry if model not found (JIT race)
+                            if (
+                                response.status == 404 and
+                                ("model does not exist" in error_text.lower() or "failed to load model" in error_text.lower())
+                                and attempt < max_retries - 1
+                            ):
+                                logger.info(f"Retrying embedding request in 3 seconds (attempt {attempt+2}/{max_retries})...")
+                                await asyncio.sleep(3)
+                                continue
                             return None
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Embedding API error {response.status}: {error_text}")
-                        return None
-                        error_text = await response.text()
-                        logger.error(f"Embedding API error {response.status}: {error_text}")
-                        return None
-        
-        except Exception as e:
-            logger.error(f"Error generating embedding: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"Error generating embedding: {e}")
+                return None
+        return None
     
     async def batch_generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
