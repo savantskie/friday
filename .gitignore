@@ -30,3 +30,19 @@ Thumbs.db
 *.secret
 *.key
 key.pem
+# Project directories to ignore
+ai/
+archive/
+config/
+core/
+data/
+docs/
+mobile/
+models/
+persistent-ai-memory/
+scripts/
+services/
+templates/
+tests/
+tools/
+
