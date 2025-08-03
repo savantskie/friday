@@ -975,6 +975,88 @@ class ConversationFileMonitor:
         if isinstance(data, list):
             return [msg for msg in data if isinstance(msg, dict) and 'content' in msg]
         return []
+
+    def _parse_chatgpt_format(self, data: Dict) -> List[Dict]:
+        """Parse ChatGPT export format with timestamps"""
+        conversations = []
+        try:
+            if 'mapping' in data:
+                for node_id, node in data['mapping'].items():
+                    if node.get('message') and node['message'].get('content'):
+                        content_parts = node['message']['content'].get('parts', [])
+                        if content_parts:
+                            timestamp = None
+                            if 'create_time' in node['message']:
+                                try:
+                                    timestamp = datetime.fromtimestamp(
+                                        int(node['message']['create_time']),
+                                        timezone.utc
+                                    ).isoformat()
+                                except (ValueError, TypeError):
+                                    pass
+                            conversations.append({
+                                'role': node['message'].get('author', {}).get('role', 'unknown'),
+                                'content': ' '.join(str(part) for part in content_parts if part),
+                                'timestamp': timestamp
+                            })
+        except Exception as e:
+            logger.error(f"Error parsing ChatGPT format: {e}")
+        return conversations
+
+    def _parse_simple_array(self, data: List) -> List[Dict]:
+        """Parse simple conversation array format with timestamps"""
+        conversations = []
+        for item in data:
+            if isinstance(item, dict) and 'content' in item:
+                timestamp = None
+                for key in ['timestamp', 'time', 'created_at', 'date']:
+                    if key in item:
+                        try:
+                            if isinstance(item[key], (int, float)):
+                                timestamp = datetime.fromtimestamp(item[key], timezone.utc).isoformat()
+                            else:
+                                timestamp = datetime.fromisoformat(str(item[key])).isoformat()
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                conversations.append({
+                    'role': item.get('role', 'user'),
+                    'content': str(item['content']),
+                    'timestamp': timestamp
+                })
+        return conversations
+
+    def _parse_character_ai_format(self, data: Dict) -> List[Dict]:
+        """Parse Character.ai conversation format (list of messages under 'conversation')"""
+        conversations = []
+        try:
+            messages = data.get('conversation', [])
+            for msg in messages:
+                if isinstance(msg, dict) and 'content' in msg:
+                    conversations.append({
+                        'role': msg.get('character', msg.get('role', 'unknown')),
+                        'content': msg['content'],
+                        'timestamp': msg.get('timestamp')
+                    })
+        except Exception as e:
+            logger.error(f"Error parsing Character.ai format: {e}")
+        return conversations
+
+    def _parse_text_gen_format(self, data: Dict) -> List[Dict]:
+        """Parse text-generation-webui format (list of messages under 'history')"""
+        conversations = []
+        try:
+            history = data.get('history', [])
+            for msg in history:
+                if isinstance(msg, dict) and 'content' in msg:
+                    conversations.append({
+                        'role': msg.get('role', 'unknown'),
+                        'content': msg['content'],
+                        'timestamp': msg.get('timestamp')
+                    })
+        except Exception as e:
+            logger.error(f"Error parsing text-generation-webui format: {e}")
+        return conversations
     
     def _parse_markdown_format(self, content: str) -> List[Dict]:
         """Parse markdown conversation formats commonly used by AI apps"""
