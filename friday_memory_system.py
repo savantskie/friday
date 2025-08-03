@@ -1533,38 +1533,40 @@ class ConversationFileMonitor:
         
         return conversations
     
-    async def _import_text_conversation(self, file_path: str, content: str):
-        """Import a plain text conversation file"""
+    async def _import_conversation_file(self, file_path: str, content: str):
+        """Import a conversation file (JSON, markdown, etc.), deduplicating using the memory database only."""
         try:
-            metadata = {
-                "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
-                "file_type": "text_conversation"
-            }
-            
-            # Try to parse common text conversation formats
-            lines = content.strip().split('\n')
-            current_message = []
-            current_role = "unknown"
-            message_count = 0
-            session_id = None
-            conversation_id = None
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
+            # Parse the file content
+            data = self._parse_file_content(content, file_path)
+            messages = self._parse_conversation_data(data, file_path)
+
+            imported = 0
+            skipped = 0
+            for msg in messages:
+                msg_id = msg.get('id') or msg.get('message_id') or msg.get('timestamp')
+                content_hash = hashlib.md5(msg.get('content', '').encode('utf-8')).hexdigest()
+                # Check for existing message in the database (by session_id/file_path, role, content hash, and id/timestamp if available)
+                query = (
+                    "SELECT 1 FROM messages WHERE "
+                    "session_id = ? AND role = ? AND content = ? AND (metadata LIKE ? OR ? = '') LIMIT 1"
+                )
+                meta_str = f'%"source_file": "{file_path}"%'
+                params = (file_path, msg.get('role', 'user'), msg.get('content', ''), meta_str, meta_str)
+                exists = await self.memory_system.conversation_db.execute_query(query, params)
+                if exists:
+                    skipped += 1
                     continue
-                
-                # Detect role changes (common patterns)
-                if line.startswith(('User:', 'Human:', 'You:')):
-                    if current_message:
-                        # Save previous message
-                        result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                        if session_id is None:
-                            session_id = result["session_id"]
-                            conversation_id = result["conversation_id"]
-                        message_count += 1
-                    current_message = [line[line.find(':')+1:].strip()]
+                await self.memory_system.store_conversation(
+                    content=msg['content'],
+                    role=msg.get('role', 'user'),
+                    session_id=file_path,
+                    metadata={"source_file": file_path, "imported_at": datetime.now(timezone.utc).isoformat()}
+                )
+                imported += 1
+
+            logger.info(f"Imported {imported} new messages from {file_path} (skipped {skipped} duplicates)")
+        except Exception as e:
+            logger.error(f"Error importing conversation file {file_path}: {e}")
                     current_role = "user"
                 elif line.startswith(('Assistant:', 'AI:', 'Bot:', 'Friday:')):
                     if current_message:
