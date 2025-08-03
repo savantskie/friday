@@ -1567,28 +1567,40 @@ class ConversationFileMonitor:
             logger.info(f"Imported {imported} new messages from {file_path} (skipped {skipped} duplicates)")
         except Exception as e:
             logger.error(f"Error importing conversation file {file_path}: {e}")
-                    current_role = "user"
-                elif line.startswith(('Assistant:', 'AI:', 'Bot:', 'Friday:')):
+
+    # The following block had indentation and variable errors. Fixing only those, not refactoring.
+    async def _import_text_conversation(self, file_path, lines, session_id=None, conversation_id=None, metadata=None):
+        current_role = "user"
+        current_message = []
+        message_count = 0
+        try:
+            for line in lines:
+                if line.startswith(("User:", "Human:", "You:")):
                     if current_message:
-                        # Save previous message
                         result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
                         if session_id is None:
                             session_id = result["session_id"]
                             conversation_id = result["conversation_id"]
                         message_count += 1
-                    current_message = [line[line.find(':')+1:].strip()]
+                    current_message = [line[line.find(":")+1:].strip()]
+                    current_role = "user"
+                elif line.startswith(("Assistant:", "AI:", "Bot:", "Friday:")):
+                    if current_message:
+                        result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
+                        if session_id is None:
+                            session_id = result["session_id"]
+                            conversation_id = result["conversation_id"]
+                        message_count += 1
+                    current_message = [line[line.find(":")+1:].strip()]
                     current_role = "assistant"
                 else:
                     # Continuation of current message
                     current_message.append(line)
-            
             # Save the last message
             if current_message:
                 await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
                 message_count += 1
-            
             logger.info(f"Imported {message_count} messages from {file_path}")
-            
         except Exception as e:
             logger.error(f"Error importing text conversation {file_path}: {e}")
     
