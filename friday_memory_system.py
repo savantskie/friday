@@ -798,6 +798,11 @@ class MCPToolCallDatabase(DatabaseManager):
 
 
 class ConversationFileMonitor:
+    def __init__(self, memory_system, watch_directories):
+        self.memory_system = memory_system
+        self.watch_directories = watch_directories
+        self.vscode_db = memory_system.vscode_db
+        
     async def _import_characterai_conversation(self, file_path: str, content: str):
         """Import a Character.ai conversation file with deduplication."""
         try:
