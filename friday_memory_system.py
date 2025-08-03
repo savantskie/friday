@@ -15,6 +15,9 @@ import aiohttp
 import numpy as np
 import hashlib
 import os
+import re
+import time
+import socket
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -735,14 +738,92 @@ class ConversationFileMonitor:
         self.processed_files = set()  # Track processed files to avoid duplicates
         self.file_hashes = {}  # Track file content hashes to detect changes
         self.processed_messages = {}  # Track processed messages per file: {file_path: set(message_hashes)}
+        self.conversation_contexts = {}  # Track ongoing conversations for tool detection
+        self.mcp_server_running = False  # Will be updated periodically
+        self.last_mcp_check = 0  # Timestamp of last MCP server check
+        
+        # Tool detection patterns
+        self.tool_patterns = {
+            # Memory search triggers
+            'search_request': re.compile(
+                r'(?:remember|recall|find|search|what did|tell me about|do you know about)'
+                r'.*?(?:conversation|memory|previous|earlier|before|history)',
+                re.IGNORECASE
+            ),
+            # Appointment/schedule triggers  
+            'schedule_request': re.compile(
+                r'(?:schedule|appointment|meeting|remind me|set reminder|calendar)',
+                re.IGNORECASE
+            ),
+            # Memory storage triggers
+            'memory_storage': re.compile(
+                r'(?:remember this|save this|store this|make a note|keep track)',
+                re.IGNORECASE
+            )
+        }
         
         # Default watch directories for various platforms
         self.default_directories = self._get_default_chat_directories()
     
+    def _check_mcp_server(self) -> bool:
+        """Check if the MCP server is running by attempting a connection"""
+        # Only check every 60 seconds to avoid overhead
+        current_time = time.time()
+        if current_time - self.last_mcp_check < 60:
+            return self.mcp_server_running
+            
+        try:
+            # Try to connect to MCP server port
+            with socket.create_connection(("localhost", 1234), timeout=1.0):
+                self.mcp_server_running = True
+        except (socket.timeout, ConnectionRefusedError):
+            self.mcp_server_running = False
+        
+        self.last_mcp_check = current_time
+        return self.mcp_server_running
+        
+    async def _is_message_in_mcp(self, msg_hash: str) -> bool:
+        """Check if a message was manually stored through MCP server.
+        
+        Args:
+            msg_hash: Hash of the message content to check
+            
+        Returns:
+            bool: True if message exists in MCP storage, False otherwise
+        """
+        try:
+            # Use the memory system's database to check for manual storage
+            async with self.memory_system.get_db() as db:
+                cursor = await db.execute(
+                    "SELECT 1 FROM conversations WHERE message_hash = ? AND storage_type = 'manual'",
+                    (msg_hash,)
+                )
+                result = await cursor.fetchone()
+                return bool(result)
+        except Exception as e:
+            logger.debug(f"Failed to check message in MCP: {e}")
+            return False  # If check fails, assume message doesn't exist
+    
     def _get_default_chat_directories(self) -> List[str]:
         """Get default chat storage directories for different platforms"""
         home = Path.home()
+        documents = home / "Documents"
+        downloads = home / "Downloads"
         directories = []
+        
+        # ChatGPT desktop app directories
+        chatgpt_paths = [
+            home / "AppData" / "Roaming" / "ChatGPT" / "chats",  # Windows
+            home / ".config" / "ChatGPT" / "chats",  # Linux
+            home / "Library" / "Application Support" / "ChatGPT" / "chats"  # macOS
+        ]
+        
+        # Claude desktop app directories
+        claude_paths = [
+            home / "AppData" / "Roaming" / "Anthropic" / "Claude" / "conversations",  # Windows
+            home / ".config" / "anthropic-claude" / "conversations",  # Linux
+            home / "Library" / "Application Support" / "Claude" / "conversations"  # macOS
+        ]
         
         # LM Studio conversation directories
         lm_studio_paths = [
@@ -752,6 +833,62 @@ class ConversationFileMonitor:
             home / "Library" / "Application Support" / "LM Studio" / "conversations"  # macOS (old location)
         ]
         
+        # Ollama chat directories
+        ollama_paths = [
+            home / ".ollama" / "chats",  # Windows/Linux/macOS (main location)
+            home / "AppData" / "Roaming" / "Ollama" / "chats",  # Windows (alternative)
+            home / ".config" / "ollama" / "chats",  # Linux (alternative)
+            home / "Library" / "Application Support" / "Ollama" / "chats"  # macOS (alternative)
+        ]
+        
+        # ChatGPT desktop app
+        chatgpt_paths = [
+            home / "AppData" / "Roaming" / "ChatGPT" / "chats",  # Windows
+            home / ".config" / "ChatGPT" / "chats",  # Linux
+            home / "Library" / "Application Support" / "ChatGPT" / "chats"  # macOS
+        ]
+        
+        # Claude desktop paths
+        claude_paths = [
+            home / "AppData" / "Roaming" / "Anthropic" / "Claude" / "conversations",  # Windows
+            home / ".config" / "anthropic-claude" / "conversations",  # Linux
+            home / "Library" / "Application Support" / "Claude" / "conversations"  # macOS
+        ]
+        
+        # Microsoft Copilot/Bing Chat
+        copilot_paths = [
+            home / "AppData" / "Roaming" / "Microsoft" / "Windows" / "INetCache" / "Copilot",  # Windows
+            home / ".config" / "microsoft-copilot" / "Cache",  # Linux
+            home / "Library" / "Caches" / "com.microsoft.copilot"  # macOS
+        ]
+        
+        # Character.ai desktop
+        character_ai_paths = [
+            home / "AppData" / "Roaming" / "Character.ai" / "conversations",  # Windows
+            home / ".config" / "character-ai" / "conversations",  # Linux
+            home / "Library" / "Application Support" / "Character.ai" / "conversations"  # macOS
+        ]
+        
+        # Local.ai paths
+        local_ai_paths = [
+            home / ".local.ai" / "conversations",  # Windows/Linux/macOS
+            home / "AppData" / "Roaming" / "local.ai" / "conversations",  # Windows alternative
+            home / ".config" / "local.ai" / "conversations"  # Linux alternative
+        ]
+        
+        # text-generation-webui paths
+        text_gen_paths = [
+            home / "text-generation-webui" / "logs",  # Default install location
+            documents / "text-generation-webui" / "logs",  # Common custom location
+            home / ".cache" / "text-generation-webui" / "logs"  # Alternative location
+        ]
+        
+        # OpenAI API Playground exports
+        openai_paths = [
+            downloads / "openai-playground-exports",  # Common export location
+            documents / "OpenAI" / "playground-exports"  # Alternative location
+        ]
+        
         # VS Code workspace storage directories
         vscode_base_paths = [
             home / "AppData" / "Roaming" / "Code" / "User" / "workspaceStorage",  # Windows
@@ -759,11 +896,23 @@ class ConversationFileMonitor:
             home / "Library" / "Application Support" / "Code" / "User" / "workspaceStorage"  # macOS
         ]
         
-        # Add LM Studio paths
-        for path in lm_studio_paths:
-            if path.exists():
-                directories.append(str(path))
-                logger.info(f"Found LM Studio conversations: {path}")
+        # Helper function to add paths with logging
+        def add_paths_if_exist(paths: List[Path], app_name: str):
+            for path in paths:
+                if path.exists():
+                    directories.append(str(path))
+                    logger.info(f"Found {app_name} conversations: {path}")
+        
+        # Add paths for each application
+        add_paths_if_exist(lm_studio_paths, "LM Studio")
+        add_paths_if_exist(ollama_paths, "Ollama")
+        add_paths_if_exist(chatgpt_paths, "ChatGPT")
+        add_paths_if_exist(claude_paths, "Claude")
+        add_paths_if_exist(copilot_paths, "Microsoft Copilot/Bing")
+        add_paths_if_exist(character_ai_paths, "Character.ai")
+        add_paths_if_exist(local_ai_paths, "Local.ai")
+        add_paths_if_exist(text_gen_paths, "text-generation-webui")
+        add_paths_if_exist(openai_paths, "OpenAI Playground")
         
         # Add VS Code workspace storage paths - find specific workspace hashes
         for vscode_base in vscode_base_paths:
@@ -780,6 +929,127 @@ class ConversationFileMonitor:
                     logger.error(f"Error scanning VS Code workspace storage: {e}")
         
         return directories
+    
+    def _detect_conversation_source(self, file_path: str) -> str:
+        """Detect the source application of a conversation file"""
+        file_lower = file_path.lower()
+        
+        if 'chatgpt' in file_lower:
+            return 'ChatGPT'
+        elif 'claude' in file_lower:
+            return 'Claude'
+        elif 'copilot' in file_lower or 'bing' in file_lower:
+            return 'Microsoft Copilot'
+        elif 'character.ai' in file_lower:
+            return 'Character.ai'
+        elif 'lmstudio' in file_lower:
+            return 'LM Studio'
+        elif 'ollama' in file_lower:
+            return 'Ollama'
+        elif 'local.ai' in file_lower:
+            return 'Local.ai'
+        elif 'text-generation-webui' in file_lower:
+            return 'Text Generation WebUI'
+        elif 'openai' in file_lower and 'playground' in file_lower:
+            return 'OpenAI Playground'
+        elif 'vscode' in file_lower or 'chatsessions' in file_lower:
+            return 'VS Code'
+        else:
+            return 'Unknown'
+            
+    def _parse_conversation_data(self, data: Union[Dict, List], file_path: str) -> List[Dict]:
+        """Parse conversation data based on known formats"""
+        if isinstance(data, dict):
+            if 'mapping' in data:  # ChatGPT web/desktop format
+                return self._parse_chatgpt_format(data)
+            elif 'messages' in data:  # Claude/Anthropic format
+                return self._parse_claude_format(data)
+            elif 'conversation' in data:  # Character.ai format
+                return self._parse_character_ai_format(data)
+            elif 'history' in data:  # text-generation-webui format
+                return self._parse_text_gen_format(data)
+        elif isinstance(data, list):
+            # Determine format from file path and content structure
+            if any('role' in msg for msg in data if isinstance(msg, dict)):
+                return self._parse_simple_array(data)  # OpenAI-like format
+            elif any('character' in msg for msg in data if isinstance(msg, dict)):
+                return self._parse_character_ai_format({'conversation': data})
+        return []
+    
+    def _parse_markdown_format(self, content: str) -> List[Dict]:
+        """Parse markdown conversation formats commonly used by AI apps"""
+        conversations = []
+        current_role = None
+        current_content = []
+        current_timestamp = None
+        
+        # Common markdown patterns
+        role_patterns = {
+            'user': [
+                r'^#+ *User:',
+                r'^#+ *Human:',
+                r'^\*\*User:\*\*',
+                r'^\*\*Human:\*\*',
+                r'^> *User:',
+                r'^> *Human:'
+            ],
+            'assistant': [
+                r'^#+ *Assistant:',
+                r'^#+ *AI:',
+                r'^\*\*Assistant:\*\*',
+                r'^\*\*AI:\*\*',
+                r'^> *Assistant:',
+                r'^> *AI:'
+            ]
+        }
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Try to extract timestamp from markdown metadata
+            if line.startswith('<!--') and 'timestamp:' in line:
+                try:
+                    ts = re.search(r'timestamp: *(.*?) *-->', line)
+                    if ts:
+                        current_timestamp = datetime.fromisoformat(ts.group(1))
+                    continue
+                except (ValueError, AttributeError):
+                    pass
+            
+            # Check for role changes
+            new_role = None
+            for role, patterns in role_patterns.items():
+                if any(re.match(pattern, line) for pattern in patterns):
+                    # Save previous message if exists
+                    if current_role and current_content:
+                        conversations.append({
+                            'role': current_role,
+                            'content': '\n'.join(current_content),
+                            'timestamp': current_timestamp.isoformat() if current_timestamp else None
+                        })
+                        current_content = []
+                    new_role = role
+                    # Remove the role marker from the line
+                    line = re.sub(r'^[#>*]+.*?:', '', line).strip()
+                    break
+            
+            if new_role:
+                current_role = new_role
+            
+            if current_role and line:
+                current_content.append(line)
+        
+        # Add the last message
+        if current_role and current_content:
+            conversations.append({
+                'role': current_role,
+                'content': '\n'.join(current_content),
+                'timestamp': current_timestamp.isoformat() if current_timestamp else None
+            })
+        
+        return conversations
     
     def add_watch_directory(self, directory: str):
         """Add a directory to monitor for conversation files"""
@@ -919,14 +1189,17 @@ class ConversationFileMonitor:
     async def _import_conversation_file(self, file_path: str, content: str):
         """Import a conversation file into the memory system"""
         try:
+            # If MCP server is running, only process messages older than server start
+            mcp_running = self._check_mcp_server()
+            
             # Check if this is a VS Code chat session file
             if 'chatsessions' in file_path.lower() and file_path.endswith('.json'):
-                await self._import_vscode_chat_session(file_path, content)
+                await self._import_vscode_chat_session(file_path, content, mcp_running)
             # Detect other file formats and parse accordingly
             elif file_path.endswith('.json'):
-                await self._import_json_conversation(file_path, content)
+                await self._import_json_conversation(file_path, content, mcp_running)
             elif file_path.endswith('.jsonl'):
-                await self._import_jsonl_conversation(file_path, content)
+                await self._import_jsonl_conversation(file_path, content, mcp_running)
             else:
                 await self._import_text_conversation(file_path, content)
                 
@@ -959,12 +1232,22 @@ class ConversationFileMonitor:
             skipped_duplicates = 0
             
             for request in requests:
+                # Skip if this exact message was manually stored through MCP
+                msg_hash = None
+                if "message" in request:
+                    msg_hash = hashlib.md5(
+                        f"user:{request['message'].get('text', '')}".encode()
+                    ).hexdigest()
+                    if await self._is_message_in_mcp(msg_hash):
+                        skipped_duplicates += 1
+                        continue
+                
                 # Import user message
                 if "message" in request:
                     user_content = request["message"].get("text", "")
                     if user_content.strip():
                         # Use consistent session ID for duplicate detection
-                        result = await self.memory_system.store_conversation_message(
+                        result = await self.memory_system.store_conversation(
                             content=user_content,
                             role="user",
                             session_id=file_session_id,
@@ -995,7 +1278,7 @@ class ConversationFileMonitor:
                             assistant_content = json.dumps(result_data)
                         
                         if assistant_content.strip():
-                            result = await self.memory_system.store_conversation_message(
+                            result = await self.memory_system.store_conversation(
                                 content=assistant_content,
                                 role="assistant",
                                 session_id=session_id,
@@ -1132,6 +1415,43 @@ class ConversationFileMonitor:
         except Exception as e:
             logger.error(f"Error importing JSONL conversation {file_path}: {e}")
     
+    def _parse_claude_format(self, data: Dict) -> List[Dict]:
+        """Parse Claude/Anthropic conversation format"""
+        conversations = []
+        
+        try:
+            # Handle both array and object formats
+            messages = data.get('messages', [])
+            if isinstance(messages, dict):
+                messages = messages.values()
+            
+            for msg in messages:
+                if isinstance(msg, dict) and 'content' in msg:
+                    # Try to extract timestamp
+                    timestamp = None
+                    if 'timestamp' in msg:
+                        try:
+                            timestamp = datetime.fromisoformat(msg['timestamp'])
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    conversations.append({
+                        'role': msg.get('role', 'unknown'),
+                        'content': msg['content'],
+                        'timestamp': timestamp.isoformat() if timestamp else None,
+                        'metadata': {
+                            'source': 'Claude',
+                            'model': data.get('model', 'claude'),
+                            'conversation_id': data.get('conversation_id'),
+                            'message_id': msg.get('id'),
+                            'parent_id': msg.get('parent')
+                        }
+                    })
+        except Exception as e:
+            logger.error(f"Error parsing Claude format: {e}")
+        
+        return conversations
+    
     async def _import_text_conversation(self, file_path: str, content: str):
         """Import a plain text conversation file"""
         try:
@@ -1215,8 +1535,8 @@ class EmbeddingService:
         try:
             async with aiohttp.ClientSession() as session:
                 payload = {
-                    "input": [text],  # LM Studio expects an array of strings
-                    "model": model
+                    "model": model,
+                    "input": text
                 }
                 
                 headers = {
@@ -1226,8 +1546,15 @@ class EmbeddingService:
                 async with session.post(self.embeddings_endpoint, json=payload, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data["data"][0]["embedding"]
+                        if data and "data" in data and len(data["data"]) > 0:
+                            return data["data"][0].get("embedding")
+                        else:
+                            logger.error(f"Invalid response format: {data}")
+                            return None
                     else:
+                        error_text = await response.text()
+                        logger.error(f"Embedding API error {response.status}: {error_text}")
+                        return None
                         error_text = await response.text()
                         logger.error(f"Embedding API error {response.status}: {error_text}")
                         return None
@@ -1265,16 +1592,25 @@ class FridayMemorySystem:
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
-        # Initialize file monitoring
+        # Initialize and start file monitoring
         self.file_monitor = None
         if enable_file_monitoring:
             self.file_monitor = ConversationFileMonitor(self, watch_directories)
+            # Create task to start monitoring (will run when event loop is available)
+            asyncio.create_task(self._start_monitoring())
+    
+    async def _start_monitoring(self):
+        """Internal method to start the file monitor"""
+        if self.file_monitor:
+            try:
+                await self.file_monitor.start_monitoring()
+                logger.info("File monitoring started")
+            except Exception as e:
+                logger.error(f"Error starting file monitoring: {e}")
     
     async def start_file_monitoring(self):
-        """Start monitoring conversation files"""
-        if self.file_monitor:
-            await self.file_monitor.start_monitoring()
-            logger.info("File monitoring started")
+        """Start monitoring conversation files (manual start if needed)"""
+        await self._start_monitoring()
     
     async def stop_file_monitoring(self):
         """Stop monitoring conversation files"""
@@ -2539,18 +2875,11 @@ async def main():
     
     print("=== Testing Friday Memory System with File Monitoring ===\n")
     
-    # Start file monitoring
-    print("1. Starting file monitoring...")
-    await memory.start_file_monitoring()
-    
-    # Add custom watch directories (you can specify LM Studio or VS Code directories)
-    # memory.add_watch_directory("C:/Users/YourName/AppData/Roaming/LM Studio/conversations")
-    # memory.add_watch_directory("C:/path/to/vscode/chat/files")
-    
-    print("   File monitoring is now active. Any conversation files that change will be imported automatically.")
+    # First test basic database operations
+    print("1. Testing basic storage operations...")
     
     # Test storing conversations manually
-    print("\n2. Storing conversations manually...")
+    print("\n2. Storing initial conversations...")
     conv1 = await memory.store_conversation(
         content="I prefer detailed technical explanations when discussing programming concepts",
         role="user"
@@ -2646,13 +2975,17 @@ async def main():
     print(f"\nProject continuity data: {len(continuity['continuity_data']['recent_sessions'])} sessions, "
           f"{len(continuity['continuity_data']['important_insights'])} important insights")
     
-    print("\n8. File monitoring status:")
-    print("   File monitoring is running in the background.")
-    print("   To test: Create or modify a conversation file in LM Studio or VS Code.")
-    print("   The system will automatically detect and import those conversations.")
+    print("\n8. Starting file monitoring...")
+    # Now that all other systems are initialized and tested, start file monitoring
+    await memory.start_file_monitoring()
+    
+    print("   File monitoring is now starting...")
+    print("   The system will automatically detect and import conversations from:")
+    print("   - VS Code chat sessions")
+    print("   - LM Studio conversations")
     
     print("\n=== Memory System Test Complete ===")
-    print("Note: File monitoring will continue running. Press Ctrl+C to stop.")
+    print("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")
     
     try:
         # Keep the program running to demonstrate file monitoring
