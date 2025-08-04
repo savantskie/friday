@@ -2330,10 +2330,88 @@ class FridayMemorySystem:
                 
                 self.file_monitor = ConversationFileMonitor(self, watch_directories)
                 # Create task to start monitoring (will run when event loop is available)
-                asyncio.create_task(self._start_monitoring())
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._start_monitoring())
+                except RuntimeError:
+                    # No running loop; user must start manually later
+                    logging.warning("Event loop not running. Call `await start_file_monitoring()` manually.")
             except Exception as e:
                 logger.error(f"Error initializing file monitor: {e}")
                 raise
+                
+    def ensure_all_memory_databases_ready(self):
+        """
+        Ensure all expected memory database files exist with required tables.
+        Safe to run repeatedly. Creates empty tables if missing.
+        """
+        logger.info("Ensuring memory databases are initialized...")
+
+        for db_path, schema in [
+            ("memory_data/conversations.db", """
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    sender TEXT,
+                    content TEXT,
+                    timestamp TEXT
+                );
+            """),
+            ("memory_data/ai_memories.db", """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT,
+                    timestamp TEXT,
+                    importance TEXT
+                );
+            """),
+            ("memory_data/schedule.db", """
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT,
+                    datetime TEXT,
+                    is_active INTEGER
+                );
+                CREATE TABLE IF NOT EXISTS appointments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    datetime TEXT,
+                    notes TEXT
+                );
+            """),
+            ("memory_data/vscode_project.db", """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    file_path TEXT,
+                    timestamp TEXT
+                );
+                CREATE TABLE IF NOT EXISTS insights (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT,
+                    type TEXT,
+                    detail TEXT
+                );
+            """),
+            ("memory_data/mcp_tool_calls.db", """
+                CREATE TABLE IF NOT EXISTS tool_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tool_name TEXT,
+                    timestamp TEXT,
+                    success INTEGER
+                );
+            """),
+        ]:
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.executescript(schema)
+                conn.commit()
+                conn.close()
+                logger.info(f"✔️  Verified: {db_path}")
+            except Exception as e:
+                logger.error(f"❌ Failed to verify {db_path}: {e}")
+
     
     async def _start_monitoring(self):
         """Internal method to start the file monitor"""
@@ -2343,7 +2421,8 @@ class FridayMemorySystem:
                 logger.info("File monitoring started")
             except Exception as e:
                 logger.error(f"Error starting file monitoring: {e}")
-    
+        self.ensure_all_memory_databeses_ready()
+        
     async def start_file_monitoring(self):
         """Start monitoring conversation files (manual start if needed)"""
         await self._start_monitoring()

@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
-
+import time
 # MCP imports
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -391,7 +391,18 @@ class FridayMemoryMCPServer:
     
     def _start_automatic_maintenance(self):
         """Start automatic database maintenance background task"""
-        self._maintenance_task = asyncio.create_task(self._maintenance_loop())
+        try:
+            loop = asyncio.get_running_loop()
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            self._maintenance_task = loop.create_task(self._maintenance_loop())
+
+        except RuntimeError:
+            logger.warning("Event loop not running. Call `_start_automatic_maintenance()` after loop starts.")
         logger.info("🔧 Automatic database maintenance started")
     
     async def _maintenance_loop(self):
