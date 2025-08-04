@@ -339,11 +339,26 @@ class FridayMemoryMCPServer:
                 result=result
             ))
             
-            # Create the text content
-            result_text = json.dumps(result, indent=2, default=str)
-            text_content = TextContent(type="text", text=result_text)
+            # Format the result as a proper TextContent object
+            if isinstance(result, (dict, list)):
+                result_text = json.dumps(result, indent=2, default=str)
+            else:
+                result_text = str(result)
             
-            return CallToolResult(content=[text_content])
+            text_content = TextContent(
+                type="text",
+                text=result_text,
+                highlights=None,
+                meta=None
+            )
+            
+            return CallToolResult(
+                content=[text_content],
+                success=True,
+                structuredContent=None,
+                isError=False,
+                meta=None
+            )
             
         except Exception as e:
             # Calculate execution time and log failed call
@@ -362,7 +377,16 @@ class FridayMemoryMCPServer:
             
             logger.error(f"Error executing tool {tool_name}: {e}")
             return CallToolResult(
-                content=[TextContent(type="text", text=f"Error: {str(e)}")]
+                content=[TextContent(
+                    type="text",
+                    text=f"Error: {str(e)}",
+                    highlights=None,
+                    meta=None
+                )],
+                success=False,
+                structuredContent=None,
+                isError=True,
+                meta=None
             )
     
     def _start_automatic_maintenance(self):
