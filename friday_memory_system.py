@@ -802,6 +802,8 @@ class ConversationFileMonitor:
         self.memory_system = memory_system
         self.watch_directories = watch_directories
         self.vscode_db = memory_system.vscode_db
+        self.conversations_db = memory_system.conversations_db  # Add this to maintain compatibility
+        self.curated_db = memory_system.curated_db  # Add this to maintain compatibility
         
     async def _import_characterai_conversation(self, file_path: str, content: str):
         """Import a Character.ai conversation file with deduplication."""
