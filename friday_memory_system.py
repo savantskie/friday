@@ -880,7 +880,7 @@ class ConversationFileMonitor:
                         "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
                     )
                     if existing:
-                        duplicate = True
+                        duplicate = True 
                 if not duplicate:
                     existing = await self.conversations_db.execute_query(
                         "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
