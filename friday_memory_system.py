@@ -49,7 +49,46 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
         return conn
-    
+
+    def parse_timestamp(timestamp: Union[str, int, float, None], fallback: Optional[datetime] = None) -> str:
+        """
+        Parse a timestamp into a consistent ISO 8601 UTC string.
+
+        Args:
+            timestamp (Union[str, int, float, None]): The input timestamp to parse.
+                - ISO 8601 string (e.g., "2025-08-04T18:30:29Z")
+                - Unix timestamp in seconds or milliseconds (e.g., 1628100000 or 1628100000000)
+            fallback (Optional[datetime]): A fallback datetime if parsing fails.
+
+        Returns:
+            str: The parsed timestamp as an ISO 8601 string in UTC.
+        """
+        if timestamp is None:
+            # Use fallback or current UTC time if no timestamp is provided
+            fallback_time = fallback or datetime.now(timezone.utc)
+            return fallback_time.isoformat()
+
+        try:
+            # Handle ISO 8601 strings
+            if isinstance(timestamp, str):
+                # Adjust for common quirks (e.g., "Z" for UTC)
+                if "Z" in timestamp:
+                    timestamp = timestamp.replace("Z", "+00:00")
+                return datetime.fromisoformat(timestamp).astimezone(timezone.utc).isoformat()
+
+            # Handle Unix timestamps
+            if isinstance(timestamp, (int, float)):
+                # Automatically handle milliseconds vs. seconds
+                if timestamp > 10**10:  # Likely milliseconds
+                    timestamp /= 1000
+                return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+
+        except Exception as e:
+            # Log the error and use fallback
+            logger.warning(f"Failed to parse timestamp '{timestamp}': {e}")
+            fallback_time = fallback or datetime.now(timezone.utc)
+            return fallback_time.isoformat()
+
     async def execute_query(self, query: str, params: Tuple = ()) -> List[sqlite3.Row]:
         """Execute a SELECT query and return results"""
         with self.get_connection() as conn:
@@ -833,9 +872,7 @@ class ConversationFileMonitor:
                 else:
                     msg_content = str(content_data)
                 msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = msg.get("timestamp")
-                if not timestamp:
-                    timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = parse_timestamp(msg.get("timestamp"))
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 duplicate = False
                 if msg_id:
@@ -892,9 +929,7 @@ class ConversationFileMonitor:
                 else:
                     msg_content = str(content_data)
                 msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = msg.get("timestamp")
-                if not timestamp:
-                    timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = parse_timestamp(msg.get("timestamp"))
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 duplicate = False
                 if msg_id:
@@ -991,9 +1026,7 @@ class ConversationFileMonitor:
                 else:
                     msg_content = str(content_data)
                 msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = msg.get("timestamp")
-                if not timestamp:
-                    timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = parse_timestamp(msg.get("timestamp"))
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 duplicate = False
                 if msg_id:
@@ -1050,9 +1083,7 @@ class ConversationFileMonitor:
                 else:
                     msg_content = str(content_data)
                 msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = msg.get("timestamp")
-                if not timestamp:
-                    timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = parse_timestamp(msg.get("timestamp"))
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 duplicate = False
                 if msg_id:
@@ -2001,9 +2032,7 @@ class ConversationFileMonitor:
                     msg_content = str(content_data)
                 # Deduplication: use id, timestamp, and content hash
                 msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = msg.get("timestamp")
-                if not timestamp:
-                    timestamp = datetime.now(timezone.utc).isoformat()
+                timestamp = parse_timestamp(msg.get("timestamp"))
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 # Check for duplicate by id or content hash
                 duplicate = False
@@ -2061,9 +2090,7 @@ class ConversationFileMonitor:
                             msg_content = json.dumps(content_data)
                         # Deduplication: use id, timestamp, and content hash
                         msg_id = msg.get("id") or msg.get("message_id")
-                        timestamp = msg.get("timestamp")
-                        if not timestamp:
-                            timestamp = datetime.now(timezone.utc).isoformat()
+                        timestamp = parse_timestamp(msg.get("timestamp"))
                         content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                         duplicate = False
                         if msg_id:
