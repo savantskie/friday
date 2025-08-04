@@ -25,9 +25,11 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import hashlib
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with minimal output
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+# Only show important messages and errors
+logger.setLevel(logging.WARNING)
 
 
 class DatabaseManager:
@@ -1092,6 +1094,8 @@ class ConversationFileMonitor:
         self.conversation_contexts = {}  # Track ongoing conversations for tool detection
         self.mcp_server_running = False  # Will be updated periodically
         self.last_mcp_check = 0  # Timestamp of last MCP server check
+        self.last_processed_times = {}  # Track when files were last processed
+        self.min_process_interval = 5.0  # Minimum seconds between processing the same file to reduce CPU usage
         
         # Tool detection patterns
         self.tool_patterns = {
@@ -1134,23 +1138,22 @@ class ConversationFileMonitor:
         return self.mcp_server_running
         
     async def _is_message_in_mcp(self, msg_hash: str) -> bool:
-        """Check if a message was manually stored through MCP server.
-        
-        Args:
-            msg_hash: Hash of the message content to check
-            
-        Returns:
-            bool: True if message exists in MCP storage, False otherwise
-        """
         try:
-            # Use the memory system's database to check for manual storage
-            async with self.memory_system.get_db() as db:
-                cursor = await db.execute(
-                    "SELECT 1 FROM conversations WHERE message_hash = ? AND storage_type = 'manual'",
-                    (msg_hash,)
-                )
-                result = await cursor.fetchone()
-                return bool(result)
+            # Check in both conversations and messages tables using the conversations_db
+            # First check messages table
+            result = await self.conversations_db.execute_query(
+                "SELECT COUNT(*) FROM messages WHERE message_hash = ?",
+                (msg_hash,)
+            )
+            if result and result[0][0] > 0:
+                return True
+                
+            # Then check conversations table
+            result = await self.conversations_db.execute_query(
+                "SELECT COUNT(*) FROM conversations WHERE message_hash = ?",
+                (msg_hash,)
+            )
+            return result and result[0][0] > 0
         except Exception as e:
             logger.debug(f"Failed to check message in MCP: {e}")
             return False  # If check fails, assume message doesn't exist
@@ -1507,9 +1510,11 @@ class ConversationFileMonitor:
                 def on_modified(self, event):
                     if not event.is_directory:
                         try:
+                            logger.info(f"Detected file modification: {event.src_path}")
                             # Get the event loop from the main thread
                             loop = self.monitor.loop
                             if loop and loop.is_running():
+                                logger.debug("Processing file change in event loop")
                                 asyncio.run_coroutine_threadsafe(
                                     self.monitor._process_file_change(event.src_path), 
                                     loop
@@ -1599,8 +1604,18 @@ class ConversationFileMonitor:
     async def _process_file_change(self, file_path: str):
         """Process a changed conversation file"""
         try:
+            # Skip if not a conversation file or doesn't exist
             if not self._is_conversation_file(file_path) or not os.path.exists(file_path):
                 return
+                
+            # Check if we've processed this file recently
+            current_time = time.time()
+            last_processed = self.last_processed_times.get(file_path, 0)
+            if current_time - last_processed < self.min_process_interval:
+                return
+            
+            # Update last processed time before we start processing
+            self.last_processed_times[file_path] = current_time
             
             # Calculate file hash and read content with better error handling
             try:
@@ -1667,14 +1682,33 @@ class ConversationFileMonitor:
             
             try:
                 data = json.loads(content)
+                logger.debug(f"Successfully parsed JSON data: {json.dumps(data, indent=2)[:500]}...")
             except json.JSONDecodeError as e:
                 # Log the problematic content for debugging
                 logger.error(f"Invalid JSON in VS Code chat session {file_path}. Content preview: {content[:100]}...")
                 logger.debug(f"Full content that caused JSON error: {content}")
                 raise
+            except Exception as e:
+                logger.error(f"Unexpected error parsing VS Code chat session: {str(e)}")
+                logger.debug(f"Content that caused error: {content[:500]}...")
+                raise
             
             # Create a consistent session ID based on the file path and initial metadata
             file_session_id = hashlib.md5(f"vscode:{file_path}".encode()).hexdigest()
+            
+            # Initialize conversation tracking variables
+            conversation_id = None
+            session_id = None
+            
+            # Instead of checking whole session, we'll check individual messages as we process them
+            last_import_result = await self.memory_system.vscode_db.execute_query(
+                """SELECT conversation_content FROM development_conversations 
+                   WHERE chat_context_id = ? ORDER BY timestamp DESC LIMIT 1""",
+                (file_session_id,)
+            )
+            last_imported_content = last_import_result[0][0] if last_import_result else ""
+            
+            # We'll compare timestamps and content as we process messages to find new ones
             
             # Create a development session for this VS Code chat
             dev_session_id = await self.memory_system.vscode_db.save_development_session(
@@ -1699,8 +1733,40 @@ class ConversationFileMonitor:
             
             # Process each request-response pair
             requests = data.get("requests", [])
+            logger.debug(f"Found {len(requests)} requests in chat session")
+            logger.debug(f"Sample request structure: {json.dumps(requests[0] if requests else {}, indent=2)}")
+            
+            # Log raw structure of each request for debugging
+            for idx, req in enumerate(requests):
+                logger.debug(f"\nRequest {idx} structure:")
+                logger.debug(f"Keys present: {list(req.keys())}")
+                if "message" in req:
+                    logger.debug(f"Message present with keys: {list(req['message'].keys())}")
+                if "response" in req:
+                    logger.debug(f"Response present with type: {type(req['response'])}")
+                    if isinstance(req['response'], dict):
+                        logger.debug(f"Response keys: {list(req['response'].keys())}")
+            
             new_message_count = 0
             skipped_duplicates = 0
+            
+            # Get the most recent message timestamp we've processed
+            try:
+                last_processed = await self.memory_system.vscode_db.execute_query(
+                    """SELECT MAX(timestamp) FROM development_conversations 
+                       WHERE chat_context_id = ?""",
+                    (file_session_id,)
+                )
+                last_timestamp = (last_processed[0][0] if last_processed and last_processed[0][0] 
+                                else datetime.min.replace(tzinfo=timezone.utc).isoformat())
+                logger.debug(f"Last processed timestamp for session {file_session_id}: {last_timestamp}")
+            except Exception as e:
+                logger.warning(f"Error getting last processed timestamp: {e}, using minimum date")
+                last_timestamp = datetime.min.replace(tzinfo=timezone.utc).isoformat()
+            
+            # Initialize tracking variables
+            current_session_id = file_session_id
+            current_conversation_id = None
             
             for request in requests:
                 # Skip if this exact message was manually stored through MCP
@@ -1716,55 +1782,180 @@ class ConversationFileMonitor:
                 # Import user message
                 if "message" in request:
                     user_content = request["message"].get("text", "")
-                    if user_content.strip():
-                        # Use consistent session ID for duplicate detection
-                        result = await self.memory_system.store_conversation(
-                            content=user_content,
-                            role="user",
-                            session_id=file_session_id,
-                            metadata={**metadata, "request_id": request.get("requestId")}
-                        )
+                    # Ensure we have a valid ISO format timestamp
+                try:
+                    msg_timestamp = request.get("timestamp")
+                    if not msg_timestamp:
+                        logger.debug("No timestamp found, using current time")
+                        msg_timestamp = datetime.now(timezone.utc).isoformat()
+                    elif isinstance(msg_timestamp, (int, float)):
+                        logger.debug(f"Converting numeric timestamp: {msg_timestamp}")
+                        try:
+                            msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
+                        except (ValueError, OSError):
+                            try:
+                                msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
+                            except (ValueError, OSError):
+                                logger.warning(f"Could not convert numeric timestamp: {msg_timestamp}")
+                                msg_timestamp = datetime.now(timezone.utc).isoformat()
+                    elif isinstance(msg_timestamp, str):
+                        logger.debug(f"Processing string timestamp: {msg_timestamp}")
+                        try:
+                            # Try parsing different formats
+                            if msg_timestamp.endswith('Z'):
+                                msg_timestamp = msg_timestamp.replace('Z', '+00:00')
+                            if 'T' not in msg_timestamp and ' ' in msg_timestamp:
+                                msg_timestamp = msg_timestamp.replace(' ', 'T')
+                            parsed = datetime.fromisoformat(msg_timestamp)
+                            msg_timestamp = parsed.astimezone(timezone.utc).isoformat()
+                        except ValueError as e:
+                            logger.warning(f"Invalid timestamp string format: {msg_timestamp}, error: {e}")
+                            msg_timestamp = datetime.now(timezone.utc).isoformat()
+                    else:
+                        logger.warning(f"Unexpected timestamp type: {type(msg_timestamp)}")
+                        msg_timestamp = datetime.now(timezone.utc).isoformat()
+                except Exception as e:
+                    logger.warning(f"Error processing timestamp: {e}, using current time")
+                    msg_timestamp = datetime.now(timezone.utc).isoformat()
+                    
+                logger.debug(f"Processing message with timestamp: {msg_timestamp}, last processed: {last_timestamp}")
+                    
+                # Check for debug logging control commands
+                if "disable debug logs" in user_content.lower() or "stop debug logging" in user_content.lower():
+                    logger.info("===================================")
+                    logger.info("Debug logging disabled by user request")
+                    logger.info("Only important messages will be shown")
+                    logger.info("Restart the system to re-enable debug logging")
+                    logger.info("===================================")
+                    logger.setLevel(logging.INFO)
                         
-                        if result.get("duplicate"):
-                            skipped_duplicates += 1
-                        else:
-                            new_message_count += 1
-                            full_conversation.append(f"User: {user_content}")
-                        
-                        # Use the consistent session for the assistant response
-                        session_id = result["session_id"]
-                        conversation_id = result.get("conversation_id")
+                # Only process if this is a new message (after our last processed timestamp)
+                if user_content.strip() and str(msg_timestamp) > str(last_timestamp):
+                    logger.debug(f"Found new message to process")
+                    # Use current tracking IDs
+                    logger.debug(f"Storing new user message, timestamp: {msg_timestamp}")
+                    result = await self.memory_system.store_conversation(
+                        content=user_content,
+                        role="user",
+                        session_id=current_session_id,
+                        conversation_id=current_conversation_id,
+                        metadata={**metadata, "request_id": request.get("requestId"), "timestamp": msg_timestamp}
+                    )
+                    logger.info(f"Stored new user message: first 100 chars: {user_content[:100]}...")
+                    
+                    if result.get("duplicate"):
+                        skipped_duplicates += 1
+                    else:
+                        new_message_count += 1
+                        full_conversation.append(f"User: {user_content}")
+                        # Update tracking IDs from result
+                        if result.get("session_id"):
+                            current_session_id = result["session_id"]
+                        if result.get("conversation_id"):
+                            current_conversation_id = result["conversation_id"]
+                    full_conversation.append(f"User: {user_content}")
+                    logger.debug(f"Stored user message with session_id: {current_session_id}, conversation_id: {current_conversation_id}")
                 
                 # Import assistant response if present
-                if "response" in request and "message" in request:
+                if "response" in request:
                     response_data = request["response"]
+                    assistant_content = None
+                    logger.debug("Found assistant response to process")
+                    logger.debug(f"Processing response type: {type(response_data).__name__}")
+                    logger.debug(f"Session: {current_session_id[:8]}..., Conv: {conversation_id[:8] if conversation_id else 'None'}")
                     
                     # VS Code responses can have multiple parts
-                    if "result" in response_data:
-                        result_data = response_data["result"]
-                        if isinstance(result_data, dict) and "markdown" in result_data:
-                            assistant_content = result_data["markdown"]
-                        elif isinstance(result_data, str):
-                            assistant_content = result_data
+                    if isinstance(response_data, str):
+                        logger.debug("Response is string type")
+                        assistant_content = response_data
+                    elif isinstance(response_data, dict):
+                        logger.debug(f"Response is dict type with keys: {list(response_data.keys())}")
+                        if "result" in response_data:
+                            result_data = response_data["result"]
+                            logger.debug(f"Found result data of type {type(result_data)}")
+                            if isinstance(result_data, dict):
+                                logger.debug(f"Result data keys: {list(result_data.keys())}")
+                                if "markdown" in result_data:
+                                    assistant_content = result_data["markdown"]
+                                    logger.debug("Using markdown content from result")
+                                elif "value" in result_data:
+                                    assistant_content = result_data["value"]
+                                    logger.debug("Using value content from result")
+                            elif isinstance(result_data, str):
+                                assistant_content = result_data
+                                logger.debug("Using string result data directly")
+                            else:
+                                assistant_content = json.dumps(result_data)
+                                logger.debug("Converted result data to JSON string")
+                        elif "value" in response_data:
+                            assistant_content = response_data["value"]
+                            logger.debug("Using value from response_data directly")
+                        elif "markdown" in response_data:
+                            assistant_content = response_data["markdown"]
+                            logger.debug("Using markdown from response_data directly")
                         else:
-                            assistant_content = json.dumps(result_data)
+                            assistant_content = json.dumps(response_data)
+                            logger.debug("No recognized format found, using full response as JSON")
+                    
+                    if assistant_content:
+                        logger.debug(f"Found assistant content (first 100 chars): {assistant_content[:100]}...")
+                        # Ensure we have a valid ISO format timestamp
+                        msg_timestamp = request.get("timestamp")
+                        if not msg_timestamp:
+                            logger.debug("No timestamp found, using current time")
+                            msg_timestamp = datetime.now(timezone.utc).isoformat()
+                            
+                        # Only process if this is a new message
+                        if str(msg_timestamp) > str(last_timestamp):
+                            result = await self.memory_system.store_conversation(
+                                content=assistant_content,
+                                role="assistant", 
+                                session_id=current_session_id,
+                                conversation_id=current_conversation_id,
+                                metadata=metadata
+                            )
+                            new_message_count += 1
+                            full_conversation.append(f"Assistant: {assistant_content}")
+                            logger.debug(f"Stored assistant message for session {session_id}")
+                            msg_timestamp = datetime.now(timezone.utc).isoformat()
+                        elif isinstance(msg_timestamp, (int, float)):
+                            # Convert Unix timestamp to ISO format
+                            try:
+                                logger.debug(f"Converting numeric timestamp: {msg_timestamp}")
+                                msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
+                            except (ValueError, OSError):
+                                try:
+                                    msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
+                                except (ValueError, OSError):
+                                    logger.debug(f"Failed to convert timestamp {msg_timestamp}, using current time")
+                                    msg_timestamp = datetime.now(timezone.utc).isoformat()
                         
-                        if assistant_content.strip():
+                        logger.debug(f"Using timestamp: {msg_timestamp}, last processed: {last_timestamp}")
+                        if assistant_content.strip() and str(msg_timestamp) >= str(last_timestamp):
+                            logger.debug("Storing new assistant message")
+                            # Use current_session_id and current_conversation_id 
                             result = await self.memory_system.store_conversation(
                                 content=assistant_content,
                                 role="assistant",
-                                session_id=session_id,
-                                conversation_id=conversation_id,
-                                metadata={**metadata, "request_id": request.get("requestId")}
+                                session_id=current_session_id,
+                                conversation_id=current_conversation_id,
+                                metadata={**metadata, "request_id": request.get("requestId"), "timestamp": msg_timestamp}
                             )
+                            logger.debug(f"Store result: {result}")
                             
                             if result.get("duplicate"):
                                 skipped_duplicates += 1
                             else:
                                 new_message_count += 1
                                 full_conversation.append(f"Assistant: {assistant_content}")
+                                # Update tracking IDs from result
+                                if result.get("session_id"):
+                                    current_session_id = result["session_id"]
+                                if result.get("conversation_id"):
+                                    current_conversation_id = result["conversation_id"]
             
-            if full_conversation:
+            # Only store development conversation if we have new messages
+            if new_message_count > 0:
                 # Store the complete development conversation
                 await self.memory_system.vscode_db.store_development_conversation(
                     content="\n\n".join(full_conversation),
@@ -2051,11 +2242,16 @@ class EmbeddingService:
     def __init__(self, base_url: str = "http://192.168.1.50:1234"):
         self.base_url = base_url
         self.embeddings_endpoint = f"{base_url}/v1/embeddings"
+        self.initialized = False  # Track if we've successfully generated an embedding
     
     async def generate_embedding(self, text: str, model: str = "text-embedding-nomic-embed-text-v1.5") -> List[float]:
         """Generate embedding for text using LM Studio, with retry if model is not found (JIT loading race)."""
         import asyncio
         max_retries = 3
+        
+        # If we haven't successfully generated an embedding yet, use more retries
+        if not self.initialized:
+            max_retries = 5  # More retries during initial setup
         for attempt in range(max_retries):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -2067,21 +2263,26 @@ class EmbeddingService:
                         if response.status == 200:
                             data = await response.json()
                             if data and "data" in data and len(data["data"]) > 0:
-                                return data["data"][0].get("embedding")
-                            else:
-                                logger.error(f"Invalid response format: {data}")
-                                return None
+                                embedding = data["data"][0].get("embedding")
+                                if embedding:
+                                    self.initialized = True  # Mark as successfully initialized
+                                    return embedding
+                            logger.error(f"Invalid response format: {data}")
+                            return None
                         else:
                             error_text = await response.text()
                             logger.error(f"Embedding API error {response.status}: {error_text}")
                             # Retry if model not found (JIT race)
                             if (
-                                response.status == 404 and
-                                ("model does not exist" in error_text.lower() or "failed to load model" in error_text.lower())
+                                (response.status == 404 or response.status == 400) and
+                                ("model does not exist" in error_text.lower() or 
+                                 "failed to load model" in error_text.lower() or
+                                 "cannot read properties of null" in error_text.lower())
                                 and attempt < max_retries - 1
                             ):
-                                logger.info(f"Retrying embedding request in 3 seconds (attempt {attempt+2}/{max_retries})...")
-                                await asyncio.sleep(3)
+                                delay = (attempt + 1) * 5  # Increase delay with each retry: 5s, 10s, 15s
+                                logger.info(f"Retrying embedding request in {delay} seconds (attempt {attempt+2}/{max_retries})...")
+                                await asyncio.sleep(delay)
                                 continue
                             return None
             except Exception as e:
