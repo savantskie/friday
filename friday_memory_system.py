@@ -1648,7 +1648,7 @@ class ConversationFileMonitor:
             file_session_id = hashlib.md5(f"vscode:{file_path}".encode()).hexdigest()
             
             # Create a development session for this VS Code chat
-            dev_session_id = await self.vscode_db.save_development_session(
+            dev_session_id = await self.memory_system.vscode_db.save_development_session(
                 workspace_path=os.path.dirname(file_path),
                 session_summary=f"Imported VS Code chat session from {os.path.basename(file_path)}"
             )
