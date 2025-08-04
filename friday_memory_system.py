@@ -801,9 +801,9 @@ class ConversationFileMonitor:
     def __init__(self, memory_system, watch_directories):
         self.memory_system = memory_system
         self.watch_directories = watch_directories
-        self.vscode_db = memory_system.vscode_db
-        self.conversations_db = memory_system.conversations_db  # Add this to maintain compatibility
-        self.curated_db = memory_system.curated_db  # Add this to maintain compatibility
+        # Access all databases through memory_system for consistency
+        self.conversations_db = memory_system.conversations_db
+        self.curated_db = memory_system.curated_db
         
     async def _import_characterai_conversation(self, file_path: str, content: str):
         """Import a Character.ai conversation file with deduplication."""
@@ -1602,19 +1602,37 @@ class ConversationFileMonitor:
             if not self._is_conversation_file(file_path) or not os.path.exists(file_path):
                 return
             
-            # Calculate file hash to detect actual content changes
-            with open(file_path, 'rb') as f:
-                file_content = f.read()
-                file_hash = hashlib.md5(file_content).hexdigest()
-            
-            # Skip if we've already processed this exact content
-            if file_path in self.file_hashes and self.file_hashes[file_path] == file_hash:
-                return
-            
-            self.file_hashes[file_path] = file_hash
-            
-            # Parse and import the conversation
-            await self._import_conversation_file(file_path, file_content.decode('utf-8'))
+            # Calculate file hash and read content with better error handling
+            try:
+                with open(file_path, 'rb') as f:
+                    file_content = f.read()
+                    if not file_content:
+                        logger.warning(f"Empty file detected: {file_path}")
+                        return
+                    file_hash = hashlib.md5(file_content).hexdigest()
+                
+                # Skip if we've already processed this exact content
+                if file_path in self.file_hashes and self.file_hashes[file_path] == file_hash:
+                    return
+                
+                # Try to decode the content
+                try:
+                    decoded_content = file_content.decode('utf-8')
+                    if not decoded_content.strip():
+                        logger.warning(f"File contains only whitespace: {file_path}")
+                        return
+                    logger.debug(f"File content preview: {decoded_content[:100]}...")
+                    
+                    self.file_hashes[file_path] = file_hash
+                    
+                    # Parse and import the conversation
+                    await self._import_conversation_file(file_path, decoded_content)
+                except UnicodeDecodeError as e:
+                    logger.error(f"Failed to decode file content for {file_path}: {e}")
+            except PermissionError:
+                logger.error(f"Permission denied reading file: {file_path}")
+            except FileNotFoundError:
+                logger.error(f"File not found (may have been deleted): {file_path}")
             
         except Exception as e:
             logger.error(f"Error processing file {file_path}: {e}")
@@ -1642,7 +1660,18 @@ class ConversationFileMonitor:
     async def _import_vscode_chat_session(self, file_path: str, content: str, mcp_running: bool = False):
         """Import a VS Code chat session file (Copilot format) with duplicate prevention"""
         try:
-            data = json.loads(content)
+            # Handle empty or whitespace-only content
+            if not content or not content.strip():
+                logger.warning(f"Empty or whitespace-only VS Code chat session file: {file_path}")
+                return
+            
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                # Log the problematic content for debugging
+                logger.error(f"Invalid JSON in VS Code chat session {file_path}. Content preview: {content[:100]}...")
+                logger.debug(f"Full content that caused JSON error: {content}")
+                raise
             
             # Create a consistent session ID based on the file path and initial metadata
             file_session_id = hashlib.md5(f"vscode:{file_path}".encode()).hexdigest()
@@ -1737,7 +1766,7 @@ class ConversationFileMonitor:
             
             if full_conversation:
                 # Store the complete development conversation
-                await self.vscode_db.store_development_conversation(
+                await self.memory_system.vscode_db.store_development_conversation(
                     content="\n\n".join(full_conversation),
                     session_id=dev_session_id,
                     chat_context_id=file_session_id,
@@ -2089,12 +2118,21 @@ class FridayMemorySystem:
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
-        # Initialize and start file monitoring
+        # Initialize file monitoring (but don't start yet)
         self.file_monitor = None
         if enable_file_monitoring:
-            self.file_monitor = ConversationFileMonitor(self, watch_directories)
-            # Create task to start monitoring (will run when event loop is available)
-            asyncio.create_task(self._start_monitoring())
+            try:
+                # Make sure vscode_db is initialized before creating monitor
+                if not hasattr(self, 'vscode_db') or self.vscode_db is None:
+                    logger.warning("VS Code database not initialized, creating it now")
+                    self.vscode_db = VSCodeProjectDatabase(str(self.data_dir / "vscode_project.db"))
+                
+                self.file_monitor = ConversationFileMonitor(self, watch_directories)
+                # Create task to start monitoring (will run when event loop is available)
+                asyncio.create_task(self._start_monitoring())
+            except Exception as e:
+                logger.error(f"Error initializing file monitor: {e}")
+                raise
     
     async def _start_monitoring(self):
         """Internal method to start the file monitor"""
