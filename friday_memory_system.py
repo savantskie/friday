@@ -4,6 +4,10 @@ Friday Memory System
 
 Core memory system that handles all database operations, embeddings, and memory logic.
 Provides persistent memory capabilities for Friday AI assistant across multiple databases.
+
+All timestamps are stored in the local timezone (Minnesota) using ISO format. This ensures
+that timestamps are correctly displayed and interpreted in the local time context where
+the system is being used.
 """
 
 import asyncio
@@ -19,8 +23,29 @@ import re
 import time
 import socket
 from typing import Any, Dict, List, Optional, Tuple, Union
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# Get local timezone
+def get_local_timezone() -> ZoneInfo:
+    """Get local timezone based on system settings"""
+    try:
+        import time
+        return ZoneInfo(time.tzname[0])
+    except:
+        # Fallback to a common timezone if detection fails
+        return ZoneInfo("America/Chicago")  # Minnesota is in Central Time
+    
+def get_current_timestamp() -> str:
+    """Get current timestamp in local timezone ISO format"""
+    return datetime.now(get_local_timezone()).isoformat()
+    
+def datetime_to_local_isoformat(dt: datetime) -> str:
+    """Convert any datetime to local timezone ISO format"""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=get_local_timezone())
+    return dt.astimezone(get_local_timezone()).isoformat()
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import hashlib
@@ -159,7 +184,7 @@ class ConversationDatabase(DatabaseManager):
                           conversation_id: str = None, metadata: Dict = None) -> Dict[str, str]:
         """Store a message and auto-manage sessions/conversations with duplicate detection"""
         
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(get_local_timezone()).isoformat()
         message_id = str(uuid.uuid4())
         
         # Check for duplicate messages (same content, role, and session within recent time)
@@ -213,12 +238,17 @@ class ConversationDatabase(DatabaseManager):
                 (conversation_id, session_id, timestamp)
             )
         
+        # Extract source type from metadata
+        source_type = "unknown"
+        if metadata:
+            source_type = metadata.get("application", metadata.get("file_type", "unknown"))
+        
         # Store the message
         await self.execute_update(
             """INSERT INTO messages 
-               (message_id, conversation_id, timestamp, role, content, metadata) 
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (message_id, conversation_id, timestamp, role, content, 
+               (message_id, conversation_id, timestamp, role, content, source_type, metadata) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (message_id, conversation_id, timestamp, role, content, source_type,
              json.dumps(metadata) if metadata else None)
         )
         
@@ -289,7 +319,7 @@ class AIMemoryDatabase(DatabaseManager):
         """Create a new curated memory"""
         
         memory_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(get_local_timezone()).isoformat()
         
         await self.execute_update(
             """INSERT INTO curated_memories 
@@ -307,7 +337,7 @@ class AIMemoryDatabase(DatabaseManager):
                           importance_level: int = None, tags: List[str] = None) -> bool:
         """Update an existing memory"""
         
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         updates = ["timestamp_updated = ?"]
         params = [timestamp]
         
@@ -401,7 +431,7 @@ class ScheduleDatabase(DatabaseManager):
         """Create a new appointment"""
         
         appointment_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO appointments 
@@ -417,7 +447,7 @@ class ScheduleDatabase(DatabaseManager):
         """Create a new reminder"""
         
         reminder_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO reminders 
@@ -510,7 +540,7 @@ class VSCodeProjectDatabase(DatabaseManager):
         """Save a development session"""
         
         session_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO project_sessions 
@@ -536,7 +566,7 @@ class VSCodeProjectDatabase(DatabaseManager):
             code_changes: Dictionary of files changed and their changes
         """
         conversation_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         # Create session if none provided
         if not session_id:
@@ -563,7 +593,7 @@ class VSCodeProjectDatabase(DatabaseManager):
         """Store a project development insight"""
         
         insight_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO project_insights 
@@ -644,7 +674,7 @@ class MCPToolCallDatabase(DatabaseManager):
         """Log a tool call for AI self-reflection analysis"""
         
         call_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         # Serialize complex data
         parameters_json = json.dumps(parameters) if parameters else None
@@ -678,7 +708,7 @@ class MCPToolCallDatabase(DatabaseManager):
     async def get_tool_usage_stats(self, days: int = 7, client_id: str = None) -> Dict:
         """Get tool usage statistics for AI self-reflection"""
         
-        cutoff_date = (datetime.now(timezone.utc) - 
+        cutoff_date = (datetime.now(get_local_timezone()) - 
                       timedelta(days=days)).isoformat()
         
         base_query = "SELECT * FROM tool_calls WHERE timestamp >= ?"
@@ -760,7 +790,7 @@ class MCPToolCallDatabase(DatabaseManager):
         """Store AI-discovered usage pattern"""
         
         pattern_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO usage_patterns 
@@ -779,7 +809,7 @@ class MCPToolCallDatabase(DatabaseManager):
         """Store AI self-reflection analysis"""
         
         reflection_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO ai_reflections 
@@ -831,7 +861,7 @@ class ConversationFileMonitor:
             data = json.loads(content)
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": datetime.now(get_local_timezone()).isoformat(),
                 "file_type": "characterai_conversation",
                 "application": "character.ai"
             }
@@ -888,7 +918,7 @@ class ConversationFileMonitor:
             data = json.loads(content)
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": get_current_timestamp(),
                 "file_type": "localai_conversation",
                 "application": "local.ai"
             }
@@ -946,7 +976,7 @@ class ConversationFileMonitor:
             lines = content.strip().split('\n')
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": get_current_timestamp(),
                 "file_type": "textgenwebui_conversation",
                 "application": "text-generation-webui"
             }
@@ -982,14 +1012,24 @@ class ConversationFileMonitor:
     async def _import_lmstudio_conversation(self, file_path: str, content: str):
         """Import an LM Studio conversation file with deduplication."""
         try:
+            # Debug: Check content length and first few chars
+            logger.debug(f"LM Studio import - file: {file_path}, content length: {len(content)}")
+            if not content.strip():
+                logger.warning(f"Empty content in LM Studio file: {file_path}")
+                return
+                
             data = json.loads(content)
+            logger.debug(f"Successfully parsed JSON with keys: {list(data.keys())}")
+            
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": get_current_timestamp(),
                 "file_type": "lmstudio_conversation",
                 "application": "lm_studio"
             }
             messages = self._parse_conversation_data(data, file_path)
+            logger.info(f"Parsed {len(messages)} messages from LM Studio file")
+            
             session_id = None
             conversation_id = None
             imported_count = 0
@@ -1009,19 +1049,19 @@ class ConversationFileMonitor:
                 content_hash = hashlib.md5(msg_content.encode()).hexdigest()
                 duplicate = False
                 if msg_id:
-                    existing = await self.conversations_db.execute_query(
+                    existing = await self.memory_system.conversations_db.execute_query(
                         "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
                     )
                     if existing:
                         duplicate = True
                 if not duplicate:
-                    existing = await self.conversations_db.execute_query(
+                    existing = await self.memory_system.conversations_db.execute_query(
                         "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
                     )
                     if existing:
                         duplicate = True
                 if not duplicate:
-                    result = await self.conversations_db.store_message(
+                    result = await self.memory_system.conversations_db.store_message(
                         content=msg_content,
                         role=role,
                         session_id=session_id,
@@ -1032,66 +1072,166 @@ class ConversationFileMonitor:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
                     imported_count += 1
-            logger.info(f"Imported {imported_count} LM Studio messages from {file_path}")
+            logger.info(f"Imported {imported_count} new messages from LM Studio conversation {file_path} (skipped {len(messages) - imported_count} duplicates)")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in LM Studio file {file_path}: {e}")
+            logger.error(f"Content preview: {content[:200]}...")
         except Exception as e:
             logger.error(f"Error importing LM Studio conversation {file_path}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
-    async def _import_ollama_conversation(self, file_path: str, content: str):
-        """Import an Ollama conversation file with deduplication."""
+    async def _import_ollama_conversation(self, file_path: str, content: str = None):
+        """Import Ollama conversations from SQLite database."""
         try:
-            data = json.loads(content)
-            metadata = {
-                "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
-                "file_type": "ollama_conversation",
-                "application": "ollama"
-            }
-            messages = self._parse_conversation_data(data, file_path)
-            session_id = None
-            conversation_id = None
-            imported_count = 0
-            for msg in messages:
-                if not isinstance(msg, dict):
-                    continue
-                role = msg.get("role", "unknown")
-                content_data = msg.get("content", msg.get("text", ""))
-                if isinstance(content_data, str):
-                    msg_content = content_data
-                elif isinstance(content_data, dict):
-                    msg_content = json.dumps(content_data)
-                else:
-                    msg_content = str(content_data)
-                msg_id = msg.get("id") or msg.get("message_id")
-                timestamp = parse_timestamp(msg.get("timestamp"))
-                content_hash = hashlib.md5(msg_content.encode()).hexdigest()
-                duplicate = False
-                if msg_id:
-                    existing = await self.conversations_db.execute_query(
-                        "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
-                    )
-                    if existing:
-                        duplicate = True
-                if not duplicate:
-                    existing = await self.conversations_db.execute_query(
-                        "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", (timestamp, msg_content)
-                    )
-                    if existing:
-                        duplicate = True
-                if not duplicate:
-                    result = await self.conversations_db.store_message(
-                        content=msg_content,
-                        role=role,
-                        session_id=session_id,
-                        conversation_id=conversation_id,
-                        metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
-                    )
-                    if session_id is None:
-                        session_id = result["session_id"]
-                        conversation_id = result["conversation_id"]
-                    imported_count += 1
-            logger.info(f"Imported {imported_count} Ollama messages from {file_path}")
+            # Ollama stores conversations in SQLite database, not JSON files
+            if file_path.lower().endswith('db.sqlite') and 'ollama' in file_path.lower():
+                await self._import_ollama_database(file_path)
+            else:
+                # Handle legacy JSON format if it exists
+                if content:
+                    data = json.loads(content)
+                    metadata = {
+                        "source_file": file_path,
+                        "import_timestamp": get_current_timestamp(),
+                        "file_type": "ollama_conversation",
+                        "application": "ollama"
+                    }
+                    messages = self._parse_conversation_data(data, file_path)
+                    await self._import_parsed_messages(messages, metadata, file_path)
         except Exception as e:
             logger.error(f"Error importing Ollama conversation {file_path}: {e}")
+    
+    async def _import_ollama_database(self, db_path: str):
+        """Import conversations from Ollama SQLite database."""
+        try:
+            import sqlite3
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Get all chats with their messages
+            cursor.execute("""
+                SELECT c.id, c.title, c.created_at,
+                       m.role, m.content, m.model_name, m.created_at as message_created_at
+                FROM chats c
+                LEFT JOIN messages m ON c.id = m.chat_id
+                ORDER BY c.created_at, m.created_at
+            """)
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                logger.debug(f"No conversations found in Ollama database: {db_path}")
+                return
+            
+            # Group messages by chat
+            chats = {}
+            for row in rows:
+                chat_id, title, chat_created_at, role, content, model_name, msg_created_at = row
+                
+                if chat_id not in chats:
+                    chats[chat_id] = {
+                        'title': title,
+                        'created_at': chat_created_at,
+                        'messages': []
+                    }
+                
+                if role and content:  # Only add if message exists
+                    chats[chat_id]['messages'].append({
+                        'role': role,
+                        'content': content,
+                        'model_name': model_name,
+                        'created_at': msg_created_at
+                    })
+            
+            # Import each chat
+            total_imported = 0
+            for chat_id, chat_data in chats.items():
+                if not chat_data['messages']:
+                    continue
+                    
+                metadata = {
+                    "source_file": db_path,
+                    "import_timestamp": get_current_timestamp(),
+                    "file_type": "ollama_database",
+                    "application": "ollama",
+                    "chat_id": chat_id,
+                    "chat_title": chat_data['title']
+                }
+                
+                imported_count = await self._import_parsed_messages(chat_data['messages'], metadata, db_path)
+                total_imported += imported_count
+            
+            logger.info(f"Imported {total_imported} messages from {len(chats)} Ollama chats in {db_path}")
+            
+        except Exception as e:
+            logger.error(f"Error importing Ollama database {db_path}: {e}")
+    
+    async def _import_parsed_messages(self, messages: List[Dict], metadata: Dict, file_path: str) -> int:
+        """Helper method to import a list of parsed messages."""
+        session_id = None
+        conversation_id = None
+        imported_count = 0
+        
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+                
+            role = msg.get("role", "unknown")
+            content_data = msg.get("content", msg.get("text", ""))
+            if isinstance(content_data, str):
+                msg_content = content_data
+            elif isinstance(content_data, dict):
+                msg_content = json.dumps(content_data)
+            else:
+                msg_content = str(content_data)
+            
+            if not msg_content.strip():
+                continue
+                
+            msg_id = msg.get("id") or msg.get("message_id")
+            timestamp = parse_timestamp(msg.get("timestamp") or msg.get("created_at"))
+            content_hash = hashlib.md5(msg_content.encode()).hexdigest()
+            
+            # Check for duplicates
+            duplicate = False
+            if msg_id:
+                existing = await self.memory_system.conversations_db.execute_query(
+                    "SELECT message_id FROM messages WHERE message_id = ?", (msg_id,)
+                )
+                if existing:
+                    duplicate = True
+            
+            if not duplicate:
+                existing = await self.memory_system.conversations_db.execute_query(
+                    "SELECT message_id FROM messages WHERE timestamp = ? AND content = ?", 
+                    (timestamp, msg_content)
+                )
+                if existing:
+                    duplicate = True
+            
+            if not duplicate:
+                result = await self.memory_system.conversations_db.store_message(
+                    content=msg_content,
+                    role=role,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    metadata={
+                        **metadata, 
+                        "imported_id": msg_id, 
+                        "imported_timestamp": timestamp, 
+                        "content_hash": content_hash,
+                        "model_name": msg.get("model_name")
+                    }
+                )
+                if session_id is None:
+                    session_id = result["session_id"]
+                    conversation_id = result["conversation_id"]
+                imported_count += 1
+        
+        return imported_count
     """Monitors conversation files from various chat applications and imports them to memory"""
     
     def __init__(self, memory_system, watch_directories: List[str] = None):
@@ -1197,12 +1337,11 @@ class ConversationFileMonitor:
             home / "Library" / "Application Support" / "LM Studio" / "conversations"  # macOS (old location)
         ]
         
-        # Ollama chat directories
-        ollama_paths = [
-            home / ".ollama" / "chats",  # Windows/Linux/macOS (main location)
-            home / "AppData" / "Roaming" / "Ollama" / "chats",  # Windows (alternative)
-            home / ".config" / "ollama" / "chats",  # Linux (alternative)
-            home / "Library" / "Application Support" / "Ollama" / "chats"  # macOS (alternative)
+        # Ollama database paths (SQLite database instead of files)
+        ollama_db_paths = [
+            home / "AppData" / "Local" / "Ollama" / "db.sqlite",  # Windows
+            home / ".local" / "share" / "ollama" / "db.sqlite",  # Linux
+            home / "Library" / "Application Support" / "Ollama" / "db.sqlite"  # macOS
         ]
         
         # ChatGPT desktop app
@@ -1269,7 +1408,6 @@ class ConversationFileMonitor:
         
         # Add paths for each application
         add_paths_if_exist(lm_studio_paths, "LM Studio")
-        add_paths_if_exist(ollama_paths, "Ollama")
         add_paths_if_exist(chatgpt_paths, "ChatGPT")
         add_paths_if_exist(claude_paths, "Claude")
         add_paths_if_exist(copilot_paths, "Microsoft Copilot/Bing")
@@ -1277,6 +1415,12 @@ class ConversationFileMonitor:
         add_paths_if_exist(local_ai_paths, "Local.ai")
         add_paths_if_exist(text_gen_paths, "text-generation-webui")
         add_paths_if_exist(openai_paths, "OpenAI Playground")
+        
+        # Special handling for Ollama database
+        for db_path in ollama_db_paths:
+            if db_path.exists():
+                directories.append(str(db_path))
+                logger.info(f"Found Ollama database: {db_path}")
         
         # Add VS Code workspace storage paths - find specific workspace hashes
         for vscode_base in vscode_base_paths:
@@ -1326,6 +1470,8 @@ class ConversationFileMonitor:
         # Registry of format handlers: (predicate, handler)
         format_handlers = [
             (lambda d: isinstance(d, dict) and 'mapping' in d, self._parse_chatgpt_format),
+            # LM Studio format: has 'messages' with 'versions' structure
+            (lambda d: isinstance(d, dict) and 'messages' in d and self._is_lmstudio_format(d), self._parse_lmstudio_format),
             (lambda d: isinstance(d, dict) and 'messages' in d, self._parse_claude_format),
             (lambda d: isinstance(d, dict) and 'conversation' in d, self._parse_character_ai_format),
             (lambda d: isinstance(d, dict) and 'history' in d, self._parse_text_gen_format),
@@ -1340,6 +1486,99 @@ class ConversationFileMonitor:
             return [msg for msg in data if isinstance(msg, dict) and 'content' in msg]
         return []
 
+    def _is_lmstudio_format(self, data: Dict) -> bool:
+        """Check if data is in LM Studio format (has messages with versions structure)"""
+        try:
+            messages = data.get('messages', [])
+            if not messages:
+                return False
+            # Check if first message has the LM Studio structure
+            first_msg = messages[0] if isinstance(messages, list) else None
+            return (isinstance(first_msg, dict) and 
+                    'versions' in first_msg and 
+                    'currentlySelected' in first_msg)
+        except:
+            return False
+
+    def _parse_lmstudio_format(self, data: Dict) -> List[Dict]:
+        """Parse LM Studio conversation format with versions and complex content structure"""
+        conversations = []
+        try:
+            messages = data.get('messages', [])
+            conversation_timestamp = data.get('createdAt')
+            base_timestamp = None
+            
+            if conversation_timestamp:
+                try:
+                    # LM Studio uses millisecond timestamps
+                    base_timestamp = datetime.fromtimestamp(conversation_timestamp / 1000)
+                except (ValueError, TypeError):
+                    pass
+            
+            for i, msg in enumerate(messages):
+                if not isinstance(msg, dict) or 'versions' not in msg:
+                    continue
+                
+                versions = msg.get('versions', [])
+                current_version = msg.get('currentlySelected', 0)
+                
+                if 0 <= current_version < len(versions):
+                    version = versions[current_version]
+                    
+                    role = version.get('role', 'unknown')
+                    content_parts = version.get('content', [])
+                    
+                    # Extract text content from LM Studio's complex content structure
+                    text_content = []
+                    for part in content_parts:
+                        if isinstance(part, dict):
+                            if part.get('type') == 'text':
+                                text_content.append(part.get('text', ''))
+                            elif part.get('type') == 'file':
+                                # Handle file attachments
+                                file_info = f"[File: {part.get('fileIdentifier', 'unknown')}]"
+                                text_content.append(file_info)
+                        elif isinstance(part, str):
+                            text_content.append(part)
+                    
+                    # For assistant messages, handle multi-step responses
+                    if version.get('type') == 'multiStep' and 'steps' in version:
+                        for step in version.get('steps', []):
+                            if step.get('type') == 'contentBlock':
+                                step_content = step.get('content', [])
+                                for step_part in step_content:
+                                    if isinstance(step_part, dict) and step_part.get('type') == 'text':
+                                        text_content.append(step_part.get('text', ''))
+                    
+                    final_content = ' '.join(text_content).strip()
+                    if final_content:
+                        # Calculate approximate timestamp for each message
+                        timestamp = None
+                        if base_timestamp:
+                            # Spread messages over time based on their position
+                            timestamp = datetime_to_local_isoformat(
+                                base_timestamp + timedelta(minutes=i * 2)
+                            )
+                        
+                        conversations.append({
+                            'role': role,
+                            'content': final_content,
+                            'timestamp': timestamp,
+                            'metadata': {
+                                'source': 'LM_Studio',
+                                'model': version.get('senderInfo', {}).get('senderName', 'unknown'),
+                                'conversation_name': data.get('name', 'Untitled'),
+                                'version_index': current_version,
+                                'step_type': version.get('type'),
+                                'token_count': data.get('tokenCount')
+                            }
+                        })
+        
+        except Exception as e:
+            logger.error(f"Error parsing LM Studio format: {e}")
+        
+        return conversations
+
     def _parse_chatgpt_format(self, data: Dict) -> List[Dict]:
         """Parse ChatGPT export format with timestamps"""
         conversations = []
@@ -1352,10 +1591,11 @@ class ConversationFileMonitor:
                             timestamp = None
                             if 'create_time' in node['message']:
                                 try:
-                                    timestamp = datetime.fromtimestamp(
-                                        int(node['message']['create_time']),
-                                        timezone.utc
-                                    ).isoformat()
+                                    timestamp = datetime_to_local_isoformat(
+                                        datetime.fromtimestamp(
+                                            int(node['message']['create_time'])
+                                        )
+                                    )
                                 except (ValueError, TypeError):
                                     pass
                             conversations.append({
@@ -1377,9 +1617,9 @@ class ConversationFileMonitor:
                     if key in item:
                         try:
                             if isinstance(item[key], (int, float)):
-                                timestamp = datetime.fromtimestamp(item[key], timezone.utc).isoformat()
+                                timestamp = datetime_to_local_isoformat(datetime.fromtimestamp(item[key]))
                             else:
-                                timestamp = datetime.fromisoformat(str(item[key])).isoformat()
+                                timestamp = datetime_to_local_isoformat(datetime.fromisoformat(str(item[key])))
                             break
                         except (ValueError, TypeError):
                             continue
@@ -1590,6 +1830,10 @@ class ConversationFileMonitor:
         file_path_lower = file_path.lower()
         file_name = os.path.basename(file_path_lower)
         
+        # Ollama database files
+        if file_name == 'db.sqlite' and 'ollama' in file_path_lower:
+            return True
+        
         # VS Code chat session files (UUID.json in chatSessions folder)
         if 'chatsessions' in file_path_lower and file_name.endswith('.json'):
             # Check if filename looks like a UUID
@@ -1640,20 +1884,24 @@ class ConversationFileMonitor:
                 if file_path in self.file_hashes and self.file_hashes[file_path] == file_hash:
                     return
                 
-                # Try to decode the content
-                try:
-                    decoded_content = file_content.decode('utf-8')
-                    if not decoded_content.strip():
-                        logger.warning(f"File contains only whitespace: {file_path}")
-                        return
-                    logger.debug(f"File content preview: {decoded_content[:100]}...")
-                    
-                    self.file_hashes[file_path] = file_hash
-                    
-                    # Parse and import the conversation
-                    await self._import_conversation_file(file_path, decoded_content)
-                except UnicodeDecodeError as e:
-                    logger.error(f"Failed to decode file content for {file_path}: {e}")
+                self.file_hashes[file_path] = file_hash
+                
+                # Handle SQLite databases (binary files)
+                if file_path.lower().endswith('db.sqlite') and 'ollama' in file_path.lower():
+                    await self._import_conversation_file(file_path, None)  # Pass None for binary files
+                else:
+                    # Try to decode text content
+                    try:
+                        decoded_content = file_content.decode('utf-8')
+                        if not decoded_content.strip():
+                            logger.warning(f"File contains only whitespace: {file_path}")
+                            return
+                        logger.debug(f"File content preview: {decoded_content[:100]}...")
+                        
+                        # Parse and import the conversation
+                        await self._import_conversation_file(file_path, decoded_content)
+                    except UnicodeDecodeError as e:
+                        logger.error(f"Failed to decode file content for {file_path}: {e}")
             except PermissionError:
                 logger.error(f"Permission denied reading file: {file_path}")
             except FileNotFoundError:
@@ -1667,6 +1915,11 @@ class ConversationFileMonitor:
         try:
             # If MCP server is running, only process messages older than server start
             mcp_running = self._check_mcp_server()
+            
+            # Special handling for Ollama SQLite database
+            if file_path.lower().endswith('db.sqlite') and 'ollama' in file_path.lower():
+                await self._import_ollama_conversation(file_path)
+                return
             
             # Check if this is a VS Code chat session file
             if 'chatsessions' in file_path.lower() and file_path.endswith('.json'):
@@ -1730,7 +1983,7 @@ class ConversationFileMonitor:
             # Extract metadata from VS Code chat session
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": get_current_timestamp(),
                 "file_type": "vscode_chat_session",
                 "application": "vscode_copilot",
                 "session_version": data.get("version"),
@@ -1803,17 +2056,17 @@ class ConversationFileMonitor:
                     msg_timestamp = request.get("timestamp")
                     if not msg_timestamp:
                         logger.debug("No timestamp found, using current time")
-                        msg_timestamp = datetime.now(timezone.utc).isoformat()
+                        msg_timestamp = get_current_timestamp()
                     elif isinstance(msg_timestamp, (int, float)):
                         logger.debug(f"Converting numeric timestamp: {msg_timestamp}")
                         try:
-                            msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
+                            msg_timestamp = datetime_to_local_isoformat(datetime.fromtimestamp(msg_timestamp / 1000))
                         except (ValueError, OSError):
                             try:
-                                msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
+                                msg_timestamp = datetime_to_local_isoformat(datetime.fromtimestamp(msg_timestamp))
                             except (ValueError, OSError):
                                 logger.warning(f"Could not convert numeric timestamp: {msg_timestamp}")
-                                msg_timestamp = datetime.now(timezone.utc).isoformat()
+                                msg_timestamp = get_current_timestamp()
                     elif isinstance(msg_timestamp, str):
                         logger.debug(f"Processing string timestamp: {msg_timestamp}")
                         try:
@@ -1823,16 +2076,16 @@ class ConversationFileMonitor:
                             if 'T' not in msg_timestamp and ' ' in msg_timestamp:
                                 msg_timestamp = msg_timestamp.replace(' ', 'T')
                             parsed = datetime.fromisoformat(msg_timestamp)
-                            msg_timestamp = parsed.astimezone(timezone.utc).isoformat()
+                            msg_timestamp = datetime_to_local_isoformat(parsed)
                         except ValueError as e:
                             logger.warning(f"Invalid timestamp string format: {msg_timestamp}, error: {e}")
-                            msg_timestamp = datetime.now(timezone.utc).isoformat()
+                            msg_timestamp = get_current_timestamp()
                     else:
                         logger.warning(f"Unexpected timestamp type: {type(msg_timestamp)}")
-                        msg_timestamp = datetime.now(timezone.utc).isoformat()
+                        msg_timestamp = get_current_timestamp()
                 except Exception as e:
                     logger.warning(f"Error processing timestamp: {e}, using current time")
-                    msg_timestamp = datetime.now(timezone.utc).isoformat()
+                    msg_timestamp = get_current_timestamp()
                     
                 # Process message if it's valid
                 if user_content.strip():
@@ -1975,13 +2228,13 @@ class ConversationFileMonitor:
                                 user_ts = request["message"].get("timestamp")
                                 if isinstance(user_ts, (int, float)):
                                     if user_ts > 10**12:  # milliseconds
-                                        user_ts = datetime.fromtimestamp(user_ts / 1000, timezone.utc)
+                                        user_ts = datetime.fromtimestamp(user_ts / 1000)
                                     else:  # seconds
-                                        user_ts = datetime.fromtimestamp(user_ts, timezone.utc)
+                                        user_ts = datetime.fromtimestamp(user_ts)
                                 else:  # string
                                     user_ts = datetime.fromisoformat(str(user_ts).replace('Z', '+00:00'))
                                 # Set assistant timestamp 1 second after user's message
-                                msg_timestamp = (user_ts + timedelta(seconds=1)).isoformat()
+                                msg_timestamp = datetime_to_local_isoformat(user_ts + timedelta(seconds=1))
                                 logger.debug(f"Using timestamp based on user message: {msg_timestamp}")
                             except (ValueError, TypeError, AttributeError) as e:
                                 logger.debug(f"Error parsing user timestamp: {e}")
@@ -1993,9 +2246,9 @@ class ConversationFileMonitor:
                             if isinstance(msg_timestamp, (int, float)):
                                 try:
                                     if msg_timestamp > 10**12:  # milliseconds
-                                        msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
+                                        msg_timestamp = datetime_to_local_isoformat(datetime.fromtimestamp(msg_timestamp / 1000))
                                     else:  # seconds
-                                        msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
+                                        msg_timestamp = datetime_to_local_isoformat(datetime.fromtimestamp(msg_timestamp))
                                 except (ValueError, OSError):
                                     msg_timestamp = None
                             elif isinstance(msg_timestamp, str):
@@ -2006,8 +2259,8 @@ class ConversationFileMonitor:
                         
                         # If still no timestamp, use current time
                         if not msg_timestamp:
-                            msg_timestamp = datetime.now(timezone.utc).isoformat()
-                            logger.debug("Using current time for timestamp")
+                            msg_timestamp = get_current_timestamp()
+                            logger.debug("Using current system time for timestamp")
                         
                         logger.debug(f"Final message timestamp: {msg_timestamp}, last processed: {last_timestamp}")
 
@@ -2025,7 +2278,12 @@ class ConversationFileMonitor:
                                 role="assistant",
                                 session_id=current_session_id,
                                 conversation_id=current_conversation_id,
-                                metadata={**metadata, "request_id": request.get("requestId"), "timestamp": msg_timestamp}
+                                metadata={
+                                    **metadata, 
+                                    "request_id": request.get("requestId"), 
+                                    "timestamp": msg_timestamp,
+                                    "source_type": "vscode_chat"
+                                }
                             )
                             logger.info(f"Stored new assistant message: first 100 chars: {assistant_content[:100]}...")
                             
@@ -2065,10 +2323,11 @@ class ConversationFileMonitor:
             data = json.loads(content)
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
+                "import_timestamp": datetime.now(get_local_timezone()).isoformat(),
                 "file_type": "json_conversation",
                 "mcp_enabled": mcp_running,
-                "application": "lm_studio" if "lm" in file_path.lower() else "unknown"
+                "application": "lm_studio" if "lm" in file_path.lower() else "unknown",
+                "source_type": "lm_studio" if "lm" in file_path.lower() else "external_json"
             }
             # Use extensible parser
             messages = self._parse_conversation_data(data, file_path)
@@ -2128,8 +2387,9 @@ class ConversationFileMonitor:
         try:
             metadata = {
                 "source_file": file_path,
-                "import_timestamp": datetime.now(timezone.utc).isoformat(),
-                "file_type": "jsonl_conversation"
+                "import_timestamp": datetime.now(get_local_timezone()).isoformat(),
+                "file_type": "jsonl_conversation",
+                "source_type": "external_jsonl"
             }
             lines = content.strip().split('\n')
             message_count = 0
@@ -2530,7 +2790,7 @@ class FridayMemorySystem:
         """Get comprehensive system health and statistics"""
         health_data = {
             "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(get_local_timezone()).isoformat(),
             "databases": {},
             "file_monitoring": {},
             "embedding_service": {}
@@ -3020,14 +3280,14 @@ class FridayMemorySystem:
         """Link conversation to code context"""
         
         context_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = get_current_timestamp()
         
         # Store the code context
         await self.vscode_db.execute_update(
             """INSERT INTO code_context 
                (context_id, timestamp, file_path, function_name, description) 
                VALUES (?, ?, ?, ?, ?)""",
-            (context_id, timestamp, file_path, function_name, description)
+            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description)
         )
         
         # Generate and store embedding for the description
@@ -3753,6 +4013,183 @@ Performance Assessment:"""
             tone = "struggling with reliability"
         
         return f"I'm {tone} with a {success_rate:.1f}% success rate across {stats['total_calls']} tool calls. My primary tool usage focuses on '{most_used}', suggesting consistent workflow patterns."
+
+    # === SillyTavern-specific methods ===
+    
+    async def get_character_context(self, character_name: str, context_type: str = None, limit: int = 5) -> Dict:
+        """Get relevant context about characters from memory for SillyTavern roleplay"""
+        try:
+            # Search memories for character-related content
+            search_query = f"character {character_name}"
+            if context_type:
+                search_query += f" {context_type}"
+            
+            # Search across all memory types for character information
+            results = await self.search_memories(
+                query=search_query,
+                limit=limit,
+                database_filter="all"
+            )
+            
+            # Filter and categorize results specifically for character context
+            character_context = {
+                "character_name": character_name,
+                "context_type": context_type,
+                "personality_traits": [],
+                "relationships": [],
+                "history": [],
+                "preferences": [],
+                "memories": results.get("results", [])
+            }
+            
+            # Categorize memories by type
+            for memory in results.get("results", []):
+                content = memory.get("content", "").lower()
+                tags = memory.get("tags", [])
+                
+                if any(tag in ["personality", "traits", "character"] for tag in tags):
+                    character_context["personality_traits"].append(memory)
+                elif any(tag in ["relationship", "social"] for tag in tags):
+                    character_context["relationships"].append(memory)
+                elif any(tag in ["history", "background", "past"] for tag in tags):
+                    character_context["history"].append(memory)
+                elif any(tag in ["preference", "likes", "dislikes"] for tag in tags):
+                    character_context["preferences"].append(memory)
+            
+            return {
+                "status": "success",
+                "character_context": character_context,
+                "total_memories": len(results.get("results", [])),
+                "query_used": search_query
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting character context: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "character_context": {"character_name": character_name, "memories": []}
+            }
+    
+    async def store_roleplay_memory(self, character_name: str, event_description: str, 
+                                  importance_level: int = 5, tags: List[str] = None) -> Dict:
+        """Store important roleplay moments or character developments for SillyTavern"""
+        try:
+            # Create content that includes character context
+            content = f"Roleplay event with {character_name}: {event_description}"
+            
+            # Default tags for roleplay memories
+            if tags is None:
+                tags = []
+            
+            roleplay_tags = ["roleplay", "character", character_name.lower()] + tags
+            
+            # Store as a curated memory with roleplay type
+            result = await self.create_memory(
+                content=content,
+                memory_type="roleplay",
+                importance_level=importance_level,
+                tags=roleplay_tags
+            )
+            
+            # Also store as a conversation to maintain chat context
+            await self.store_conversation(
+                content=f"[Roleplay Memory] {event_description}",
+                role="system",
+                metadata={
+                    "character_name": character_name,
+                    "event_type": "roleplay_memory",
+                    "importance": importance_level
+                }
+            )
+            
+            return {
+                "status": "success",
+                "memory_id": result["memory_id"],
+                "character_name": character_name,
+                "content": content,
+                "tags": roleplay_tags
+            }
+            
+        except Exception as e:
+            logger.error(f"Error storing roleplay memory: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    async def search_roleplay_history(self, query: str, character_name: str = None, limit: int = 10) -> Dict:
+        """Search past roleplay interactions and character development for SillyTavern"""
+        try:
+            # Enhance query with roleplay context
+            search_query = f"roleplay {query}"
+            if character_name:
+                search_query += f" {character_name}"
+            
+            # Search specifically for roleplay memories and conversations
+            results = await self.search_memories(
+                query=search_query,
+                limit=limit,
+                database_filter="all",
+                memory_type="roleplay"
+            )
+            
+            # Also search general conversations for roleplay content
+            all_results = await self.search_memories(
+                query=search_query,
+                limit=limit * 2,
+                database_filter="conversations"
+            )
+            
+            # Combine and deduplicate results
+            combined_results = results.get("results", [])
+            for result in all_results.get("results", []):
+                if result not in combined_results:
+                    combined_results.append(result)
+            
+            # Sort by relevance/similarity score
+            combined_results.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+            combined_results = combined_results[:limit]
+            
+            # Categorize results for better SillyTavern integration
+            categorized_results = {
+                "character_development": [],
+                "interactions": [],  
+                "plot_events": [],
+                "general": []
+            }
+            
+            for result in combined_results:
+                content = result.get("content", "").lower()
+                tags = result.get("tags", [])
+                
+                if any(word in content for word in ["development", "growth", "change", "personality"]):
+                    categorized_results["character_development"].append(result)
+                elif any(word in content for word in ["interaction", "conversation", "dialogue"]):
+                    categorized_results["interactions"].append(result)
+                elif any(word in content for word in ["event", "plot", "story", "scene"]):
+                    categorized_results["plot_events"].append(result)
+                else:
+                    categorized_results["general"].append(result)
+            
+            return {
+                "status": "success",
+                "query": query,
+                "character_name": character_name,
+                "total_results": len(combined_results),
+                "results": combined_results,
+                "categorized_results": categorized_results,
+                "search_context": "roleplay_history"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error searching roleplay history: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "results": [],
+                "categorized_results": {}
+            }
 
     async def run_database_maintenance(self, force: bool = False) -> Dict:
         """Run database maintenance including cleanup and optimization"""

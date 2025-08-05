@@ -7,12 +7,15 @@ and the Friday Memory System. Provides standardized tools for memory operations
 while maintaining client-specific access controls.
 """
 
+print("Friday Memory MCP Server starting...")  # This will show up in stdout immediately
+
 import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 import time
+import warnings
 # MCP imports
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -41,11 +44,16 @@ class FridayMemoryMCPServer:
         self.client_context = {}  # Track client-specific context
         self._maintenance_task = None  # Background maintenance task
         
+        # Enable debug logging for MCP server
+        logging.getLogger("mcp.server").setLevel(logging.DEBUG)
+        
         # Register MCP handlers
         self._register_handlers()
         
         # Start automatic maintenance
         self._start_automatic_maintenance()
+        
+        logger.info("FridayMemoryMCPServer initialized successfully")
     
     def _register_handlers(self):
         """Register MCP server handlers"""
@@ -62,9 +70,15 @@ class FridayMemoryMCPServer:
     
     async def _get_client_tools(self) -> List[Tool]:
         """Return tools available to the current client"""
+        logger.debug("Getting client tools")
         
-        # Common tools available to all clients
-        common_tools = [
+        # Detect client type based on user agent or connection context
+        client_type = self._detect_client_type()
+        logger.info(f"Detected client type: {client_type}")
+        
+        try:
+            # Common tools available to all clients (SillyTavern, VS Code, LM Studio, etc.)
+            common_tools = [
             Tool(
                 name="search_memories",
                 description="Search memories using semantic similarity with importance and type filtering",
@@ -205,6 +219,9 @@ class FridayMemoryMCPServer:
                 }
             )
         ]
+        except Exception as e:
+            logger.error(f"Error creating common tools: {e}")
+            common_tools = []
         
         # VS Code specific tools
         vscode_tools = [
@@ -275,9 +292,74 @@ class FridayMemoryMCPServer:
             )
         ]
         
-        # Determine client type and return appropriate tools
-        # For now, return all tools - we'll add client detection later
-        return common_tools + vscode_tools
+        try:
+            # Return appropriate tools based on client type
+            if client_type == "sillytavern":
+                # SillyTavern gets memory tools + character/roleplay specific tools
+                sillytavern_tools = [
+                    Tool(
+                        name="get_character_context",
+                        description="Get relevant context about characters from memory",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "character_name": {"type": "string", "description": "Character name to search for"},
+                                "context_type": {"type": "string", "description": "Type of context (personality, relationships, history)"},
+                                "limit": {"type": "integer", "description": "Max results", "default": 5}
+                            },
+                            "required": ["character_name"]
+                        }
+                    ),
+                    Tool(
+                        name="store_roleplay_memory",
+                        description="Store important roleplay moments or character developments",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "character_name": {"type": "string", "description": "Character involved"},
+                                "event_description": {"type": "string", "description": "What happened"},
+                                "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"}
+                            },
+                            "required": ["character_name", "event_description"]
+                        }
+                    ),
+                    Tool(
+                        name="search_roleplay_history",
+                        description="Search past roleplay interactions and character development",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "Search query"},
+                                "character_name": {"type": "string", "description": "Focus on specific character"},
+                                "limit": {"type": "integer", "description": "Max results", "default": 10}
+                            },
+                            "required": ["query"]
+                        }
+                    )
+                ]
+                return common_tools + sillytavern_tools
+            
+            elif client_type == "vscode":
+                # VS Code gets development-specific tools
+                return common_tools + vscode_tools
+            
+            else:
+                # Default: LM Studio, Ollama UIs, etc. get core memory tools only
+                return common_tools
+                
+        except Exception as e:
+            logger.error(f"Error combining tool lists: {e}")
+            return []
+
+    def _detect_client_type(self) -> str:
+        """Detect the type of MCP client connecting"""
+        # This is a placeholder - in real implementation we might check:
+        # - User agent headers
+        # - Connection parameters
+        # - Client capabilities during handshake
+        # For now, assume external clients are SillyTavern if not VS Code
+        return "unknown"  # Will be enhanced based on actual client detection
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
@@ -322,6 +404,13 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.reflect_on_tool_usage(**arguments)
             elif tool_name == "get_ai_insights":
                 result = await self.memory_system.get_ai_insights(**arguments)
+            # SillyTavern-specific tools
+            elif tool_name == "get_character_context":
+                result = await self.memory_system.get_character_context(**arguments)
+            elif tool_name == "store_roleplay_memory":
+                result = await self.memory_system.store_roleplay_memory(**arguments)
+            elif tool_name == "search_roleplay_history":
+                result = await self.memory_system.search_roleplay_history(**arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -438,12 +527,56 @@ class FridayMemoryMCPServer:
             logger.info("🔧 Automatic maintenance stopped")
 
 
+async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: int = 11434):
+    """Start the HTTP API server if needed"""
+    try:
+        from fastapi import FastAPI, HTTPException
+        from fastapi.middleware.cors import CORSMiddleware
+        import uvicorn
+        
+        app = FastAPI(title="Friday Memory API")
+        
+        # Add CORS middleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        
+        @app.get("/api/health")
+        async def health_check():
+            return {"status": "healthy", "server": "friday-memory"}
+            
+        # Start server without blocking
+        config = uvicorn.Config(app, host=host, port=port, log_level="info")
+        server = uvicorn.Server(config)
+        return await server.serve()
+    except ImportError:
+        logger.info("FastAPI not installed - HTTP API disabled")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to start HTTP server: {e}")
+        return None
+
 async def main():
     """Main entry point for the MCP server"""
+    logger.info("Friday Memory MCP Server starting...")
+    
+    # Set debug logging for MCP components
+    logging.getLogger("mcp").setLevel(logging.DEBUG)
+    logging.getLogger("mcp.server").setLevel(logging.DEBUG)
+    
     mcp_server = FridayMemoryMCPServer()
     
+    logger.debug("Server initialized, starting stdio interface for LM Studio...")
+    
     try:
+        # Only use stdio for LM Studio - no HTTP server needed
+        logger.info("Waiting for stdio connection from LM Studio...")
         async with stdio_server() as (read_stream, write_stream):
+            logger.info("LM Studio connected via stdio")
             await mcp_server.server.run(
                 read_stream,
                 write_stream,
@@ -456,8 +589,10 @@ async def main():
                     )
                 )
             )
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+        raise
     finally:
-        # Cleanup when server stops
         await mcp_server.cleanup()
 
 
