@@ -24,6 +24,7 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import hashlib
+from utils import parse_timestamp
 
 # Configure logging with minimal output
 logging.basicConfig(level=logging.WARNING)
@@ -50,44 +51,7 @@ class DatabaseManager:
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
         return conn
 
-    def parse_timestamp(timestamp: Union[str, int, float, None], fallback: Optional[datetime] = None) -> str:
-        """
-        Parse a timestamp into a consistent ISO 8601 UTC string.
 
-        Args:
-            timestamp (Union[str, int, float, None]): The input timestamp to parse.
-                - ISO 8601 string (e.g., "2025-08-04T18:30:29Z")
-                - Unix timestamp in seconds or milliseconds (e.g., 1628100000 or 1628100000000)
-            fallback (Optional[datetime]): A fallback datetime if parsing fails.
-
-        Returns:
-            str: The parsed timestamp as an ISO 8601 string in UTC.
-        """
-        if timestamp is None:
-            # Use fallback or current UTC time if no timestamp is provided
-            fallback_time = fallback or datetime.now(timezone.utc)
-            return fallback_time.isoformat()
-
-        try:
-            # Handle ISO 8601 strings
-            if isinstance(timestamp, str):
-                # Adjust for common quirks (e.g., "Z" for UTC)
-                if "Z" in timestamp:
-                    timestamp = timestamp.replace("Z", "+00:00")
-                return datetime.fromisoformat(timestamp).astimezone(timezone.utc).isoformat()
-
-            # Handle Unix timestamps
-            if isinstance(timestamp, (int, float)):
-                # Automatically handle milliseconds vs. seconds
-                if timestamp > 10**10:  # Likely milliseconds
-                    timestamp /= 1000
-                return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
-
-        except Exception as e:
-            # Log the error and use fallback
-            logger.warning(f"Failed to parse timestamp '{timestamp}': {e}")
-            fallback_time = fallback or datetime.now(timezone.utc)
-            return fallback_time.isoformat()
 
     async def execute_query(self, query: str, params: Tuple = ()) -> List[sqlite3.Row]:
         """Execute a SELECT query and return results"""
@@ -501,6 +465,7 @@ class VSCodeProjectDatabase(DatabaseManager):
                     conversation_content TEXT NOT NULL,
                     decisions_made TEXT,
                     code_changes TEXT,
+                    source_metadata TEXT,
                     embedding BLOB,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES project_sessions (session_id)
@@ -683,7 +648,21 @@ class MCPToolCallDatabase(DatabaseManager):
         
         # Serialize complex data
         parameters_json = json.dumps(parameters) if parameters else None
-        result_json = json.dumps(result) if result and not isinstance(result, str) else str(result) if result else None
+        
+        # Sanitize result to be JSON serializable
+        def sanitize_for_json(obj):
+            if isinstance(obj, (int, float, str, bool, type(None))):
+                return obj
+            elif isinstance(obj, (list, tuple)):
+                return [sanitize_for_json(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {str(k): sanitize_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, bytes):
+                return f"<binary data {len(obj)} bytes>"
+            else:
+                return str(obj)
+        
+        result_json = json.dumps(sanitize_for_json(result)) if result and not isinstance(result, str) else str(result) if result else None
         
         await self.execute_update(
             """INSERT INTO tool_calls 
@@ -1733,11 +1712,12 @@ class ConversationFileMonitor:
             
             # Instead of checking whole session, we'll check individual messages as we process them
             last_import_result = await self.memory_system.vscode_db.execute_query(
-                """SELECT conversation_content FROM development_conversations 
+                """SELECT conversation_content, timestamp FROM development_conversations 
                    WHERE chat_context_id = ? ORDER BY timestamp DESC LIMIT 1""",
                 (file_session_id,)
             )
             last_imported_content = last_import_result[0][0] if last_import_result else ""
+            last_timestamp = last_import_result[0][1] if last_import_result else "1970-01-01T00:00:00+00:00"
             
             # We'll compare timestamps and content as we process messages to find new ones
             
@@ -1781,23 +1761,28 @@ class ConversationFileMonitor:
             new_message_count = 0
             skipped_duplicates = 0
             
-            # Get the most recent message timestamp we've processed
+            # Initialize tracking variables for message counting
+            current_session_id = file_session_id
+            current_conversation_id = None
+            messages_to_process = []
+            already_imported = set()
+
+            # Get all previously imported message hashes
             try:
-                last_processed = await self.memory_system.vscode_db.execute_query(
-                    """SELECT MAX(timestamp) FROM development_conversations 
+                imported_messages = await self.memory_system.vscode_db.execute_query(
+                    """SELECT source_metadata FROM development_conversations 
                        WHERE chat_context_id = ?""",
                     (file_session_id,)
                 )
-                last_timestamp = (last_processed[0][0] if last_processed and last_processed[0][0] 
-                                else datetime.min.replace(tzinfo=timezone.utc).isoformat())
-                logger.debug(f"Last processed timestamp for session {file_session_id}: {last_timestamp}")
+                for row in imported_messages:
+                    if row[0]:  # source_metadata exists
+                        metadata = json.loads(row[0])
+                        if "content_hash" in metadata:
+                            already_imported.add(metadata["content_hash"])
+                logger.debug(f"Found {len(already_imported)} previously imported message hashes")
             except Exception as e:
-                logger.warning(f"Error getting last processed timestamp: {e}, using minimum date")
-                last_timestamp = datetime.min.replace(tzinfo=timezone.utc).isoformat()
-            
-            # Initialize tracking variables
-            current_session_id = file_session_id
-            current_conversation_id = None
+                logger.warning(f"Error getting imported messages: {e}, starting fresh")
+                already_imported = set()
             
             for request in requests:
                 # Skip if this exact message was manually stored through MCP
@@ -1849,7 +1834,40 @@ class ConversationFileMonitor:
                     logger.warning(f"Error processing timestamp: {e}, using current time")
                     msg_timestamp = datetime.now(timezone.utc).isoformat()
                     
-                logger.debug(f"Processing message with timestamp: {msg_timestamp}, last processed: {last_timestamp}")
+                # Process message if it's valid
+                if user_content.strip():
+                    content_hash = hashlib.md5(f"{user_content}:{msg_timestamp}".encode()).hexdigest()
+                    if content_hash not in already_imported:
+                        logger.debug("Found new user message to store")
+                        result = await self.memory_system.store_conversation(
+                            content=user_content,
+                            role="user",
+                            session_id=current_session_id,
+                            conversation_id=current_conversation_id,
+                            metadata={
+                                **metadata, 
+                                "request_id": request.get("requestId"), 
+                                "timestamp": msg_timestamp,
+                                "content_hash": content_hash
+                            }
+                        )
+                        logger.info(f"Stored new user message: first 100 chars: {user_content[:100]}...")
+                        
+                        if result.get("duplicate"):
+                            skipped_duplicates += 1
+                        else:
+                            new_message_count += 1
+                            full_conversation.append(f"User: {user_content}")
+                            # Update tracking IDs from result
+                            if result.get("session_id"):
+                                current_session_id = result["session_id"]
+                            if result.get("conversation_id"):
+                                current_conversation_id = result["conversation_id"]
+                            # Add to already imported set to prevent duplicates in same session
+                            already_imported.add(content_hash)
+                    else:
+                        skipped_duplicates += 1
+                        logger.debug(f"Skipped duplicate message (hash: {content_hash})")
                     
                 # Check for debug logging control commands
                 if "disable debug logs" in user_content.lower() or "stop debug logging" in user_content.lower():
@@ -1860,6 +1878,12 @@ class ConversationFileMonitor:
                     logger.info("===================================")
                     logger.setLevel(logging.INFO)
                         
+                # Process message with timestamp logging
+                logger.debug(f"Processing message with timestamp: {msg_timestamp}")
+                if user_content.strip():
+                    content_hash = hashlib.md5(f"{user_content}:{msg_timestamp}".encode()).hexdigest()
+                    logger.debug("Found user message to process")
+
                 # Only process if this is a new message (after our last processed timestamp)
                 if user_content.strip() and str(msg_timestamp) > str(last_timestamp):
                     logger.debug(f"Found new message to process")
@@ -1893,7 +1917,7 @@ class ConversationFileMonitor:
                     assistant_content = None
                     logger.debug("Found assistant response to process")
                     logger.debug(f"Processing response type: {type(response_data).__name__}")
-                    logger.debug(f"Session: {current_session_id[:8]}..., Conv: {conversation_id[:8] if conversation_id else 'None'}")
+                    logger.debug(f"Session: {current_session_id[:8]}..., Conv: {current_conversation_id[:8] if current_conversation_id else 'None'}")
                     
                     # VS Code responses can have multiple parts
                     if isinstance(response_data, str):
@@ -1906,7 +1930,11 @@ class ConversationFileMonitor:
                             logger.debug(f"Found result data of type {type(result_data)}")
                             if isinstance(result_data, dict):
                                 logger.debug(f"Result data keys: {list(result_data.keys())}")
-                                if "markdown" in result_data:
+                                # Try to use content or markdown from result
+                                if "content" in result_data:
+                                    assistant_content = result_data["content"]
+                                    logger.debug("Using content from result")
+                                elif "markdown" in result_data:
                                     assistant_content = result_data["markdown"]
                                     logger.debug("Using markdown content from result")
                                 elif "value" in result_data:
@@ -1918,6 +1946,9 @@ class ConversationFileMonitor:
                             else:
                                 assistant_content = json.dumps(result_data)
                                 logger.debug("Converted result data to JSON string")
+                        elif "content" in response_data:
+                            assistant_content = response_data["content"]
+                            logger.debug("Using content from response_data directly")
                         elif "value" in response_data:
                             assistant_content = response_data["value"]
                             logger.debug("Using value from response_data directly")
@@ -1930,41 +1961,65 @@ class ConversationFileMonitor:
                     
                     if assistant_content:
                         logger.debug(f"Found assistant content (first 100 chars): {assistant_content[:100]}...")
-                        # Ensure we have a valid ISO format timestamp
-                        msg_timestamp = request.get("timestamp")
-                        if not msg_timestamp:
-                            logger.debug("No timestamp found, using current time")
-                            msg_timestamp = datetime.now(timezone.utc).isoformat()
-                            
-                        # Only process if this is a new message
-                        if str(msg_timestamp) > str(last_timestamp):
-                            result = await self.memory_system.store_conversation(
-                                content=assistant_content,
-                                role="assistant", 
-                                session_id=current_session_id,
-                                conversation_id=current_conversation_id,
-                                metadata=metadata
-                            )
-                            new_message_count += 1
-                            full_conversation.append(f"Assistant: {assistant_content}")
-                            logger.debug(f"Stored assistant message for session {session_id}")
-                            msg_timestamp = datetime.now(timezone.utc).isoformat()
-                        elif isinstance(msg_timestamp, (int, float)):
-                            # Convert Unix timestamp to ISO format
-                            try:
-                                logger.debug(f"Converting numeric timestamp: {msg_timestamp}")
-                                msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
-                            except (ValueError, OSError):
-                                try:
-                                    msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
-                                except (ValueError, OSError):
-                                    logger.debug(f"Failed to convert timestamp {msg_timestamp}, using current time")
-                                    msg_timestamp = datetime.now(timezone.utc).isoformat()
+                        # Get timestamp from user message or current time
+                        msg_timestamp = None
+
+                        logger.debug(f"Processing assistant message with timestamp: {msg_timestamp}")
+                        if assistant_content.strip():
+                            content_hash = hashlib.md5(f"{assistant_content}:{msg_timestamp}".encode()).hexdigest()
+                            logger.debug("Found assistant message to process")
                         
-                        logger.debug(f"Using timestamp: {msg_timestamp}, last processed: {last_timestamp}")
-                        if assistant_content.strip() and str(msg_timestamp) >= str(last_timestamp):
+                        # Try to get timestamp from the user's message first
+                        if "message" in request and request["message"].get("timestamp"):
+                            try:
+                                user_ts = request["message"].get("timestamp")
+                                if isinstance(user_ts, (int, float)):
+                                    if user_ts > 10**12:  # milliseconds
+                                        user_ts = datetime.fromtimestamp(user_ts / 1000, timezone.utc)
+                                    else:  # seconds
+                                        user_ts = datetime.fromtimestamp(user_ts, timezone.utc)
+                                else:  # string
+                                    user_ts = datetime.fromisoformat(str(user_ts).replace('Z', '+00:00'))
+                                # Set assistant timestamp 1 second after user's message
+                                msg_timestamp = (user_ts + timedelta(seconds=1)).isoformat()
+                                logger.debug(f"Using timestamp based on user message: {msg_timestamp}")
+                            except (ValueError, TypeError, AttributeError) as e:
+                                logger.debug(f"Error parsing user timestamp: {e}")
+                                msg_timestamp = None
+                        
+                        # If no user timestamp, try request timestamp
+                        if not msg_timestamp:
+                            msg_timestamp = request.get("timestamp")
+                            if isinstance(msg_timestamp, (int, float)):
+                                try:
+                                    if msg_timestamp > 10**12:  # milliseconds
+                                        msg_timestamp = datetime.fromtimestamp(msg_timestamp / 1000, timezone.utc).isoformat()
+                                    else:  # seconds
+                                        msg_timestamp = datetime.fromtimestamp(msg_timestamp, timezone.utc).isoformat()
+                                except (ValueError, OSError):
+                                    msg_timestamp = None
+                            elif isinstance(msg_timestamp, str):
+                                try:
+                                    msg_timestamp = datetime.fromisoformat(msg_timestamp.replace('Z', '+00:00')).isoformat()
+                                except ValueError:
+                                    msg_timestamp = None
+                        
+                        # If still no timestamp, use current time
+                        if not msg_timestamp:
+                            msg_timestamp = datetime.now(timezone.utc).isoformat()
+                            logger.debug("Using current time for timestamp")
+                        
+                        logger.debug(f"Final message timestamp: {msg_timestamp}, last processed: {last_timestamp}")
+
+                        # Process message with timestamp logging
+                        logger.debug(f"Processing message with timestamp: {msg_timestamp}")
+                        if assistant_content.strip():
+                            content_hash = hashlib.md5(f"{assistant_content}:{msg_timestamp}".encode()).hexdigest()
+                            logger.debug("Found assistant message to process")
+                        
+                        # Store the message if it's new
+                        if assistant_content.strip() and str(msg_timestamp) > str(last_timestamp):
                             logger.debug("Storing new assistant message")
-                            # Use current_session_id and current_conversation_id 
                             result = await self.memory_system.store_conversation(
                                 content=assistant_content,
                                 role="assistant",
@@ -1972,14 +2027,16 @@ class ConversationFileMonitor:
                                 conversation_id=current_conversation_id,
                                 metadata={**metadata, "request_id": request.get("requestId"), "timestamp": msg_timestamp}
                             )
-                            logger.debug(f"Store result: {result}")
+                            logger.info(f"Stored new assistant message: first 100 chars: {assistant_content[:100]}...")
                             
                             if result.get("duplicate"):
                                 skipped_duplicates += 1
+                                logger.debug("Assistant message was duplicate")
                             else:
                                 new_message_count += 1
                                 full_conversation.append(f"Assistant: {assistant_content}")
-                                # Update tracking IDs from result
+                                logger.info(f"Added new assistant message to conversation: first 100 chars: {assistant_content[:100]}...")
+                                # Update tracking IDs from result if needed
                                 if result.get("session_id"):
                                     current_session_id = result["session_id"]
                                 if result.get("conversation_id"):
@@ -2448,10 +2505,14 @@ class FridayMemorySystem:
                 logger.info("File monitoring started")
             except Exception as e:
                 logger.error(f"Error starting file monitoring: {e}")
-        self.ensure_all_memory_databeses_ready()
+        self.ensure_all_memory_databases_ready()
         
     async def start_file_monitoring(self):
         """Start monitoring conversation files (manual start if needed)"""
+        # Only clear the file processing cache to allow reprocessing while maintaining timestamps
+        if self.file_monitor:
+            self.file_monitor.processed_files.clear()
+            logger.info("Cleared processed files cache for fresh start")
         await self._start_monitoring()
     
     async def stop_file_monitoring(self):
