@@ -36,21 +36,6 @@ logger = logging.getLogger(__name__)
 
 
 class FridayMemoryMCPServer:
-    def _detect_client_type(self) -> str:
-        """Detect the type of MCP client connecting (VS Code, SillyTavern, LM Studio, etc)."""
-        # Placeholder: In a real implementation, check headers, handshake, or client context
-        # For now, use a simple heuristic or context variable if available
-        client = self.client_context.get("current_client", "").lower()
-        if "vscode" in client:
-            return "vscode"
-        elif "sillytavern" in client:
-            return "sillytavern"
-        elif "lm studio" in client or "lmstudio" in client:
-            return "lmstudio"
-        elif "ollama" in client:
-            return "ollama"
-        else:
-            return "unknown"
     """MCP Server for Friday's Memory System"""
     
     def __init__(self):
@@ -92,7 +77,7 @@ class FridayMemoryMCPServer:
         logger.info(f"Detected client type: {client_type}")
         
         try:
-            # Common tools available to all clients
+            # Common tools available to all clients (SillyTavern, VS Code, LM Studio, etc.)
             common_tools = [
             Tool(
                 name="search_memories",
@@ -178,16 +163,6 @@ class FridayMemoryMCPServer:
                         "priority_level": {"type": "integer", "description": "Priority (1-10)", "default": 5}
                     },
                     "required": ["content", "due_datetime"]
-                }
-            ),
-            Tool(
-                name="get_reminders",
-                description="Get up to 5 active (uncompleted) reminders, sorted by due date.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of reminders to return", "default": 5}
-                    }
                 }
             ),
             Tool(
@@ -318,13 +293,73 @@ class FridayMemoryMCPServer:
         ]
         
         try:
-            # For LM Studio: only return common memory tools (no VS Code specific tools)
-            # VS Code gets all tools when properly detected
-            # For now, assume external clients (like LM Studio) should only get common tools
-            return common_tools  # Only memory tools, no VS Code specific ones
+            # Return appropriate tools based on client type
+            if client_type == "sillytavern":
+                # SillyTavern gets memory tools + character/roleplay specific tools
+                sillytavern_tools = [
+                    Tool(
+                        name="get_character_context",
+                        description="Get relevant context about characters from memory",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "character_name": {"type": "string", "description": "Character name to search for"},
+                                "context_type": {"type": "string", "description": "Type of context (personality, relationships, history)"},
+                                "limit": {"type": "integer", "description": "Max results", "default": 5}
+                            },
+                            "required": ["character_name"]
+                        }
+                    ),
+                    Tool(
+                        name="store_roleplay_memory",
+                        description="Store important roleplay moments or character developments",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "character_name": {"type": "string", "description": "Character involved"},
+                                "event_description": {"type": "string", "description": "What happened"},
+                                "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"}
+                            },
+                            "required": ["character_name", "event_description"]
+                        }
+                    ),
+                    Tool(
+                        name="search_roleplay_history",
+                        description="Search past roleplay interactions and character development",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "Search query"},
+                                "character_name": {"type": "string", "description": "Focus on specific character"},
+                                "limit": {"type": "integer", "description": "Max results", "default": 10}
+                            },
+                            "required": ["query"]
+                        }
+                    )
+                ]
+                return common_tools + sillytavern_tools
+            
+            elif client_type == "vscode":
+                # VS Code gets development-specific tools
+                return common_tools + vscode_tools
+            
+            else:
+                # Default: LM Studio, Ollama UIs, etc. get core memory tools only
+                return common_tools
+                
         except Exception as e:
             logger.error(f"Error combining tool lists: {e}")
             return []
+
+    def _detect_client_type(self) -> str:
+        """Detect the type of MCP client connecting"""
+        # This is a placeholder - in real implementation we might check:
+        # - User agent headers
+        # - Connection parameters
+        # - Client capabilities during handshake
+        # For now, assume external clients are SillyTavern if not VS Code
+        return "unknown"  # Will be enhanced based on actual client detection
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
@@ -349,10 +384,6 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.create_appointment(**arguments)
             elif tool_name == "create_reminder":
                 result = await self.memory_system.create_reminder(**arguments)
-            elif tool_name == "get_reminders":
-                limit = arguments.get("limit", 5)
-                reminders = await self.memory_system.get_active_reminders()
-                result = reminders[:limit] if reminders else []
             elif tool_name == "get_recent_context":
                 result = await self.memory_system.get_recent_context(**arguments)
             elif tool_name == "get_system_health":
@@ -373,6 +404,13 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.reflect_on_tool_usage(**arguments)
             elif tool_name == "get_ai_insights":
                 result = await self.memory_system.get_ai_insights(**arguments)
+            # SillyTavern-specific tools
+            elif tool_name == "get_character_context":
+                result = await self.memory_system.get_character_context(**arguments)
+            elif tool_name == "store_roleplay_memory":
+                result = await self.memory_system.store_roleplay_memory(**arguments)
+            elif tool_name == "search_roleplay_history":
+                result = await self.memory_system.search_roleplay_history(**arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
