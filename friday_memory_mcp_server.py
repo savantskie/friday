@@ -12,10 +12,14 @@ print("Friday Memory MCP Server starting...")  # This will show up in stdout imm
 import asyncio
 import json
 import logging
+import sqlite3
+import os
+import numpy as np
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timezone
 import time
 import warnings
+from pathlib import Path
 # MCP imports
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -44,6 +48,13 @@ class FridayMemoryMCPServer:
         self.client_context = {}  # Track client-specific context
         self._maintenance_task = None  # Background maintenance task
         
+        # Set up reminders database path (same as memory system data_dir)
+        self.memory_data_dir = Path("memory_data")
+        self.reminders_db_path = self.memory_data_dir / "reminders.db"
+        
+        # Initialize reminders database
+        self._initialize_reminders_database()
+        
         # Enable debug logging for MCP server
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
         
@@ -54,6 +65,49 @@ class FridayMemoryMCPServer:
         self._start_automatic_maintenance()
         
         logger.info("FridayMemoryMCPServer initialized successfully")
+    
+    def _initialize_reminders_database(self):
+        """Initialize the dedicated reminders database"""
+        try:
+            # Make sure the directory exists
+            self.memory_data_dir.mkdir(exist_ok=True)
+            
+            with sqlite3.connect(self.reminders_db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create reminders table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS reminders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content TEXT NOT NULL,
+                        due_datetime TEXT NOT NULL,
+                        priority_level INTEGER DEFAULT 5,
+                        created_at TEXT NOT NULL,
+                        completed BOOLEAN DEFAULT FALSE,
+                        completed_at TEXT NULL,
+                        source_conversation_id TEXT NULL,
+                        metadata TEXT NULL,
+                        embedding BLOB NULL
+                    )
+                """)
+                
+                # Create indexes for faster queries
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_reminders_due_datetime 
+                    ON reminders(due_datetime)
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_reminders_completed 
+                    ON reminders(completed)
+                """)
+                
+                conn.commit()
+                print(f"✅ Reminders database initialized at: {self.reminders_db_path}")
+                
+        except Exception as e:
+            print(f"❌ Error initializing reminders database: {e}")
+            raise
     
     def _register_handlers(self):
         """Register MCP server handlers"""
@@ -163,6 +217,18 @@ class FridayMemoryMCPServer:
                         "priority_level": {"type": "integer", "description": "Priority (1-10)", "default": 5}
                     },
                     "required": ["content", "due_datetime"]
+                }
+            ),
+            Tool(
+                name="get_reminders",
+                description="Get recent reminders, optionally filtered by date range",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of reminders to return", "default": 5},
+                        "include_completed": {"type": "boolean", "description": "Include completed reminders", "default": False},
+                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30}
+                    }
                 }
             ),
             Tool(
@@ -361,6 +427,175 @@ class FridayMemoryMCPServer:
         # For now, assume external clients are SillyTavern if not VS Code
         return "unknown"  # Will be enhanced based on actual client detection
     
+    async def create_reminder_direct(self, content: str, due_datetime: str, 
+                                   priority_level: int = 5, source_conversation_id: str = None) -> Dict:
+        """Create a reminder directly in reminders database (bypassing schedule_db)"""
+        try:
+            # Get current local time
+            created_at = datetime.now().isoformat()
+            
+            # Validate due_datetime format
+            try:
+                # This will raise an exception if the format is invalid
+                datetime.fromisoformat(due_datetime.replace('Z', '+00:00'))
+            except ValueError:
+                return {
+                    "status": "error",
+                    "error": "Invalid due_datetime format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
+                }
+            
+            # Ensure priority is within bounds
+            priority_level = max(1, min(10, priority_level))
+            
+            with sqlite3.connect(self.reminders_db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT INTO reminders (content, due_datetime, priority_level, created_at, source_conversation_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (content, due_datetime, priority_level, created_at, source_conversation_id))
+                
+                reminder_id = cursor.lastrowid
+                conn.commit()
+                
+                print(f"✅ Reminder created with ID: {reminder_id}")
+                
+                # Generate and store embedding for the reminder content (async)
+                asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
+                
+                return {
+                    "status": "success",
+                    "reminder_id": reminder_id,
+                    "message": f"Reminder created successfully",
+                    "due_datetime": due_datetime,
+                    "priority_level": priority_level
+                }
+                
+        except Exception as e:
+            print(f"❌ Error creating reminder: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def get_reminders_direct(self, limit: int = 5, include_completed: bool = False, days_ahead: int = 30) -> Dict:
+        """Get reminders directly from reminders database"""
+        try:
+            with sqlite3.connect(self.reminders_db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Build the query based on parameters
+                query = """
+                    SELECT id, content, due_datetime, priority_level, created_at, completed, completed_at, source_conversation_id
+                    FROM reminders
+                    WHERE 1=1
+                """
+                params = []
+                
+                # Filter by completion status
+                if not include_completed:
+                    query += " AND completed = 0"
+                
+                # Filter by date range (only show reminders due within X days)
+                if days_ahead > 0:
+                    from datetime import datetime, timedelta
+                    future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
+                    query += " AND due_datetime <= ?"
+                    params.append(future_date)
+                
+                # Order by due date (soonest first) and limit results
+                query += " ORDER BY due_datetime ASC LIMIT ?"
+                params.append(limit)
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                # Format results
+                reminders = []
+                for row in rows:
+                    reminder = {
+                        "id": row[0],
+                        "content": row[1],
+                        "due_datetime": row[2],
+                        "priority_level": row[3],
+                        "created_at": row[4],
+                        "completed": bool(row[5]),
+                        "completed_at": row[6],
+                        "source_conversation_id": row[7]
+                    }
+                    
+                    # Add human-readable time info
+                    try:
+                        due_dt = datetime.fromisoformat(row[2].replace('Z', '+00:00'))
+                        now = datetime.now()
+                        time_diff = due_dt - now
+                        
+                        if time_diff.total_seconds() < 0:
+                            reminder["status"] = "overdue"
+                            reminder["time_until_due"] = f"Overdue by {abs(time_diff.days)} days"
+                        elif time_diff.days == 0:
+                            hours = int(time_diff.total_seconds() / 3600)
+                            if hours <= 0:
+                                minutes = int(time_diff.total_seconds() / 60)
+                                reminder["time_until_due"] = f"Due in {minutes} minutes"
+                            else:
+                                reminder["time_until_due"] = f"Due in {hours} hours"
+                            reminder["status"] = "due_today"
+                        else:
+                            reminder["status"] = "upcoming"
+                            reminder["time_until_due"] = f"Due in {time_diff.days} days"
+                    except:
+                        reminder["status"] = "unknown"
+                        reminder["time_until_due"] = "Unknown"
+                    
+                    reminders.append(reminder)
+                
+                return {
+                    "success": True,
+                    "reminders": reminders,
+                    "count": len(reminders),
+                    "total_in_db": self._get_total_reminders_count(include_completed)
+                }
+                
+        except Exception as e:
+            print(f"❌ Error getting reminders: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "reminders": []
+            }
+    
+    def _get_total_reminders_count(self, include_completed: bool = False) -> int:
+        """Get total count of reminders in database"""
+        try:
+            with sqlite3.connect(self.reminders_db_path) as conn:
+                cursor = conn.cursor()
+                
+                if include_completed:
+                    cursor.execute("SELECT COUNT(*) FROM reminders")
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM reminders WHERE completed = 0")
+                
+                return cursor.fetchone()[0]
+        except:
+            return 0
+    
+    async def _add_embedding_to_reminder(self, reminder_id: int, content: str):
+        """Add embedding to a reminder (background task)"""
+        try:
+            embedding = await self.memory_system.embedding_service.generate_embedding(content)
+            if embedding:
+                embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
+                with sqlite3.connect(self.reminders_db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE reminders SET embedding = ? WHERE id = ?",
+                        (embedding_blob, reminder_id)
+                    )
+                    conn.commit()
+        except Exception as e:
+            print(f"⚠️ Could not add embedding to reminder {reminder_id}: {e}")
+    
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
         
@@ -383,7 +618,11 @@ class FridayMemoryMCPServer:
             elif tool_name == "create_appointment":
                 result = await self.memory_system.create_appointment(**arguments)
             elif tool_name == "create_reminder":
-                result = await self.memory_system.create_reminder(**arguments)
+                # Use our direct reminder creation instead of memory_system.create_reminder
+                result = await self.create_reminder_direct(**arguments)
+            elif tool_name == "get_reminders":
+                # Use our direct reminder retrieval
+                result = await self.get_reminders_direct(**arguments)
             elif tool_name == "get_recent_context":
                 result = await self.memory_system.get_recent_context(**arguments)
             elif tool_name == "get_system_health":
@@ -419,14 +658,17 @@ class FridayMemoryMCPServer:
             execution_time_ms = (end_time - start_time) * 1000
             
             # Log tool call for AI self-reflection (async, don't wait)
-            asyncio.create_task(self.memory_system.log_tool_call(
-                client_id=client_id,
-                tool_name=tool_name,
-                parameters=arguments,
-                execution_time_ms=execution_time_ms,
-                status="success",
-                result=result
-            ))
+            try:
+                asyncio.create_task(self.memory_system.log_tool_call(
+                    client_id=client_id,
+                    tool_name=tool_name,
+                    parameters=arguments,
+                    execution_time_ms=execution_time_ms,
+                    status="success",
+                    result=result
+                ))
+            except Exception as log_error:
+                logger.warning(f"Could not log tool call: {log_error}")
             
             # Format the result as a proper TextContent object
             if isinstance(result, (dict, list)):
@@ -455,14 +697,17 @@ class FridayMemoryMCPServer:
             execution_time_ms = (end_time - start_time) * 1000
             
             # Log tool call failure for AI self-reflection (async, don't wait)
-            asyncio.create_task(self.memory_system.log_tool_call(
-                client_id=client_id,
-                tool_name=tool_name,
-                parameters=arguments,
-                execution_time_ms=execution_time_ms,
-                status="error",
-                error_message=str(e)
-            ))
+            try:
+                asyncio.create_task(self.memory_system.log_tool_call(
+                    client_id=client_id,
+                    tool_name=tool_name,
+                    parameters=arguments,
+                    execution_time_ms=execution_time_ms,
+                    status="error",
+                    error_message=str(e)
+                ))
+            except Exception as log_error:
+                logger.warning(f"Could not log tool call failure: {log_error}")
             
             logger.error(f"Error executing tool {tool_name}: {e}")
             return {
