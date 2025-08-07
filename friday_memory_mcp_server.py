@@ -34,12 +34,93 @@ from mcp.types import (
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
 
+
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class FridayMemoryMCPServer:
+    async def get_appointments_direct(self, limit: int = 5, days_ahead: int = 30) -> Dict:
+        """Get appointments directly from schedule database"""
+        try:
+            schedule_db_path = str(Path("memory_data") / "schedule.db")
+            with sqlite3.connect(schedule_db_path) as conn:
+                cursor = conn.cursor()
+                query = """
+                    SELECT id, title, datetime, notes, location, source_conversation_id
+                    FROM appointments
+                    WHERE 1=1
+                """
+                params = []
+                if days_ahead > 0:
+                    from datetime import datetime, timedelta
+                    future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
+                    query += " AND datetime <= ?"
+                    params.append(future_date)
+                query += " ORDER BY datetime ASC LIMIT ?"
+                params.append(limit)
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                appointments = []
+                for row in rows:
+                    appointment = {
+                        "id": row[0],
+                        "title": row[1],
+                        "scheduled_datetime": row[2],
+                        "description": row[3],
+                        "location": row[4],
+                        "source_conversation_id": row[5]
+                    }
+                    # Add human-readable time info
+                    try:
+                        sched_dt = datetime.fromisoformat(row[2].replace('Z', '+00:00'))
+                        now = datetime.now()
+                        time_diff = sched_dt - now
+                        if time_diff.total_seconds() < 0:
+                            appointment["status"] = "past"
+                            appointment["time_until"] = f"Occurred {abs(time_diff.days)} days ago"
+                        elif time_diff.days == 0:
+                            hours = int(time_diff.total_seconds() / 3600)
+                            if hours <= 0:
+                                minutes = int(time_diff.total_seconds() / 60)
+                                appointment["time_until"] = f"In {minutes} minutes"
+                            else:
+                                appointment["time_until"] = f"In {hours} hours"
+                            appointment["status"] = "today"
+                        else:
+                            appointment["status"] = "upcoming"
+                            appointment["time_until"] = f"In {time_diff.days} days"
+                    except:
+                        appointment["status"] = "unknown"
+                        appointment["time_until"] = "Unknown"
+                    appointments.append(appointment)
+                return {
+                    "success": True,
+                    "appointments": appointments,
+                    "count": len(appointments)
+                }
+        except Exception as e:
+            print(f"❌ Error getting appointments: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "appointments": []
+            }
+    async def get_current_time_tool(self) -> Dict:
+        """Return the current server time in ISO format (system local time only)"""
+        try:
+            now_local = datetime.now().isoformat()
+            return {
+                "success": True,
+                "current_time": now_local
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
     """MCP Server for Friday's Memory System"""
     
     def __init__(self):
@@ -47,23 +128,12 @@ class FridayMemoryMCPServer:
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
         self._maintenance_task = None  # Background maintenance task
-        
-        # Set up reminders database path (same as memory system data_dir)
         self.memory_data_dir = Path("memory_data")
-        self.reminders_db_path = self.memory_data_dir / "reminders.db"
-        
-        # Initialize reminders database
-        self._initialize_reminders_database()
-        
+        self.schedule_db_path = self.memory_data_dir / "schedule.db"
         # Enable debug logging for MCP server
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
-        
-        # Register MCP handlers
         self._register_handlers()
-        
-        # Start automatic maintenance
         self._start_automatic_maintenance()
-        
         logger.info("FridayMemoryMCPServer initialized successfully")
     
     def _initialize_reminders_database(self):
@@ -72,7 +142,7 @@ class FridayMemoryMCPServer:
             # Make sure the directory exists
             self.memory_data_dir.mkdir(exist_ok=True)
             
-            with sqlite3.connect(self.reminders_db_path) as conn:
+            with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
                 
                 # Create reminders table
@@ -103,7 +173,7 @@ class FridayMemoryMCPServer:
                 """)
                 
                 conn.commit()
-                print(f"✅ Reminders database initialized at: {self.reminders_db_path}")
+                print(f"✅ Reminders database initialized at: {self.schedule_db_path}")
                 
         except Exception as e:
             print(f"❌ Error initializing reminders database: {e}")
@@ -284,6 +354,28 @@ class FridayMemoryMCPServer:
                     }
                 }
             )
+            ,
+            Tool(
+                name="get_current_time",
+                description="Get the current server time in ISO format (UTC and local)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                }
+            )
+            ,
+            Tool(
+                name="get_appointments",
+                description="Get recent appointments, optionally filtered by date range",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of appointments to return", "default": 5},
+                        "days_ahead": {"type": "integer", "description": "Only show appointments scheduled within X days", "default": 30}
+                    }
+                }
+            )
         ]
         except Exception as e:
             logger.error(f"Error creating common tools: {e}")
@@ -429,40 +521,27 @@ class FridayMemoryMCPServer:
     
     async def create_reminder_direct(self, content: str, due_datetime: str, 
                                    priority_level: int = 5, source_conversation_id: str = None) -> Dict:
-        """Create a reminder directly in reminders database (bypassing schedule_db)"""
+        """Create a reminder directly in schedule database"""
         try:
-            # Get current local time
             created_at = datetime.now().isoformat()
-            
-            # Validate due_datetime format
             try:
-                # This will raise an exception if the format is invalid
                 datetime.fromisoformat(due_datetime.replace('Z', '+00:00'))
             except ValueError:
                 return {
                     "status": "error",
                     "error": "Invalid due_datetime format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
                 }
-            
-            # Ensure priority is within bounds
             priority_level = max(1, min(10, priority_level))
-            
-            with sqlite3.connect(self.reminders_db_path) as conn:
+            with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
-                
                 cursor.execute("""
-                    INSERT INTO reminders (content, due_datetime, priority_level, created_at, source_conversation_id)
+                    INSERT INTO reminders (text, datetime, is_active, created_at, source_conversation_id)
                     VALUES (?, ?, ?, ?, ?)
-                """, (content, due_datetime, priority_level, created_at, source_conversation_id))
-                
+                """, (content, due_datetime, 1, created_at, source_conversation_id))
                 reminder_id = cursor.lastrowid
                 conn.commit()
-                
                 print(f"✅ Reminder created with ID: {reminder_id}")
-                
-                # Generate and store embedding for the reminder content (async)
                 asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
-                
                 return {
                     "status": "success",
                     "reminder_id": reminder_id,
@@ -470,7 +549,6 @@ class FridayMemoryMCPServer:
                     "due_datetime": due_datetime,
                     "priority_level": priority_level
                 }
-                
         except Exception as e:
             print(f"❌ Error creating reminder: {e}")
             return {
@@ -479,57 +557,41 @@ class FridayMemoryMCPServer:
             }
 
     async def get_reminders_direct(self, limit: int = 5, include_completed: bool = False, days_ahead: int = 30) -> Dict:
-        """Get reminders directly from reminders database"""
+        """Get reminders directly from schedule database"""
         try:
-            with sqlite3.connect(self.reminders_db_path) as conn:
+            with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Build the query based on parameters
                 query = """
-                    SELECT id, content, due_datetime, priority_level, created_at, completed, completed_at, source_conversation_id
+                    SELECT id, text, datetime, is_active, created_at, source_conversation_id
                     FROM reminders
                     WHERE 1=1
                 """
                 params = []
-                
-                # Filter by completion status
                 if not include_completed:
-                    query += " AND completed = 0"
-                
-                # Filter by date range (only show reminders due within X days)
+                    query += " AND is_active = 1"
                 if days_ahead > 0:
                     from datetime import datetime, timedelta
                     future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
-                    query += " AND due_datetime <= ?"
+                    query += " AND datetime <= ?"
                     params.append(future_date)
-                
-                # Order by due date (soonest first) and limit results
-                query += " ORDER BY due_datetime ASC LIMIT ?"
+                query += " ORDER BY datetime ASC LIMIT ?"
                 params.append(limit)
-                
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
-                
-                # Format results
                 reminders = []
                 for row in rows:
                     reminder = {
                         "id": row[0],
                         "content": row[1],
                         "due_datetime": row[2],
-                        "priority_level": row[3],
+                        "is_active": bool(row[3]),
                         "created_at": row[4],
-                        "completed": bool(row[5]),
-                        "completed_at": row[6],
-                        "source_conversation_id": row[7]
+                        "source_conversation_id": row[5]
                     }
-                    
-                    # Add human-readable time info
                     try:
                         due_dt = datetime.fromisoformat(row[2].replace('Z', '+00:00'))
                         now = datetime.now()
                         time_diff = due_dt - now
-                        
                         if time_diff.total_seconds() < 0:
                             reminder["status"] = "overdue"
                             reminder["time_until_due"] = f"Overdue by {abs(time_diff.days)} days"
@@ -547,16 +609,12 @@ class FridayMemoryMCPServer:
                     except:
                         reminder["status"] = "unknown"
                         reminder["time_until_due"] = "Unknown"
-                    
                     reminders.append(reminder)
-                
                 return {
                     "success": True,
                     "reminders": reminders,
-                    "count": len(reminders),
-                    "total_in_db": self._get_total_reminders_count(include_completed)
+                    "count": len(reminders)
                 }
-                
         except Exception as e:
             print(f"❌ Error getting reminders: {e}")
             return {
@@ -586,7 +644,7 @@ class FridayMemoryMCPServer:
             embedding = await self.memory_system.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
-                with sqlite3.connect(self.reminders_db_path) as conn:
+                with sqlite3.connect(self.schedule_db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         "UPDATE reminders SET embedding = ? WHERE id = ?",
@@ -611,18 +669,43 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.search_memories(**arguments)
             elif tool_name == "store_conversation":
                 result = await self.memory_system.store_conversation(**arguments)
+            if tool_name == "create_appointment":
+                result = await self.memory_system.create_appointment(
+                    title=arguments.get("title"),
+                    scheduled_datetime=arguments.get("scheduled_datetime"),
+                    description=arguments.get("description"),
+                    location=arguments.get("location"),
+                    source_conversation_id=arguments.get("source_conversation_id")
+                )
+            elif tool_name == "get_appointments":
+                result = await self.memory_system.get_appointments(
+                    limit=arguments.get("limit", 5),
+                    days_ahead=arguments.get("days_ahead", 30)
+                )
+            elif tool_name == "create_reminder":
+                result = await self.memory_system.create_reminder(
+                    content=arguments.get("content"),
+                    due_datetime=arguments.get("due_datetime"),
+                    priority_level=arguments.get("priority_level", 5),
+                    source_conversation_id=arguments.get("source_conversation_id")
+                )
+            elif tool_name == "get_reminders":
+                result = await self.memory_system.get_reminders(
+                    limit=arguments.get("limit", 5),
+                    include_completed=arguments.get("include_completed", False),
+                    days_ahead=arguments.get("days_ahead", 30)
+                )
+            # ...existing code for other tools...
+            elif tool_name == "search_memories":
+                result = await self.memory_system.search_memories(**arguments)
+            elif tool_name == "get_current_time":
+                result = await self.get_current_time_tool()    
+            elif tool_name == "store_conversation":
+                result = await self.memory_system.store_conversation(**arguments)
             elif tool_name == "create_memory":
                 result = await self.memory_system.create_memory(**arguments)
             elif tool_name == "update_memory":
                 result = await self.memory_system.update_memory(**arguments)
-            elif tool_name == "create_appointment":
-                result = await self.memory_system.create_appointment(**arguments)
-            elif tool_name == "create_reminder":
-                # Use our direct reminder creation instead of memory_system.create_reminder
-                result = await self.create_reminder_direct(**arguments)
-            elif tool_name == "get_reminders":
-                # Use our direct reminder retrieval
-                result = await self.get_reminders_direct(**arguments)
             elif tool_name == "get_recent_context":
                 result = await self.memory_system.get_recent_context(**arguments)
             elif tool_name == "get_system_health":
@@ -643,7 +726,6 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.reflect_on_tool_usage(**arguments)
             elif tool_name == "get_ai_insights":
                 result = await self.memory_system.get_ai_insights(**arguments)
-            # SillyTavern-specific tools
             elif tool_name == "get_character_context":
                 result = await self.memory_system.get_character_context(**arguments)
             elif tool_name == "store_roleplay_memory":
@@ -652,7 +734,7 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.search_roleplay_history(**arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
-            
+
             # Calculate execution time and log successful call
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000

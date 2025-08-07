@@ -95,12 +95,18 @@ class DatabaseManager:
 class ConversationDatabase(DatabaseManager):
     """Manages conversation auto-save database"""
     
-    def __init__(self, db_path: str = "conversations.db"):
+    def __init__(self, db_path: str = "memory_data/conversations.db"):
         super().__init__(db_path)
         self.initialize_tables()
+        # Debug: log the absolute path to a file in memory_data
+        import os
+        debug_path = os.path.abspath(db_path)
+        log_file = os.path.join(os.path.dirname(debug_path), "db_debug_log.txt")
+        with open(log_file, "a") as f:
+            f.write(f"ConversationDatabase using: {debug_path}\n")
     
     def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
             # Sessions table
             conn.execute("""
@@ -113,7 +119,7 @@ class ConversationDatabase(DatabaseManager):
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Conversations table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS conversations (
@@ -127,28 +133,91 @@ class ConversationDatabase(DatabaseManager):
                     FOREIGN KEY (session_id) REFERENCES sessions (session_id)
                 )
             """)
-            
-            # Messages table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    message_id TEXT PRIMARY KEY,
-                    conversation_id TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    source_type TEXT NOT NULL,  -- chatgpt, claude, vscode, etc.
-                    source_id TEXT,  -- Original ID from source system
-                    source_url TEXT,  -- URL or path to original content
-                    source_metadata TEXT,  -- Source-specific metadata
-                    sync_status TEXT,  -- pending, synced, error
-                    last_sync TEXT,  -- Last sync timestamp
-                    metadata TEXT,  -- General metadata
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
-                )
-            """)
-            
+
+            # --- MIGRATION LOGIC FOR MESSAGES TABLE ---
+            # Define expected columns
+            expected_columns = [
+                'message_id', 'conversation_id', 'timestamp', 'role', 'content', 'source_type',
+                'source_id', 'source_url', 'source_metadata', 'sync_status', 'last_sync',
+                'metadata', 'embedding', 'created_at'
+            ]
+            # Get current columns
+            cur = conn.execute("PRAGMA table_info(messages)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in expected_columns:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            # If migration needed, backup data, drop, recreate, restore
+            if needs_migration:
+                logger.warning("Migrating messages table to new schema!")
+                # Backup old data
+                old_rows = conn.execute("SELECT * FROM messages").fetchall()
+                # Drop old table
+                conn.execute("DROP TABLE IF EXISTS messages")
+                # Recreate with new schema
+                conn.execute("""
+                    CREATE TABLE messages (
+                        message_id TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_type TEXT NOT NULL,
+                        source_id TEXT,
+                        source_url TEXT,
+                        source_metadata TEXT,
+                        sync_status TEXT,
+                        last_sync TEXT,
+                        metadata TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
+                    )
+                """)
+                # Restore old data
+                for row in old_rows:
+                    # Build new row dict with defaults for missing columns
+                    row_dict = dict(row)
+                    for col in expected_columns:
+                        if col not in row_dict:
+                            if col == 'source_type':
+                                row_dict[col] = 'unknown'
+                            elif col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    # Insert
+                    conn.execute(
+                        f"INSERT INTO messages ({', '.join(expected_columns)}) VALUES ({', '.join(['?' for _ in expected_columns])})",
+                        tuple(row_dict[col] for col in expected_columns)
+                    )
+                logger.warning(f"Restored {len(old_rows)} messages after migration.")
+
+            else:
+                # Create table if not exists (normal path)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        message_id TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_type TEXT NOT NULL,
+                        source_id TEXT,
+                        source_url TEXT,
+                        source_metadata TEXT,
+                        sync_status TEXT,
+                        last_sync TEXT,
+                        metadata TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
+                    )
+                """)
+
             # Source metadata table for tracking chat sources
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS source_tracking (
@@ -170,14 +239,14 @@ class ConversationDatabase(DatabaseManager):
                     relationship_id TEXT PRIMARY KEY,
                     source_conversation_id TEXT NOT NULL,
                     related_conversation_id TEXT NOT NULL,
-                    relationship_type TEXT NOT NULL,  -- continuation, reference, fork, etc.
+                    relationship_type TEXT NOT NULL,
                     metadata TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (source_conversation_id) REFERENCES conversations (conversation_id),
                     FOREIGN KEY (related_conversation_id) REFERENCES conversations (conversation_id)
                 )
             """)
-            
+
             conn.commit()
     
     async def store_message(self, content: str, role: str, session_id: str = None, 
@@ -289,28 +358,77 @@ class ConversationDatabase(DatabaseManager):
 class AIMemoryDatabase(DatabaseManager):
     """Manages AI-curated memories database"""
     
-    def __init__(self, db_path: str = "ai_memories.db"):
+    def __init__(self, db_path: str = "memory_data/ai_memories.db"):
         super().__init__(db_path)
         self.initialize_tables()
     
     def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS curated_memories (
-                    memory_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    timestamp_updated TEXT NOT NULL,
-                    source_conversation_id TEXT,
-                    source_message_ids TEXT,
-                    memory_type TEXT,
-                    content TEXT NOT NULL,
-                    importance_level INTEGER DEFAULT 5,
-                    tags TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            # --- MIGRATION LOGIC FOR CURATED_MEMORIES TABLE ---
+            expected_columns = [
+                'memory_id', 'timestamp_created', 'timestamp_updated', 'source_conversation_id',
+                'source_message_ids', 'memory_type', 'content', 'importance_level', 'tags',
+                'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(curated_memories)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in expected_columns:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating curated_memories table to new schema!")
+                old_rows = conn.execute("SELECT * FROM curated_memories").fetchall()
+                conn.execute("DROP TABLE IF EXISTS curated_memories")
+                conn.execute("""
+                    CREATE TABLE curated_memories (
+                        memory_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        timestamp_updated TEXT NOT NULL,
+                        source_conversation_id TEXT,
+                        source_message_ids TEXT,
+                        memory_type TEXT,
+                        content TEXT NOT NULL,
+                        importance_level INTEGER DEFAULT 5,
+                        tags TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in expected_columns:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'timestamp_updated' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            elif col == 'importance_level':
+                                row_dict[col] = 5
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO curated_memories ({', '.join(expected_columns)}) VALUES ({', '.join(['?' for _ in expected_columns])})",
+                        tuple(row_dict[col] for col in expected_columns)
+                    )
+                logger.warning(f"Restored {len(old_rows)} curated memories after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS curated_memories (
+                        memory_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        timestamp_updated TEXT NOT NULL,
+                        source_conversation_id TEXT,
+                        source_message_ids TEXT,
+                        memory_type TEXT,
+                        content TEXT NOT NULL,
+                        importance_level INTEGER DEFAULT 5,
+                        tags TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             conn.commit()
     
     async def create_memory(self, content: str, memory_type: str = None, 
@@ -384,45 +502,146 @@ class AIMemoryDatabase(DatabaseManager):
 
 
 class ScheduleDatabase(DatabaseManager):
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> List[Dict]:
+        """Get recent appointments, optionally filtered by date range"""
+        now = datetime.now(get_local_timezone())
+        future = now + timedelta(days=days_ahead)
+        query = """
+            SELECT * FROM appointments
+            WHERE scheduled_datetime >= ? AND scheduled_datetime <= ?
+            ORDER BY scheduled_datetime ASC
+            LIMIT ?
+        """
+        rows = await self.execute_query(query, (now.isoformat(), future.isoformat(), limit))
+        return [dict(row) for row in rows]
     """Manages appointments and reminders database"""
     
-    def __init__(self, db_path: str = "schedule.db"):
+    def __init__(self, db_path: str = "memory_data/schedule.db"):
         super().__init__(db_path)
         self.initialize_tables()
     
     def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
-            # Appointments table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS appointments (
-                    appointment_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    scheduled_datetime TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    location TEXT,
-                    source_conversation_id TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Reminders table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS reminders (
-                    reminder_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    due_datetime TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    priority_level INTEGER DEFAULT 5,
-                    completed INTEGER DEFAULT 0,
-                    source_conversation_id TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
+            # --- MIGRATION LOGIC FOR APPOINTMENTS TABLE ---
+            appointments_expected = [
+                'appointment_id', 'timestamp_created', 'scheduled_datetime', 'title', 'description',
+                'location', 'source_conversation_id', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(appointments)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in appointments_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating appointments table to new schema!")
+                old_rows = conn.execute("SELECT * FROM appointments").fetchall()
+                conn.execute("DROP TABLE IF EXISTS appointments")
+                conn.execute("""
+                    CREATE TABLE appointments (
+                        appointment_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        scheduled_datetime TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        location TEXT,
+                        source_conversation_id TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in appointments_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'scheduled_datetime' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO appointments ({', '.join(appointments_expected)}) VALUES ({', '.join(['?' for _ in appointments_expected])})",
+                        tuple(row_dict[col] for col in appointments_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} appointments after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS appointments (
+                        appointment_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        scheduled_datetime TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        location TEXT,
+                        source_conversation_id TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR REMINDERS TABLE ---
+            reminders_expected = [
+                'reminder_id', 'timestamp_created', 'due_datetime', 'content', 'priority_level',
+                'completed', 'source_conversation_id', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(reminders)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in reminders_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating reminders table to new schema!")
+                old_rows = conn.execute("SELECT * FROM reminders").fetchall()
+                conn.execute("DROP TABLE IF EXISTS reminders")
+                conn.execute("""
+                    CREATE TABLE reminders (
+                        reminder_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        due_datetime TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        priority_level INTEGER DEFAULT 5,
+                        completed INTEGER DEFAULT 0,
+                        source_conversation_id TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in reminders_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'due_datetime' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            elif col == 'priority_level':
+                                row_dict[col] = 5
+                            elif col == 'completed':
+                                row_dict[col] = 0
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO reminders ({', '.join(reminders_expected)}) VALUES ({', '.join(['?' for _ in reminders_expected])})",
+                        tuple(row_dict[col] for col in reminders_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} reminders after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS reminders (
+                        reminder_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        due_datetime TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        priority_level INTEGER DEFAULT 5,
+                        completed INTEGER DEFAULT 0,
+                        source_conversation_id TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             conn.commit()
     
     async def create_appointment(self, title: str, scheduled_datetime: str, 
@@ -462,77 +681,254 @@ class ScheduleDatabase(DatabaseManager):
 class VSCodeProjectDatabase(DatabaseManager):
     """Manages VS Code project development database"""
     
-    def __init__(self, db_path: str = "vscode_project.db"):
+    def __init__(self, db_path: str = "memory_data/vscode_project.db"):
         super().__init__(db_path)
         self.initialize_tables()
     
     def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
-            # Project sessions table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS project_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    start_timestamp TEXT NOT NULL,
-                    end_timestamp TEXT,
-                    workspace_path TEXT NOT NULL,
-                    active_files TEXT,
-                    git_branch TEXT,
-                    git_commit_hash TEXT,
-                    session_summary TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Development conversations table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS development_conversations (
-                    conversation_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    chat_context_id TEXT,
-                    conversation_content TEXT NOT NULL,
-                    decisions_made TEXT,
-                    code_changes TEXT,
-                    source_metadata TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (session_id) REFERENCES project_sessions (session_id)
-                )
-            """)
-            
-            # Project insights table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS project_insights (
-                    insight_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    timestamp_updated TEXT NOT NULL,
-                    insight_type TEXT,
-                    content TEXT NOT NULL,
-                    related_files TEXT,
-                    source_conversation_id TEXT,
-                    importance_level INTEGER DEFAULT 5,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Code context table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS code_context (
-                    context_id TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    function_name TEXT,
-                    description TEXT NOT NULL,
-                    purpose TEXT,
-                    related_insights TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
+            # --- MIGRATION LOGIC FOR PROJECT_SESSIONS TABLE ---
+            sessions_expected = [
+                'session_id', 'start_timestamp', 'end_timestamp', 'workspace_path', 'active_files',
+                'git_branch', 'git_commit_hash', 'session_summary', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(project_sessions)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in sessions_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating project_sessions table to new schema!")
+                old_rows = conn.execute("SELECT * FROM project_sessions").fetchall()
+                conn.execute("DROP TABLE IF EXISTS project_sessions")
+                conn.execute("""
+                    CREATE TABLE project_sessions (
+                        session_id TEXT PRIMARY KEY,
+                        start_timestamp TEXT NOT NULL,
+                        end_timestamp TEXT,
+                        workspace_path TEXT NOT NULL,
+                        active_files TEXT,
+                        git_branch TEXT,
+                        git_commit_hash TEXT,
+                        session_summary TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in sessions_expected:
+                        if col not in row_dict:
+                            if col == 'start_timestamp' or col == 'end_timestamp' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO project_sessions ({', '.join(sessions_expected)}) VALUES ({', '.join(['?' for _ in sessions_expected])})",
+                        tuple(row_dict[col] for col in sessions_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} project sessions after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS project_sessions (
+                        session_id TEXT PRIMARY KEY,
+                        start_timestamp TEXT NOT NULL,
+                        end_timestamp TEXT,
+                        workspace_path TEXT NOT NULL,
+                        active_files TEXT,
+                        git_branch TEXT,
+                        git_commit_hash TEXT,
+                        session_summary TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR DEVELOPMENT_CONVERSATIONS TABLE ---
+            devcon_expected = [
+                'conversation_id', 'session_id', 'timestamp', 'chat_context_id', 'conversation_content',
+                'decisions_made', 'code_changes', 'source_metadata', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(development_conversations)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in devcon_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating development_conversations table to new schema!")
+                old_rows = conn.execute("SELECT * FROM development_conversations").fetchall()
+                conn.execute("DROP TABLE IF EXISTS development_conversations")
+                conn.execute("""
+                    CREATE TABLE development_conversations (
+                        conversation_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        chat_context_id TEXT,
+                        conversation_content TEXT NOT NULL,
+                        decisions_made TEXT,
+                        code_changes TEXT,
+                        source_metadata TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (session_id) REFERENCES project_sessions (session_id)
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in devcon_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO development_conversations ({', '.join(devcon_expected)}) VALUES ({', '.join(['?' for _ in devcon_expected])})",
+                        tuple(row_dict[col] for col in devcon_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} development conversations after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS development_conversations (
+                        conversation_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        chat_context_id TEXT,
+                        conversation_content TEXT NOT NULL,
+                        decisions_made TEXT,
+                        code_changes TEXT,
+                        source_metadata TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (session_id) REFERENCES project_sessions (session_id)
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR PROJECT_INSIGHTS TABLE ---
+            insights_expected = [
+                'insight_id', 'timestamp_created', 'timestamp_updated', 'insight_type', 'content',
+                'related_files', 'source_conversation_id', 'importance_level', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(project_insights)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in insights_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating project_insights table to new schema!")
+                old_rows = conn.execute("SELECT * FROM project_insights").fetchall()
+                conn.execute("DROP TABLE IF EXISTS project_insights")
+                conn.execute("""
+                    CREATE TABLE project_insights (
+                        insight_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        timestamp_updated TEXT NOT NULL,
+                        insight_type TEXT,
+                        content TEXT NOT NULL,
+                        related_files TEXT,
+                        source_conversation_id TEXT,
+                        importance_level INTEGER DEFAULT 5,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in insights_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'timestamp_updated' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            elif col == 'importance_level':
+                                row_dict[col] = 5
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO project_insights ({', '.join(insights_expected)}) VALUES ({', '.join(['?' for _ in insights_expected])})",
+                        tuple(row_dict[col] for col in insights_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} project insights after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS project_insights (
+                        insight_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        timestamp_updated TEXT NOT NULL,
+                        insight_type TEXT,
+                        content TEXT NOT NULL,
+                        related_files TEXT,
+                        source_conversation_id TEXT,
+                        importance_level INTEGER DEFAULT 5,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR CODE_CONTEXT TABLE ---
+            codectx_expected = [
+                'context_id', 'timestamp', 'file_path', 'function_name', 'description', 'purpose',
+                'related_insights', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(code_context)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in codectx_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating code_context table to new schema!")
+                old_rows = conn.execute("SELECT * FROM code_context").fetchall()
+                conn.execute("DROP TABLE IF EXISTS code_context")
+                conn.execute("""
+                    CREATE TABLE code_context (
+                        context_id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL,
+                        file_path TEXT NOT NULL,
+                        function_name TEXT,
+                        description TEXT NOT NULL,
+                        purpose TEXT,
+                        related_insights TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in codectx_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO code_context ({', '.join(codectx_expected)}) VALUES ({', '.join(['?' for _ in codectx_expected])})",
+                        tuple(row_dict[col] for col in codectx_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} code contexts after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS code_context (
+                        context_id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL,
+                        file_path TEXT NOT NULL,
+                        function_name TEXT,
+                        description TEXT NOT NULL,
+                        purpose TEXT,
+                        related_insights TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             conn.commit()
     
     async def save_development_session(self, workspace_path: str, active_files: List[str] = None,
@@ -611,61 +1007,196 @@ class VSCodeProjectDatabase(DatabaseManager):
 class MCPToolCallDatabase(DatabaseManager):
     """Manages MCP tool call logging and AI self-reflection"""
     
-    def __init__(self, db_path: str = "mcp_tool_calls.db"):
+    def __init__(self, db_path: str = "memory_data/mcp_tool_calls.db"):
         super().__init__(db_path)
         self.initialize_tables()
     
     def initialize_tables(self):
-        """Create tables if they don't exist"""
+        """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
-            # Tool calls table - logs every MCP tool call
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tool_calls (
-                    call_id TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    client_id TEXT NOT NULL,
-                    tool_name TEXT NOT NULL,
-                    parameters TEXT,
-                    execution_time_ms REAL,
-                    status TEXT NOT NULL,
-                    result TEXT,
-                    error_message TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Tool usage patterns table - AI insights about tool usage
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS usage_patterns (
-                    pattern_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    analysis_period_days INTEGER NOT NULL,
-                    pattern_type TEXT NOT NULL,
-                    insight TEXT NOT NULL,
-                    confidence_score REAL DEFAULT 0.5,
-                    supporting_data TEXT,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # AI reflections table - AI's self-analysis
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ai_reflections (
-                    reflection_id TEXT PRIMARY KEY,
-                    timestamp_created TEXT NOT NULL,
-                    reflection_type TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    insights TEXT,
-                    recommendations TEXT,
-                    confidence_level REAL DEFAULT 0.5,
-                    source_period_days INTEGER,
-                    embedding BLOB,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
+            # --- MIGRATION LOGIC FOR TOOL_CALLS TABLE ---
+            toolcalls_expected = [
+                'call_id', 'timestamp', 'client_id', 'tool_name', 'parameters', 'execution_time_ms',
+                'status', 'result', 'error_message', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(tool_calls)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in toolcalls_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating tool_calls table to new schema!")
+                old_rows = conn.execute("SELECT * FROM tool_calls").fetchall()
+                conn.execute("DROP TABLE IF EXISTS tool_calls")
+                conn.execute("""
+                    CREATE TABLE tool_calls (
+                        call_id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL,
+                        client_id TEXT NOT NULL,
+                        tool_name TEXT NOT NULL,
+                        parameters TEXT,
+                        execution_time_ms REAL,
+                        status TEXT NOT NULL,
+                        result TEXT,
+                        error_message TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in toolcalls_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO tool_calls ({', '.join(toolcalls_expected)}) VALUES ({', '.join(['?' for _ in toolcalls_expected])})",
+                        tuple(row_dict[col] for col in toolcalls_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} tool calls after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS tool_calls (
+                        call_id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL,
+                        client_id TEXT NOT NULL,
+                        tool_name TEXT NOT NULL,
+                        parameters TEXT,
+                        execution_time_ms REAL,
+                        status TEXT NOT NULL,
+                        result TEXT,
+                        error_message TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR USAGE_PATTERNS TABLE ---
+            usage_expected = [
+                'pattern_id', 'timestamp_created', 'analysis_period_days', 'pattern_type', 'insight',
+                'confidence_score', 'supporting_data', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(usage_patterns)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in usage_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating usage_patterns table to new schema!")
+                old_rows = conn.execute("SELECT * FROM usage_patterns").fetchall()
+                conn.execute("DROP TABLE IF EXISTS usage_patterns")
+                conn.execute("""
+                    CREATE TABLE usage_patterns (
+                        pattern_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        analysis_period_days INTEGER NOT NULL,
+                        pattern_type TEXT NOT NULL,
+                        insight TEXT NOT NULL,
+                        confidence_score REAL DEFAULT 0.5,
+                        supporting_data TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in usage_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            elif col == 'confidence_score':
+                                row_dict[col] = 0.5
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO usage_patterns ({', '.join(usage_expected)}) VALUES ({', '.join(['?' for _ in usage_expected])})",
+                        tuple(row_dict[col] for col in usage_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} usage patterns after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS usage_patterns (
+                        pattern_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        analysis_period_days INTEGER NOT NULL,
+                        pattern_type TEXT NOT NULL,
+                        insight TEXT NOT NULL,
+                        confidence_score REAL DEFAULT 0.5,
+                        supporting_data TEXT,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # --- MIGRATION LOGIC FOR AI_REFLECTIONS TABLE ---
+            reflections_expected = [
+                'reflection_id', 'timestamp_created', 'reflection_type', 'content', 'insights',
+                'recommendations', 'confidence_level', 'source_period_days', 'embedding', 'created_at'
+            ]
+            cur = conn.execute("PRAGMA table_info(ai_reflections)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            needs_migration = False
+            if current_columns:
+                for col in reflections_expected:
+                    if col not in current_columns:
+                        needs_migration = True
+                        break
+            if needs_migration:
+                logger.warning("Migrating ai_reflections table to new schema!")
+                old_rows = conn.execute("SELECT * FROM ai_reflections").fetchall()
+                conn.execute("DROP TABLE IF EXISTS ai_reflections")
+                conn.execute("""
+                    CREATE TABLE ai_reflections (
+                        reflection_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        reflection_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        insights TEXT,
+                        recommendations TEXT,
+                        confidence_level REAL DEFAULT 0.5,
+                        source_period_days INTEGER,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                for row in old_rows:
+                    row_dict = dict(row)
+                    for col in reflections_expected:
+                        if col not in row_dict:
+                            if col == 'timestamp_created' or col == 'created_at':
+                                row_dict[col] = datetime.now().isoformat()
+                            elif col == 'confidence_level':
+                                row_dict[col] = 0.5
+                            else:
+                                row_dict[col] = None
+                    conn.execute(
+                        f"INSERT INTO ai_reflections ({', '.join(reflections_expected)}) VALUES ({', '.join(['?' for _ in reflections_expected])})",
+                        tuple(row_dict[col] for col in reflections_expected)
+                    )
+                logger.warning(f"Restored {len(old_rows)} ai reflections after migration.")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_reflections (
+                        reflection_id TEXT PRIMARY KEY,
+                        timestamp_created TEXT NOT NULL,
+                        reflection_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        insights TEXT,
+                        recommendations TEXT,
+                        confidence_level REAL DEFAULT 0.5,
+                        source_period_days INTEGER,
+                        embedding BLOB,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             conn.commit()
     
     async def log_tool_call(self, client_id: str, tool_name: str, parameters: Dict = None,
@@ -2646,6 +3177,13 @@ class EmbeddingService:
 
 
 class FridayMemorySystem:
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
+        """Get recent appointments from the schedule database"""
+        appointments = await self.schedule_db.get_appointments(limit, days_ahead)
+        return {
+            "appointments": appointments,
+            "count": len(appointments)
+        }
     """Main memory system that coordinates all databases and operations"""
     
     def __init__(self, data_dir: str = "memory_data", enable_file_monitoring: bool = True, 
