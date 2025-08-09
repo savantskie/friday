@@ -43,8 +43,8 @@ class DatabaseMaintenance:
     
     async def run_maintenance(self, force: bool = False) -> Dict:
         """Run full database maintenance"""
+        import traceback
         logger.info("🧹 Starting database maintenance...")
-        
         results = {
             "maintenance_timestamp": datetime.now(timezone.utc).isoformat(),
             "cleanup_results": {},
@@ -52,35 +52,29 @@ class DatabaseMaintenance:
             "statistics": {},
             "schema_upgrades": []
         }
-        
         try:
             # 0. Apply any needed schema upgrades
             logger.info("🔄 Checking and applying schema upgrades...")
             schema_upgrades = await self._upgrade_schemas()
             results["schema_upgrades"] = schema_upgrades
-            
             # 1. Clean up old data based on retention policies
             logger.info("📅 Applying retention policies...")
             results["cleanup_results"] = await self._apply_retention_policies(force)
-            
             # 2. Remove duplicate entries (shouldn't be many with our new system)
             logger.info("🔍 Removing any remaining duplicates...")
             results["cleanup_results"]["duplicates"] = await self._remove_duplicates()
-            
             # 3. Optimize database performance
             logger.info("⚡ Optimizing database performance...")
             results["optimization_results"] = await self._optimize_databases()
-            
             # 4. Collect post-cleanup statistics
             logger.info("📊 Collecting statistics...")
             results["statistics"] = await self._collect_statistics()
-            
             logger.info("✅ Database maintenance completed successfully")
-            
         except Exception as e:
-            logger.error(f"❌ Database maintenance failed: {e}")
+            tb = traceback.format_exc()
+            logger.error(f"❌ Database maintenance failed: {e}\nTraceback:\n{tb}")
             results["error"] = str(e)
-        
+            results["traceback"] = tb
         return results
     
     async def _apply_retention_policies(self, force: bool = False) -> Dict:
