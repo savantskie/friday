@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+
+#!/usr/bin/env python3    
+
+
 """
 Friday Memory System
 
@@ -1972,7 +1975,6 @@ class ConversationFileMonitor:
     def _detect_conversation_source(self, file_path: str) -> str:
         """Detect the source application of a conversation file"""
         file_lower = file_path.lower()
-        
         if 'chatgpt' in file_lower:
             return 'ChatGPT'
         elif 'claude' in file_lower:
@@ -3177,6 +3179,11 @@ class EmbeddingService:
 
 
 class FridayMemorySystem:
+    async def background_main(self):
+        # Start maintenance loop, file monitoring, etc.
+        await self.run_database_maintenance()
+        await self.start_file_monitoring()
+        # ...other background tasks as needed...
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get recent appointments from the schedule database"""
         appointments = await self.schedule_db.get_appointments(limit, days_ahead)
@@ -3185,7 +3192,6 @@ class FridayMemorySystem:
             "count": len(appointments)
         }
     """Main memory system that coordinates all databases and operations"""
-    
     def __init__(self, data_dir: str = "memory_data", enable_file_monitoring: bool = True, 
                  watch_directories: List[str] = None):
         self.data_dir = Path(data_dir)
@@ -3201,7 +3207,7 @@ class FridayMemorySystem:
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
-        # Initialize file monitoring (but don't start yet)
+        # Initialize file monitoring (but do NOT start yet)
         self.file_monitor = None
         if enable_file_monitoring:
             try:
@@ -3209,15 +3215,8 @@ class FridayMemorySystem:
                 if not hasattr(self, 'vscode_db') or self.vscode_db is None:
                     logger.warning("VS Code database not initialized, creating it now")
                     self.vscode_db = VSCodeProjectDatabase(str(self.data_dir / "vscode_project.db"))
-                
                 self.file_monitor = ConversationFileMonitor(self, watch_directories)
-                # Create task to start monitoring (will run when event loop is available)
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(self._start_monitoring())
-                except RuntimeError:
-                    # No running loop; user must start manually later
-                    logging.warning("Event loop not running. Call `await start_file_monitoring()` manually.")
+                # Do NOT start monitoring here; will be started after LM Studio initialization
             except Exception as e:
                 logger.error(f"Error initializing file monitor: {e}")
                 raise
@@ -3294,7 +3293,50 @@ class FridayMemorySystem:
             except Exception as e:
                 logger.error(f"❌ Failed to verify {db_path}: {e}")
 
-    
+    async def import_openwebui_chat_history(self, db_path=r'F:\\OpenWebUI\\data\\webui.db'):
+        """Import OpenWebUI chat/messages into Friday memory system with deduplication."""
+        import sqlite3
+        from datetime import datetime
+        if not os.path.exists(db_path):
+            print(f"OpenWebUI database not found at {db_path}")
+            return
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name FROM chat')
+        chats = {row[0]: row[1] for row in cursor.fetchall()}
+        cursor.execute('SELECT id, chat_id, role, content, created_at FROM message ORDER BY chat_id, created_at')
+        messages = cursor.fetchall()
+        conn.close()
+        imported_count = 0
+        for msg_id, chat_id, role, content, created_at in messages:
+            chat_name = chats.get(chat_id, f'Chat {chat_id}')
+            # Use chat_id as session_id for deduplication
+            session_id = str(chat_id)
+            metadata = {
+                'source': 'openwebui',
+                'chat_id': chat_id,
+                'chat_name': chat_name,
+                'role': role,
+                'created_at': created_at
+            }
+            # Deduplication: check for existing message in session with same content/role in last 24h
+            recent = await self.conversations_db.execute_query(
+                """SELECT message_id FROM messages WHERE conversation_id IN (
+                        SELECT conversation_id FROM conversations WHERE session_id = ?
+                    ) AND role = ? AND content = ? AND datetime(timestamp) > datetime('now', '-24 hour')""",
+                (session_id, role, content)
+            )
+            if recent:
+                continue  # Skip duplicate
+            # Store message
+            await self.conversations_db.execute_update(
+                """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (str(msg_id), str(chat_id), created_at, role, content, 'openwebui', json.dumps(metadata))
+            )
+            imported_count += 1
+        print(f"Imported {imported_count} OpenWebUI messages (deduplicated)")
+
     async def _start_monitoring(self):
         """Internal method to start the file monitor"""
         if self.file_monitor:

@@ -42,6 +42,43 @@ logger = logging.getLogger(__name__)
 
 
 class FridayMemoryMCPServer:
+    def start_memory_system_background(self):
+        def run_background():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.memory_system.background_main())
+        t = threading.Thread(target=run_background, daemon=True)
+        t.start()
+
+    async def handle_initialization(self, *args, **kwargs):
+        # Call this after LM Studio/OpenWebUI tool registration
+        # Start file monitoring and maintenance after 3 minutes
+        async def delayed_start():
+            await asyncio.sleep(180)  # 3 minutes
+            logger.info("⏳ Starting file monitoring and maintenance after 3 minutes...")
+            try:
+                await self.memory_system.start_file_monitoring()
+                logger.info("✅ File monitoring started.")
+            except Exception as e:
+                logger.error(f"❌ Error starting file monitoring: {e}")
+            try:
+                self._start_automatic_maintenance()
+                logger.info("✅ Maintenance scheduled.")
+            except Exception as e:
+                logger.error(f"❌ Error starting maintenance: {e}")
+                # Start OpenWebUI chat import loop
+                async def openwebui_import_loop():
+                    while True:
+                        try:
+                            logger.info("⏳ Importing OpenWebUI chat history...")
+                            await self.memory_system.import_openwebui_chat_history()
+                            logger.info("✅ OpenWebUI chat import complete.")
+                        except Exception as e:
+                            logger.error(f"❌ Error importing OpenWebUI chat: {e}")
+                        await asyncio.sleep(3 * 60 * 60)  # 3 hours
+                asyncio.create_task(openwebui_import_loop())
+        asyncio.create_task(delayed_start())
     async def get_appointments_direct(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get appointments directly from schedule database, with fallback support for schema mismatch"""
         try:
@@ -130,40 +167,40 @@ class FridayMemoryMCPServer:
                 "appointments": []
             }
 
-        async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
-            try:
-                with sqlite3.connect(self.schedule_db_path) as conn:
-                    cursor = conn.cursor()
-                    query = "SELECT reminder_id, content, due_datetime, completed, priority_level FROM reminders WHERE 1=1"
-                    params = []
-                    if not include_completed:
-                        query += " AND completed = 0"
-                    if days_ahead > 0:
-                        from datetime import datetime, timedelta
-                        future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
-                        query += " AND due_datetime <= ?"
-                        params.append(future_date)
-                    query += " ORDER BY due_datetime ASC LIMIT ?"
-                    params.append(limit)
-                    cursor.execute(query, params)
-                    rows = cursor.fetchall()
-                    return {
-                        "success": True,
-                        "reminders": [
-                            {
-                                "id": r[0],
-                                "content": r[1],
-                                "due": r[2],
-                                "completed": bool(r[3]),
-                                "priority": r[4]
-                            } for r in rows
-                        ]
-                    }
-            except Exception as e:
+    async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
+        try:
+            with sqlite3.connect(self.schedule_db_path) as conn:
+                cursor = conn.cursor()
+                query = "SELECT reminder_id, content, due_datetime, completed, priority_level FROM reminders WHERE 1=1"
+                params = []
+                if not include_completed:
+                    query += " AND completed = 0"
+                if days_ahead > 0:
+                    from datetime import datetime, timedelta
+                    future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
+                    query += " AND due_datetime <= ?"
+                    params.append(future_date)
+                query += " ORDER BY due_datetime ASC LIMIT ?"
+                params.append(limit)
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
                 return {
-                    "success": False,
-                    "error": str(e)
+                    "success": True,
+                    "reminders": [
+                        {
+                            "id": r[0],
+                            "content": r[1],
+                            "due": r[2],
+                            "completed": bool(r[3]),
+                            "priority": r[4]
+                        } for r in rows
+                    ]
                 }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     async def get_current_time_tool(self) -> Dict:
         """Return the current server time in ISO format (system local time only)"""
@@ -190,7 +227,7 @@ class FridayMemoryMCPServer:
         # Enable debug logging for MCP server
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
         self._register_handlers()
-        self._start_automatic_maintenance()
+        # Do NOT start maintenance or file monitoring here
         logger.info("FridayMemoryMCPServer initialized successfully")
     
     def _initialize_reminders_database(self):
@@ -879,7 +916,7 @@ class FridayMemoryMCPServer:
     async def _maintenance_loop(self):
         """Background loop for automatic database maintenance with detailed error reporting"""
         import traceback
-        await asyncio.sleep(300)  # 5 minutes initial delay
+        # Initial delay is now handled by delayed_start in handle_initialization
         while True:
             try:
                 logger.info("🧹 Running automatic database maintenance...")
