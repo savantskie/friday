@@ -79,40 +79,35 @@ class FridayMemoryMCPServer:
                             logger.error(f"❌ Error importing OpenWebUI chat: {e}")
                         await asyncio.sleep(3 * 60 * 60)  # 3 hours
                 asyncio.create_task(openwebui_import_loop())
-        asyncio.create_task(delayed_start())    
+        asyncio.create_task(delayed_start())
+    
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
+        # -- add right here, first lines in get_reminders --
         try:
-            from datetime import datetime, timedelta
-            now = datetime.now().isoformat()
-            future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
+            limit = int(limit) if isinstance(limit, str) and limit != "" else limit
+            days_ahead = int(days_ahead) if isinstance(days_ahead, str) and days_ahead != "" else days_ahead
+            if isinstance(include_completed, str):
+                include_completed = include_completed.strip().lower() in ("true", "1", "yes", "y", "on")
+        except Exception:
+            pass
 
+        try:
             with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
-                query = """
-                    SELECT reminder_id, content, due_datetime, completed, priority_level
-                    FROM reminders
-                    WHERE 1=1
-                """
+                query = "SELECT reminder_id, content, due_datetime, completed, priority_level FROM reminders WHERE 1=1"
                 params = []
-
                 if not include_completed:
                     query += " AND completed = 0"
-
-                # Only return reminders that are due now or in the future
-                query += " AND due_datetime >= ?"
-                params.append(now)
-
                 if days_ahead > 0:
+                    from datetime import datetime, timedelta
+                    future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
                     query += " AND due_datetime <= ?"
                     params.append(future_date)
-
                 query += " ORDER BY due_datetime ASC LIMIT ?"
                 params.append(limit)
-
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
-
                 return {
                     "success": True,
                     "reminders": [
@@ -131,6 +126,20 @@ class FridayMemoryMCPServer:
                 "error": str(e)
             }
 
+    async def get_current_time_tool(self) -> Dict:
+        """Return the current server time in ISO format (system local time only)"""
+        try:
+            now_local = datetime.now().isoformat()
+            return {
+                "success": True,
+                "current_time": now_local
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    """MCP Server for Friday's Memory System"""
     
     def __init__(self):
         self.memory_data_dir = ("F:/Friday/memory_data")
@@ -730,7 +739,7 @@ class FridayMemoryMCPServer:
     def _get_total_reminders_count(self, include_completed: bool = False) -> int:
         """Get total count of reminders in database"""
         try:
-            with sqlite3.connect(self.reminders_db_path) as conn:
+            with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
                 
                 if include_completed:
@@ -751,7 +760,7 @@ class FridayMemoryMCPServer:
                 with sqlite3.connect(self.schedule_db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
-                        "UPDATE reminders SET embedding = ? WHERE id = ?",
+                        "UPDATE reminders SET embedding = ? WHERE reminder_id = ?",
                         (embedding_blob, reminder_id)
                     )
                     conn.commit()
@@ -785,7 +794,6 @@ class FridayMemoryMCPServer:
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
                 result = {"status": "success", "reflection_id": reflection_id}
-
             elif tool_name == "get_appointments":
                 result = await self.memory_system.get_appointments(
                     limit=arguments.get("limit", 5),

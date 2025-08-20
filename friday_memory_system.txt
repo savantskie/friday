@@ -506,36 +506,18 @@ class AIMemoryDatabase(DatabaseManager):
 
 class ScheduleDatabase(DatabaseManager):
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> List[Dict]:
-        """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds."""
+        """Get recent appointments, optionally filtered by date range"""
         now = datetime.now(get_local_timezone())
         future = now + timedelta(days=days_ahead)
-
-        now_epoch = int(now.timestamp())
-        future_epoch = int(future.timestamp())
-
         query = """
-            SELECT *
-            FROM appointments
-            WHERE
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END >= ?
-            AND
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END <= ?
-            ORDER BY
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END ASC
+            SELECT * FROM appointments
+            WHERE scheduled_datetime >= ? AND scheduled_datetime <= ?
+            ORDER BY scheduled_datetime ASC
             LIMIT ?
         """
-        rows = await self.execute_query(query, (now_epoch, future_epoch, limit))
+        rows = await self.execute_query(query, (now.isoformat(), future.isoformat(), limit))
         return [dict(row) for row in rows]
-
+    """Manages appointments and reminders database"""
     
     def __init__(self, db_path: str = "memory_data/schedule.db"):
         super().__init__(db_path)
@@ -3212,12 +3194,15 @@ class FridayMemorySystem:
     """Main memory system that coordinates all databases and operations"""
     def __init__(self, data_dir: str = "memory_data", enable_file_monitoring: bool = True, 
                  watch_directories: List[str] = None):
-        # Hardcoded database paths for reliability
-        self.conversations_db = ConversationDatabase("F:/Friday/memory_data/conversations.db")
-        self.ai_memory_db = AIMemoryDatabase("F:/Friday/memory_data/ai_memories.db")
-        self.schedule_db = ScheduleDatabase("F:/Friday/memory_data/schedule.db")
-        self.vscode_db = VSCodeProjectDatabase("F:/Friday/memory_data/vscode_project.db")
-        self.mcp_db = MCPToolCallDatabase("F:/Friday/memory_data/mcp_tool_calls.db")
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(exist_ok=True)
+        
+        # Initialize databases
+        self.conversations_db = ConversationDatabase(str(self.data_dir / "conversations.db"))
+        self.ai_memory_db = AIMemoryDatabase(str(self.data_dir / "ai_memories.db"))
+        self.schedule_db = ScheduleDatabase(str(self.data_dir / "schedule.db"))
+        self.vscode_db = VSCodeProjectDatabase(str(self.data_dir / "vscode_project.db"))
+        self.mcp_db = MCPToolCallDatabase(str(self.data_dir / "mcp_tool_calls.db"))
         
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
@@ -3237,100 +3222,24 @@ class FridayMemorySystem:
                 raise
     
     # === Reminder Management Tools ===
-    async def complete_reminder(self, reminder_id: str, selection_id: str | None = None) -> Dict:
-        """Mark a reminder as completed (single multi-step tool, DB pinned to F:\\Friday\\memory_data\\schedule.db)"""
-        import sqlite3
-        import asyncio
-
-        DB_PATH = r"F:\Friday\memory_data\schedule.db"
-
-        # ---- sync helpers (run via to_thread to avoid blocking the event loop) ----
-        def _update_by_id(rid: str) -> int:
-            with sqlite3.connect(DB_PATH) as conn:
-                cur = conn.execute(
-                    "UPDATE reminders SET completed = 1, completed_at = ? WHERE reminder_id = ?",
-                    (get_current_timestamp(), rid)
-                )
-                conn.commit()
-                return cur.rowcount or 0
-
-        def _select_by_due(due: str):
-            with sqlite3.connect(DB_PATH) as conn:
-                cur = conn.execute(
-                    "SELECT reminder_id, title, due_datetime "
-                    "FROM reminders "
-                    "WHERE due_datetime = ? AND (completed IS NULL OR completed = 0)",
-                    (due,)
-                )
-                return cur.fetchall()
-
-        # If a selection_id is provided, skip discovery and complete that specific ID.
-        if selection_id:
-            affected = await asyncio.to_thread(_update_by_id, selection_id)
-            if affected > 0:
-                return {
-                    "status": "success",
-                    "message": f"Reminder {selection_id} marked as completed",
-                    "reminder_id": selection_id,
-                    "source_db": DB_PATH
-                }
-            return {
-                "status": "error",
-                "message": f"Reminder {selection_id} not found (follow-up)",
-                "source_db": DB_PATH
-            }
-
-        # No selection yet — try exact reminder_id first.
-        affected = await asyncio.to_thread(_update_by_id, reminder_id)
-        if affected > 0:
-            return {
-                "status": "success",
-                "message": f"Reminder {reminder_id} marked as completed",
-                "reminder_id": reminder_id,
-                "source_db": DB_PATH
-            }
-
-        # Treat 'reminder_id' as a due_datetime and discover matches.
-        matches = await asyncio.to_thread(_select_by_due, reminder_id)
-
-        if not matches:
-            return {
-                "status": "error",
-                "message": "Reminder not found by id or due date",
-                "source_db": DB_PATH
-            }
-
-        if len(matches) == 1:
-            only_id = matches[0][0]
-            affected = await asyncio.to_thread(_update_by_id, only_id)
-            if affected > 0:
-                return {
-                    "status": "success",
-                    "message": f"Reminder with due date {reminder_id} (id {only_id}) marked as completed",
-                    "reminder_id": only_id,
-                    "source_db": DB_PATH
-                }
-            return {
-                "status": "error",
-                "message": "Failed to mark reminder as completed after single-match resolution",
-                "source_db": DB_PATH
-            }
-
-        # Multiple matches — return options and instruct caller to pass selection_id on the next call.
-        options = [
-            {"reminder_id": row[0], "title": row[1], "due_datetime": row[2]}
-            for row in matches
-        ]
-        return {
-            "status": "needs_selection",
-            "message": f"Multiple reminders share due date {reminder_id}. Call this tool again with selection_id set to the chosen reminder_id.",
-            "options": options,
-            "source_db": DB_PATH
-        }
-
-
+    async def complete_reminder(self, reminder_id: str) -> Dict:
+        """Mark a reminder as completed"""
+        result = await self.schedule_db.execute_update(
+            "UPDATE reminders SET completed = 1, completed_at = ? WHERE reminder_id = ?",
+            (get_current_timestamp(), reminder_id)
+        )
+        if result > 0:
+            return {"status": "success", "message": f"Reminder {reminder_id} marked as completed"}
+        else:
+            return {"status": "error", "message": "Reminder not found"}
 
     async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
+        # normalize values that might arrive as strings
+        try:
+            limit = int(limit) if isinstance(limit, str) and limit != "" else limit
+            days_ahead = int(days_ahead) if isinstance(days_ahead, str) and days_ahead != "" else days_ahead
+        except Exception:
+            pass
         """Get active (not completed) reminders within the next X days"""
         cutoff = (datetime.now(get_local_timezone()) + timedelta(days=days_ahead)).isoformat()
         rows = await self.schedule_db.execute_query(
@@ -3353,6 +3262,12 @@ class FridayMemorySystem:
         }
 
     async def get_completed_reminders(self, days: int = 7) -> Dict:
+        # normalize values that might arrive as strings
+        try:
+            limit = int(limit) if isinstance(limit, str) and limit != "" else limit
+            days_ahead = int(days_ahead) if isinstance(days_ahead, str) and days_ahead != "" else days_ahead
+        except Exception:
+            pass
         """Get recently completed reminders"""
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
         rows = await self.schedule_db.execute_query(
@@ -3408,33 +3323,18 @@ class FridayMemorySystem:
             return {"status": "error", "message": "Appointment not found"}
 
     async def get_upcoming_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
-        """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes."""
-        now_local = datetime.now(get_local_timezone())
-        cutoff_local = now_local + timedelta(days=days_ahead)
-
-        now_epoch = int(now_local.timestamp())
-        cutoff_epoch = int(cutoff_local.timestamp())
-
-        query = """
-            SELECT *
-            FROM appointments
-            WHERE status != 'cancelled'
-            AND (
-                    CASE
-                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                    END
-            ) BETWEEN ? AND ?
-            ORDER BY
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END ASC
-            LIMIT ?
-        """
-
-        rows = await self.schedule_db.execute_query(query, (now_epoch, cutoff_epoch, limit))
-
+        # normalize values that might arrive as strings
+        try:
+            limit = int(limit) if isinstance(limit, str) and limit != "" else limit
+            days_ahead = int(days_ahead) if isinstance(days_ahead, str) and days_ahead != "" else days_ahead
+        except Exception:
+            pass
+        """Get upcoming appointments (not cancelled)"""
+        cutoff = (datetime.now(get_local_timezone()) + timedelta(days=days_ahead)).isoformat()
+        rows = await self.schedule_db.execute_query(
+            "SELECT * FROM appointments WHERE status != 'cancelled' AND scheduled_datetime <= ? ORDER BY scheduled_datetime LIMIT ?",
+            (cutoff, limit)
+        )
         return {
             "status": "success",
             "count": len(rows),
