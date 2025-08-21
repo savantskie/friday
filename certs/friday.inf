@@ -1,0 +1,12 @@
+[Version]
+Signature="$Windows NT$"
+
+[NewRequest]
+Subject = "CN=fridayonline.bounceme.net, O=Home, OU=FridayAI, L=Motley, S=Minnesota, C=US"
+KeySpec = 1
+KeyLength = 2048
+Exportable = TRUE
+MachineKeySet = TRUE
+RequestType = PKCS10
+KeyUsage = 0xa0
+HashAlgorithm = sha256

@@ -1,0 +1,59 @@
+fridayonline.bounceme.net {
+	tls "F:\Friday\certs\friday.pem" "F:\Friday\certs\friday.key"
+
+	# Route ordering: specific paths first, then default OWUI
+	route {
+		# ---------- MCPo (tools) over same-origin HTTPS ----------
+		@preflight_mcp {
+			method OPTIONS
+			path /mcpo*
+		}
+		# Preflight CORS for /mcpo
+		header @preflight_mcp {
+			Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+			Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+			Access-Control-Allow-Headers "*"
+			Access-Control-Allow-Credentials "true"
+		}
+		respond @preflight_mcp 204
+
+		# Actual requests to /mcpo*
+		@mcp path /mcpo*
+		header @mcp {
+			Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+			Access-Control-Allow-Credentials "true"
+		}
+		handle_path /mcpo* {
+			reverse_proxy 192.168.1.50:12345
+		}
+
+		# ---------- LM Studio via same-origin HTTPS ----------
+		@preflight_lms {
+			method OPTIONS
+			path /lmstudio*
+		}
+		header @preflight_lms {
+			Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+			Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+			Access-Control-Allow-Headers "*"
+			Access-Control-Allow-Credentials "true"
+		}
+		respond @preflight_lms 204
+
+		@lms path /lmstudio*
+		header @lms {
+			Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+			Access-Control-Allow-Credentials "true"
+		}
+		handle_path /lmstudio* {
+			reverse_proxy 192.168.1.50:1234
+		}
+
+		# ---------- Default: proxy OpenWebUI ----------
+		reverse_proxy localhost:3000
+	}
+}
+
+:80 {
+	redir https://fridayonline.bounceme.net{uri}
+}
