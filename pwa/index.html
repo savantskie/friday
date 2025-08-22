@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Notify Test</title>
+    <link rel="manifest" href="/pwa/manifest.webmanifest">
+    <link rel="icon" href="/pwa/icon-192.png">
+    <link rel="apple-touch-icon" href="/pwa/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  </head>
+  <body>
+    <h1>Friday Notify Test</h1>
+    <p>Buttons in order: Register SW → Enable Notifications → Subscribe for Push → Test Notification.</p>
+
+    <button id="reg">Register Service Worker</button>
+    <button id="perm">Enable Notifications</button>
+    <button id="sub">Subscribe for Push</button>
+    <button id="test">Show Test Notification</button>
+    <button id="persist">Ask for Persistent Storage</button>
+    <button id="copySub">Copy Subscription JSON</button>
+    <!-- NEW: this ties push to the REAL Open WebUI app at / -->
+    <button id="root">Register OWUI Push (root scope)</button>
+
+    <pre id="log" style="margin-top:1rem; white-space:pre-wrap;"></pre>
+
+    <script>
+      let lastSub = null;
+
+      const log = (m) => document.getElementById('log').textContent += m + "\n";
+      const toUint8 = (base64) => {
+        const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+        const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(b64);
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+        return out;
+      };
+
+      document.getElementById('reg').onclick = async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('/pwa/sw.js', { scope: '/pwa/' });
+          log('SW: registered at /pwa/sw.js' + (reg.active ? ' (active)' : ''));
+        } catch (e) { log('SW register error: ' + e.message); }
+      };
+
+      document.getElementById('perm').onclick = async () => {
+        try {
+          const res = await Notification.requestPermission();
+          log('Notifications permission: ' + res);
+        } catch (e) { log('Notifications error: ' + e.message); }
+      };
+
+      document.getElementById('sub').onclick = async () => {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration('/pwa/');
+          if (!reg) { log('SW not registered yet. Click "Register Service Worker" first.'); return; }
+
+          const vapid = await (await fetch('/pwa/vapid.json', { cache: 'no-store' })).json();
+          if (!vapid.publicKey) { log('Missing publicKey in /pwa/vapid.json'); return; }
+
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: toUint8(vapid.publicKey)
+          });
+
+          lastSub = sub;
+          log('Subscribed for push. Save this JSON on the server:\n' + JSON.stringify(sub, null, 2));
+        } catch (e) { log('Subscribe error: ' + e.message); }
+      };
+
+      document.getElementById('test').onclick = async () => {
+        try {
+          if (Notification.permission !== 'granted') { log('Grant notifications first.'); return; }
+          const reg = await navigator.serviceWorker.getRegistration('/pwa/');
+          if (!reg) { log('SW not registered.'); return; }
+          await reg.showNotification('Friday', { body: 'Local test — it works!' });
+          log('Local test notification shown.');
+        } catch (e) { log('Test notification error: ' + e.message); }
+      };
+
+      document.getElementById('persist').onclick = async () => {
+        if (!('storage' in navigator) || !('persist' in navigator.storage)) {
+          log('Persistent Storage not supported here.'); return;
+        }
+        const granted = await navigator.storage.persist();
+        log('Persistent Storage: ' + (granted ? 'granted' : 'denied'));
+      };
+
+      document.getElementById('copySub').onclick = async () => {
+        if (!lastSub) { log('No subscription yet. Click "Subscribe for Push" first.'); return; }
+        const text = JSON.stringify(lastSub, null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+          log('Subscription JSON copied to clipboard.');
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          log('Subscription JSON copied (fallback).');
+        }
+      };
+
+      // NEW: register root-scope SW at /owui-sw.js so pushes open the REAL OWUI app at /
+      document.getElementById('root').onclick = async () => {
+        try {
+          // 1) register the root worker
+          const reg = await navigator.serviceWorker.register('/owui-sw.js', { scope: '/' });
+          log('Root SW registered: ' + reg.scope);
+
+          // 2) ask permission if needed
+          if (Notification.permission !== 'granted') {
+            await Notification.requestPermission();
+          }
+
+          // 3) subscribe using the same VAPID public key
+          const vapid = await (await fetch('/pwa/vapid.json', { cache: 'no-store' })).json();
+          if (!vapid.publicKey) { log('Missing publicKey in /pwa/vapid.json'); return; }
+
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: toUint8(vapid.publicKey)
+          });
+
+          lastSub = sub;
+          log('OWUI root subscription ready. Save this JSON:\n' + JSON.stringify(sub, null, 2));
+        } catch (e) {
+          log('Root SW/subscribe error: ' + e.message);
+        }
+      };
+    </script>
+  </body>
+</html>
