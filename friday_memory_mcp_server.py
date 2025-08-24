@@ -52,12 +52,20 @@ class FridayMemoryMCPServer:
         t = threading.Thread(target=run_background, daemon=True)
         t.start()
 
-    async def get_current_time() -> Dict:
-        now = datetime.now().isoformat()
-        return {
-            "status": "success",
-            "timestamp": now
-        }
+    async def get_current_time_tool(self) -> Dict:
+        """Return the current server time in ISO format (system local time only)"""
+        try:
+            now_local = datetime.now().isoformat()
+            return {
+                "success": True,
+                "current_time": now_local
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    """MCP Server for Friday's Memory System"""
 
     async def handle_initialization(self, *args, **kwargs):
         # Call this after LM Studio/OpenWebUI tool registration
