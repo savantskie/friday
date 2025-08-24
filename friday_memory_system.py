@@ -39,7 +39,15 @@ def get_local_timezone() -> ZoneInfo:
     except:
         # Fallback to a common timezone if detection fails
         return ZoneInfo("America/Chicago")  # Minnesota is in Central Time
-    
+
+async def get_current_time() -> Dict:
+    now = datetime.now().isoformat()
+    return {
+        "status": "success",
+        "timestamp": now
+    }
+
+
 def get_current_timestamp() -> str:
     """Get current timestamp in local timezone ISO format"""
     return datetime.now(get_local_timezone()).isoformat()
