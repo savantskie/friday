@@ -52,6 +52,13 @@ class FridayMemoryMCPServer:
         t = threading.Thread(target=run_background, daemon=True)
         t.start()
 
+    async def get_current_time_tool() -> Dict:
+        now = datetime.now().isoformat()
+        return {
+            "status": "success",
+            "timestamp": now
+        }
+
     async def handle_initialization(self, *args, **kwargs):
         # Call this after LM Studio/OpenWebUI tool registration
         # Start file monitoring and maintenance after 3 minutes
@@ -725,13 +732,6 @@ class FridayMemoryMCPServer:
                 "status": "error",
                 "error": str(e)
             }
-        
-    async def get_current_time_tool() -> Dict:
-        now = datetime.now().isoformat()
-        return {
-            "status": "success",
-            "timestamp": now
-        }
         
     def _get_total_reminders_count(self, include_completed: bool = False) -> int:
         """Get total count of reminders in database"""
