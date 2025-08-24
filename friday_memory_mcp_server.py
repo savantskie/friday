@@ -52,7 +52,7 @@ class FridayMemoryMCPServer:
         t = threading.Thread(target=run_background, daemon=True)
         t.start()
 
-    async def get_current_time_tool() -> Dict:
+    async def get_current_time() -> Dict:
         now = datetime.now().isoformat()
         return {
             "status": "success",
