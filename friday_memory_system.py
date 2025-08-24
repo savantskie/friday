@@ -40,7 +40,7 @@ def get_local_timezone() -> ZoneInfo:
         # Fallback to a common timezone if detection fails
         return ZoneInfo("America/Chicago")  # Minnesota is in Central Time
 
-async def get_current_time_tool() -> Dict:
+def get_current_time_tool() -> Dict:
     now = datetime.now().isoformat()
     return {
         "status": "success",
