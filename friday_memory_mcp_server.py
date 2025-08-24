@@ -725,7 +725,13 @@ class FridayMemoryMCPServer:
                 "status": "error",
                 "error": str(e)
             }
-
+        
+    async def get_current_time_tool() -> Dict:
+        now = datetime.now().isoformat()
+        return {
+            "status": "success",
+            "timestamp": now
+        }
         
     def _get_total_reminders_count(self, include_completed: bool = False) -> int:
         """Get total count of reminders in database"""
