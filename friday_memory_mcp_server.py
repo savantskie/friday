@@ -42,11 +42,11 @@ memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
 HOME_LAT = 46.3366315
 HOME_LON = -94.646125
+NATE_HOME = (HOME_LAT,HOME_LON)
 HOME_TZ  = "America/Chicago"
 ENFORCE_HOME_COORDS = True
 # Cache directory (uses weather if set)
 import os, json
-from datetime import datetime
 weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
 WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
@@ -58,7 +58,7 @@ def _wx_cache_path(tz: str, lat: float, lon: float) -> str:
     day = _wx_today_str(tz)
     key_lat = f"{lat:.3f}"
     key_lon = f"{lon:.3f}"
-    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_{key_lat}_{key_lon}.json")
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_*.json")
 
 def _wx_load(path: str):
     try:
@@ -76,12 +76,60 @@ def _wx_save(path: str, payload: dict):
     except Exception:
         pass  # cache failures should never break the tool
 
+# --- change detection for weather payloads (add-only) ---
+from datetime import datetime
+
+def _wx_index_by(items: list[dict], key: str) -> dict:
+    out = {}
+    for it in items or []:
+        k = it.get(key)
+        if k is not None:
+            out[k] = it
+    return out
+
+def _wx_diff_summ(old: dict, new: dict) -> dict:
+    """Return only what changed in 'daily' (by date) and 'hourly' (by time)."""
+    changes = {"daily_changed": [], "hourly_changed": []}
+
+    # --- daily (by date) ---
+    old_d = _wx_index_by((old or {}).get("daily", []), "date")
+    new_d = _wx_index_by((new or {}).get("daily", []), "date")
+    for date_key, new_row in new_d.items():
+        o = old_d.get(date_key)
+        if not o:
+            changes["daily_changed"].append({"date": date_key, "old": None, "new": new_row})
+            continue
+        # compare keys we actually set
+        fields = ("tmax_c", "tmin_c", "pop_max")
+        if any(o.get(f) != new_row.get(f) for f in fields):
+            changes["daily_changed"].append({"date": date_key, "old": o, "new": new_row})
+
+    # --- hourly (by time) -> just first 48 like we return
+    old_h = _wx_index_by((old or {}).get("hourly", []), "time")
+    new_h = _wx_index_by((new or {}).get("hourly", []), "time")
+    # to keep this concise, check only overlapping times
+    for t_key, new_row in list(new_h.items())[:48]:
+        o = old_h.get(t_key)
+        if not o:
+            changes["hourly_changed"].append({"time": t_key, "old": None, "new": new_row})
+            continue
+        if (o.get("temp_c") != new_row.get("temp_c")) or (o.get("pop") != new_row.get("pop")):
+            changes["hourly_changed"].append({"time": t_key, "old": o, "new": new_row})
+
+    # prune empties
+    if not changes["daily_changed"] and not changes["hourly_changed"]:
+        return {}
+    return changes
+
+
 async def get_weather_open_meteo(self,
                                  latitude: float | None = None,
                                  longitude: float | None = None,
                                  timezone_str: str | None = None,
                                  force_refresh: bool = False,
-                                 override: bool = False) -> dict:
+                                 override: bool = False,
+                                 update_today: bool = True,
+                                 return_changes_only: bool = False) -> dict:
     url = "https://api.open-meteo.com/v1/forecast"
     # Lock to home unless explicitly overridden
     if ENFORCE_HOME_COORDS and not override:
@@ -100,30 +148,46 @@ async def get_weather_open_meteo(self,
         "hourly": "temperature_2m,precipitation_probability",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"
     }
-    r = requests.get(url, params=params, timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    cpath = _wx_cache_path(tz, lat, lon)
+    cached = _load_cache(cpath)
 
-    hourly = []
-    hh = data.get("hourly") or {}
-    for t, tc, pop in zip(hh.get("time") or [], hh.get("temperature_2m") or [], hh.get("precipitation_probability") or []):
-        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
-    hourly = hourly[:48]
+    # if we have today's file and we're not forcing a refresh, decide whether to update
+    if cached and cached.get("cached_for_day") == _wx_today_str(tz) and not force_refresh:
+        if update_today:
+            fresh = _wx_fetch_openmeteo(lat, lon, tz)
+            diff = _wx_diff_summ(cached, fresh)
+            if diff:
+                # merge by replacing core arrays, bump metadata, keep same filename
+                fresh["first_saved_at"] = cached.get("first_saved_at") or datetime.now().isoformat(timespec="seconds")
+                fresh["last_updated_at"] = datetime.now().isoformat(timespec="seconds")
+                fresh["update_count"] = int(cached.get("update_count", 0)) + 1
+                _save_cache(cpath, fresh)
+                if return_changes_only:
+                    return {"success": True, "updated": True, "changes": diff}
+                fresh["_via_cache"] = False  # we just wrote a fresh payload
+                fresh["changes"] = diff
+                return {"success": True, "data": fresh, "updated": True}
+            else:
+                # nothing changed; serve cached
+                cached["_via_cache"] = True
+                if return_changes_only:
+                    return {"success": True, "updated": False, "changes": {}}
+                return {"success": True, "data": cached, "updated": False}
+        else:
+            # not updating during the day; just serve cached
+                cached["_via_cache"] = True
+            return {"success": True, "data": cached, "updated": False}
+        else:
+            # no cache for today OR force refresh: fetch and save
+                fresh = _wx_fetch_openmeteo(lat, lon, tz)
+                now_iso = datetime.now().isoformat(timespec="seconds")
+                fresh.setdefault("first_saved_at", now_iso)
+                fresh["last_updated_at"] = now_iso
+                fresh["update_count"] = int((cached or {}).get("update_count", 0)) + 1 if cached else 1
+                _save_cache(cpath, fresh)
+                fresh["_via_cache"] = False
+        return {"success": True, "data": fresh, "updated": bool(cached), "source": "open-meteo", "tz": tz, "latitude": lat, "longitude": lon, "cached_for_day": _wx_today_str(tz), "hourly": hourly, "daily": daily}
 
-    daily = []
-    dd = data.get("daily") or {}
-    for d, mx, mn, p in zip(dd.get("time") or [], dd.get("temperature_2m_max") or [], dd.get("temperature_2m_min") or [], dd.get("precipitation_probability_max") or []):
-        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
-
-    return {
-        "source": "open-meteo",
-        "tz": tz,
-        "latitude": lat,
-        "longitude": lon,
-        "cached_for_day": _wx_today_str(tz),
-        "hourly": hourly,
-        "daily": daily
-    }
 
 
 # Configure logging
@@ -368,9 +432,35 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "latitude":  {"type": "number", "description": "Optional lat (defaults to Motley, MN)"},
-                        "longitude": {"type": "number", "description": "Optional lon (defaults to Motley, MN)"},
-                        "timezone_str": {"type": "string", "description": "IANA TZ, default America/Chicago"},
+                                    "latitude": {
+                                        "type": "number",
+                                        "description": "Optional lat (defaults to Motley, MN)",
+                                        "nullable": True,
+                                        "default": None
+                                    },
+                                    "longitude": {
+                                        "type": "number",
+                                        "description": "Optional lon (defaults to Motley, MN)",
+                                        "nullable": True,
+                                        "default": None
+                                    },
+                                    "timezone_str": {
+                                        "type": "string",
+                                        "description": "IANA TZ (default America/Chicago)",
+                                        "nullable": True,
+                                        "default": None
+                                    },
+                                    "update_today": {
+                                        "type": "boolean",
+                                        "description": "If true (default), fetch and merge changes into today's file before returning.",
+                                        "default": True
+                                    },
+                                    "return_changes_only": {
+                                        "type": "boolean",
+                                        "description": "If true, return only a summary of changed fields for today.",
+                                        "default": False
+                                    },
+
                         "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
                     }
                 }
@@ -946,6 +1036,8 @@ class FridayMemoryMCPServer:
                     timezone_str=arguments.get("timezone_str"),
                     force_refresh=arguments.get("force_refresh", False),
                     override=arguments.get("override", False),
+                    update_today=arguments.get("update_today", True),
+                    return_changes_only=arguments.get("return_changes_only", False),
                 )
             elif tool_name == "reschedule_reminder":
                 return await self.memory_system.reschedule_reminder(**arguments)
