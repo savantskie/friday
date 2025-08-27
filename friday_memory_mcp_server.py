@@ -132,6 +132,9 @@ from zoneinfo import ZoneInfo
 import requests
 
 # If you already defined these elsewhere, keep your existing ones and skip duplicates.
+# --- update windows ---
+DEFAULT_UPDATE_WINDOW_MIN = 240   # 4 hours
+SEVERE_UPDATE_WINDOW_MIN  = 30    # 30 minutes
 
 def _wx_today_str(tz: str) -> str:
     return datetime.now(ZoneInfo(tz)).date().isoformat()
@@ -290,7 +293,8 @@ class FridayMemoryMCPServer:
                                     force_refresh: bool = False,
                                     override: bool = False,
                                     update_today: bool = True,
-                                    return_changes_only: bool = False) -> dict:
+                                    return_changes_only: bool = False,
+                                    severe_update: bool = false) -> dict:
         # Lock to home unless explicitly overridden
         if ENFORCE_HOME_COORDS and not override:
             lat = float(HOME_LAT)
@@ -315,10 +319,17 @@ class FridayMemoryMCPServer:
             last_upd = _wx_last_updated_iso(cached)
             within_4h = bool(last_upd and (now_local - last_upd) < timedelta(hours=4))
 
-            if within_4h:
-                # serve existing file as-is
+        # decide the window (4h normal, 30m for severe)
+        window_minutes = SEVERE_UPDATE_WINDOW_MIN if severe_update else DEFAULT_UPDATE_WINDOW_MIN
+
+        last_upd = _wx_last_updated_iso(cached) if cached else None
+        within_window = bool(last_upd and (now_local - last_upd) < timedelta(minutes=window_minutes))
+
+        if cached and not force_refresh:
+            if within_window:
                 cached["_via_cache"] = True
                 return {"success": True, "data": cached, "updated": False}
+            # outside window -> fetch/rename/update as you already do...
 
             # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
             fresh = _wx_fetch_openmeteo(lat, lon, tz)
@@ -563,6 +574,12 @@ class FridayMemoryMCPServer:
                                         "description": "If true, return only a summary of changed fields for today.",
                                         "default": False
                                     },
+                                    "severe_update": {
+                                    "type": "boolean",
+                                    "description": "If true, shrink the update window to 30 minutes for severe weather.",
+                                    "default": False
+                                    },
+
 
                         "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
                     }
@@ -1141,6 +1158,7 @@ class FridayMemoryMCPServer:
                     override=arguments.get("override", False),
                     update_today=arguments.get("update_today", True),
                     return_changes_only=arguments.get("return_changes_only", False),
+                    severe_update=arguments.get("severe_update", False),
                 )
             elif tool_name == "reschedule_reminder":
                 return await self.memory_system.reschedule_reminder(**arguments)
