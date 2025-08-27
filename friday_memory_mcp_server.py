@@ -14,6 +14,8 @@ import json
 import logging
 import sqlite3
 import threading
+import requests
+from zoneinfo import ZoneInfo
 import os
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
@@ -35,6 +37,78 @@ from mcp.types import (
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
 memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
+
+# ---------- Friday Weather (Open-Meteo) with same-day cache ----------
+# Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
+HOME_LAT = 46.3366315
+HOME_LON = -94.646125
+HOME_TZ  = "America/Chicago"
+
+# Cache directory (uses FRIDAY_MEMORIES_DIR if set)
+import os, json
+from datetime import datetime
+_MEM_BASE = os.getenv("FRIDAY_MEMORIES_DIR", r"F:\Friday\Memories")
+WEATHER_CACHE_DIR = os.path.join(_MEM_BASE, "weather")
+os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
+
+def _wx_today_str(tz: str) -> str:
+        return datetime.now(ZoneInfo(tz)).date().isoformat()
+
+def _wx_cache_path(tz: str, lat: float, lon: float) -> str:
+    day = _wx_today_str(tz)
+    key_lat = f"{lat:.3f}"
+    key_lon = f"{lon:.3f}"
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_{key_lat}_{key_lon}.json")
+
+def _wx_load(path: str):
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def _wx_save(path: str, payload: dict):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception:
+        pass  # cache failures should never break the tool
+
+def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_2m,precipitation_probability",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "timezone": tz,
+    }
+    r = requests.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+
+    hourly = []
+    hh = data.get("hourly") or {}
+    for t, tc, pop in zip(hh.get("time") or [], hh.get("temperature_2m") or [], hh.get("precipitation_probability") or []):
+        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
+    hourly = hourly[:48]
+
+    daily = []
+    dd = data.get("daily") or {}
+    for d, mx, mn, p in zip(dd.get("time") or [], dd.get("temperature_2m_max") or [], dd.get("temperature_2m_min") or [], dd.get("precipitation_probability_max") or []):
+        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
+
+    return {
+        "source": "open-meteo",
+        "tz": tz,
+        "latitude": lat,
+        "longitude": lon,
+        "cached_for_day": _wx_today_str(tz),
+        "hourly": hourly,
+        "daily": daily
+    }
 
 
 # Configure logging
@@ -95,6 +169,28 @@ class FridayMemoryMCPServer:
                         await asyncio.sleep(3 * 60 * 60)  # 3 hours
                 asyncio.create_task(openwebui_import_loop())
         asyncio.create_task(delayed_start())    
+
+    async def get_weather_open_meteo(self,
+                                     latitude: float | None = None,
+                                     longitude: float | None = None,
+                                     timezone_str: str | None = None,
+                                     force_refresh: bool = False) -> dict:
+        lat = float(HOME_LAT if latitude is None else latitude)
+        lon = float(HOME_LON if longitude is None else longitude)
+        tz  = timezone_str or HOME_TZ
+
+        cpath = _wx_cache_path(tz, lat, lon)
+        if not force_refresh:
+            cached = _wx_load(cpath)
+            if cached and cached.get("cached_for_day") == _wx_today_str(tz):
+                cached["_via_cache"] = True
+                return {"success": True, "data": cached}
+
+        fresh = _wx_fetch_openmeteo(lat, lon, tz)
+        _wx_save(cpath, fresh)
+        fresh["_via_cache"] = False
+        return {"success": True, "data": fresh}
+
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
         try:
@@ -248,6 +344,19 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of reminders to return", "default": 10},
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30}
+                    }
+                }
+            ),
+            Tool(
+                name="get_weather_open_meteo",
+                description="Open-Meteo forecast (no API key). Defaults to Motley, MN and caches once per local day.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "latitude":  {"type": "number", "description": "Optional lat (defaults to Motley, MN)"},
+                        "longitude": {"type": "number", "description": "Optional lon (defaults to Motley, MN)"},
+                        "timezone_str": {"type": "string", "description": "IANA TZ, default America/Chicago"},
+                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
                     }
                 }
             ),
@@ -459,7 +568,7 @@ class FridayMemoryMCPServer:
                 }
             )
             ,
-                        Tool(
+            Tool(
                 name="store_ai_reflection",
                 description="Store an AI self-reflection/insight record (manual write)",
                 inputSchema={
@@ -815,6 +924,13 @@ class FridayMemoryMCPServer:
             # ...existing code for other tools...
             elif tool_name == "complete_reminder":
                 return await self.memory_system.complete_reminder(**arguments)
+            elif tool_name == "get_weather_open_meteo":
+                result = await self.get_weather_open_meteo(
+                    latitude=arguments.get("latitude"),
+                    longitude=arguments.get("longitude"),
+                    timezone_str=arguments.get("timezone_str"),
+                    force_refresh=arguments.get("force_refresh", False),
+                )
             elif tool_name == "reschedule_reminder":
                 return await self.memory_system.reschedule_reminder(**arguments)
             elif tool_name == "get_active_reminders":
