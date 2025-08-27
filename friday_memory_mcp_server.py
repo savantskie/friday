@@ -78,6 +78,10 @@ def _wx_save(path: str, payload: dict):
     except Exception:
         pass  # cache failures should never break the tool
 
+_wx_load_cache = _wx_load
+_wx_save_cache = _wx_save
+
+
 from glob import glob
 from datetime import datetime, timedelta
 
@@ -1150,12 +1154,26 @@ class FridayMemoryMCPServer:
             elif tool_name == "complete_reminder":
                 return await self.memory_system.complete_reminder(**arguments)
             elif tool_name == "get_weather_open_meteo":
+                # Hard gate: ignore coords unless override=True
+                override = bool(arguments.get("override", False))
+                if not override:
+                    # strip any coordinates or tz Friday tried to send
+                    attempted_lat = arguments.pop("latitude", None)
+                    attempted_lon = arguments.pop("longitude", None)
+                    attempted_tz  = arguments.pop("timezone_str", None)
+                    # optional: log the attempt so you can see when she tries
+                    try:
+                        with open(r"F:\Friday\logs\friday.log", "a", encoding="utf-8") as _lf:
+                            _lf.write(f"[weather] blocked coords (override=False) lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n")
+                    except Exception:
+                        pass
+
                 result = await self.get_weather_open_meteo(
                     latitude=arguments.get("latitude"),
                     longitude=arguments.get("longitude"),
                     timezone_str=arguments.get("timezone_str"),
                     force_refresh=arguments.get("force_refresh", False),
-                    override=arguments.get("override", False),
+                    override=override,
                     update_today=arguments.get("update_today", True),
                     return_changes_only=arguments.get("return_changes_only", False),
                     severe_update=arguments.get("severe_update", False),
