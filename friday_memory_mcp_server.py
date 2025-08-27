@@ -1410,9 +1410,10 @@ async def main():
         await mcp_server.cleanup()
 
 
-# ---- MCP STDIO ENTRYPOINT (keeps your main() intact) ----
+
+# ---- MCP STDIO ENTRYPOINT (run main() in background; start MCP immediately) ----
 if __name__ == "__main__":
-    import os, sys, logging, asyncio
+    import os, sys, logging, asyncio, threading, time
     from contextlib import redirect_stdout
     from mcp.server.stdio import stdio_server
 
@@ -1429,24 +1430,31 @@ if __name__ == "__main__":
         ],
     )
 
-    # 1) Run your main() FIRST (exactly as you wrote it), but:
-    #    - redirect stdout to stderr so MCP stdout stays clean
-    #    - prevent a sys.exit() from killing the process
-    try:
-        with redirect_stdout(sys.stderr):
-            if asyncio.iscoroutinefunction(main):
-                asyncio.run(main())
-            else:
-                main()
-    except SystemExit:
-        logging.warning("main() called sys.exit(); continuing to start MCP stdio server.")
-    except Exception:
-        logging.exception("Error while running main() init")
+    def _run_main_background():
+        try:
+            with redirect_stdout(sys.stderr):
+                if asyncio.iscoroutinefunction(main):
+                    # run async main in its own event loop in this thread
+                    asyncio.run(main())
+                else:
+                    main()
+        except SystemExit:
+            logging.warning("main() called sys.exit(); continuing (daemon thread).")
+        except Exception:
+            logging.exception("Error inside main() background thread")
 
-    # 2) Start MCP stdio server (this must own stdout)
+    # 1) Start your main() in a background daemon thread so it can run forever
+    t = threading.Thread(target=_run_main_background, name="main-bg", daemon=True)
+    t.start()
+
+    # (Optional) give it a moment to initialize (DB, caches, etc.)
+    time.sleep(0.5)
+
+    # 2) Now start the MCP stdio server (must own stdout)
     try:
         srv = FridayMemoryMCPServer()
         asyncio.run(stdio_server(srv))
     except Exception:
         logging.exception("Fatal error starting MCP stdio server")
         sys.exit(1)
+
