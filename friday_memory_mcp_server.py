@@ -50,8 +50,6 @@ import os, json
 weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
 WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
-_wx_load_cache = _wx_load
-_wx_save_cache = _wx_save
 
 def _wx_today_str(tz: str) -> str:
         return datetime.now(ZoneInfo(tz)).date().isoformat()
