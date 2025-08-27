@@ -48,8 +48,10 @@ ENFORCE_HOME_COORDS = True
 # Cache directory (uses weather if set)
 import os, json
 weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
-WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
+WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather_cache")
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
+_wx_load_cache = _wx_load
+_wx_save_cache = _wx_save
 
 def _wx_today_str(tz: str) -> str:
         return datetime.now(ZoneInfo(tz)).date().isoformat()
@@ -58,7 +60,7 @@ def _wx_cache_path(tz: str, lat: float, lon: float) -> str:
     day = _wx_today_str(tz)
     key_lat = f"{lat:.3f}"
     key_lon = f"{lon:.3f}"
-    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_*.json")
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}{lat}{lon}.json")
 
 def _wx_load(path: str):
     try:
@@ -76,6 +78,53 @@ def _wx_save(path: str, payload: dict):
     except Exception:
         pass  # cache failures should never break the tool
 
+from glob import glob
+from datetime import datetime, timedelta
+
+def _wx_today_mdy(tz: str) -> str:
+    # e.g., "08-27-2025"
+    return datetime.now(ZoneInfo(tz)).strftime("%m-%d-%Y")
+
+def _wx_time_HHMM(now: datetime) -> str:
+    # e.g., "0900"
+    return now.strftime("%H%M")
+
+def _wx_today_glob_mdy(tz: str) -> str:
+    # matches openmeteo_MM-DD-YYYY.json and openmeteo_MM-DD-YYYY_*.json
+    day = _wx_today_mdy(tz)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}*.json")
+
+def _wx_find_today_latest_file(tz: str) -> str | None:
+    paths = glob(_wx_today_glob_mdy(tz))
+    if not paths:
+        return None
+    paths.sort(key=lambda p: os.path.getmtime(p))
+    return paths[-1]
+
+def _wx_base_file_today(tz: str) -> str:
+    # openmeteo_MM-DD-YYYY.json
+    day = _wx_today_mdy(tz)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}.json")
+
+def _wx_timestamped_file_today(tz: str, now_local: datetime) -> str:
+    # openmeteo_MM-DD-YYYY_HHMM.json
+    day = _wx_today_mdy(tz)
+    hhmm = _wx_time_HHMM(now_local)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_{hhmm}.json")
+
+def _wx_last_updated_iso(payload: dict | None) -> datetime | None:
+    if not payload:
+        return None
+    ts = payload.get("last_updated_at") or payload.get("first_saved_at")
+    if not ts:
+        return None
+    try:
+        # supports both "2025-08-27T10:05:00" and "2025-08-27 10:05:00"
+        ts = ts.replace("T", " ")
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
 # --- REQUIRED HELPERS (paste above your class) ---
 import os, json
 from datetime import datetime
@@ -87,22 +136,6 @@ import requests
 def _wx_today_str(tz: str) -> str:
     return datetime.now(ZoneInfo(tz)).date().isoformat()
 
-def _wx_load_cache(path: str):
-    try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return None
-
-def _wx_save_cache(path: str, payload: dict) -> None:
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
-    except Exception:
-        # cache write should never break the tool
-        pass
 
 def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
     url = "https://api.open-meteo.com/v1/forecast"
@@ -271,42 +304,73 @@ class FridayMemoryMCPServer:
         cpath = _wx_cache_path(tz, lat, lon)
         cached = _wx_load(cpath)
 
-        # If we have today's file and we're not forcing a refresh, decide whether to update
-        if cached and cached.get("cached_for_day") == _wx_today_str(tz) and not force_refresh:
-            if update_today:
-                fresh = _wx_fetch_openmeteo(lat, lon, tz)
-                diff = _wx_diff_summ(cached, fresh)
-                if diff:
-                    # merge: replace arrays, bump metadata, same filename
-                    fresh["first_saved_at"] = cached.get("first_saved_at") or datetime.now().isoformat(timespec="seconds")
-                    fresh["last_updated_at"] = datetime.now().isoformat(timespec="seconds")
-                    fresh["update_count"] = int(cached.get("update_count", 0)) + 1
-                    _wx_save(cpath, fresh)
-                    if return_changes_only:
-                        return {"success": True, "updated": True, "changes": diff}
-                    fresh["_via_cache"] = False
-                    fresh["changes"] = diff
-                    return {"success": True, "data": fresh, "updated": True}
-                else:
-                    # nothing changed; serve cached
-                    cached["_via_cache"] = True
-                    if return_changes_only:
-                        return {"success": True, "updated": False, "changes": {}}
-                    return {"success": True, "data": cached, "updated": False}
-            else:
-                # not updating during the day; just serve cached
+        # -------- single-file-per-day, rename after ≥4h logic --------
+        now_local = datetime.now(ZoneInfo(tz))
+
+        latest_path = _wx_find_today_latest_file(tz)   # e.g., ...\openmeteo_08-27-2025.json or ..._0900.json
+        cached = _wx_load(latest_path) if latest_path else None
+
+        # If we already have today's file and we're not forcing a refresh
+        if cached and not force_refresh:
+            last_upd = _wx_last_updated_iso(cached)
+            within_4h = bool(last_upd and (now_local - last_upd) < timedelta(hours=4))
+
+            if within_4h:
+                # serve existing file as-is
                 cached["_via_cache"] = True
                 return {"success": True, "data": cached, "updated": False}
 
-        # no cache for today OR force refresh: fetch and save
+            # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
+            fresh = _wx_fetch_openmeteo(lat, lon, tz)
+            diff = _wx_diff_summ(cached, fresh)
+
+            # stamp metadata
+            fresh["first_saved_at"] = cached.get("first_saved_at") or now_local.isoformat(timespec="seconds")
+            fresh["last_updated_at"] = now_local.isoformat(timespec="seconds")
+            fresh["update_count"] = int(cached.get("update_count", 0)) + 1
+
+            # new filename with HHMM
+            new_path = _wx_timestamped_file_today(tz, now_local)
+            _wx_save(new_path, fresh)
+
+            # delete any other files for today so exactly one remains
+            for p in glob(_wx_today_glob_mdy(tz)):
+                if p != new_path:
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+            if diff:
+                fresh["_via_cache"] = False
+                fresh["changes"] = diff
+                return {"success": True, "data": fresh, "updated": True}
+            else:
+                fresh["_via_cache"] = False
+                fresh["changes"] = {}
+                return {"success": True, "data": fresh, "updated": True}
+
+        # No file for today yet, or force refresh -> create the base MM-DD-YYYY.json
         fresh = _wx_fetch_openmeteo(lat, lon, tz)
-        now_iso = datetime.now().isoformat(timespec="seconds")
+        now_iso = now_local.isoformat(timespec="seconds")
         fresh.setdefault("first_saved_at", now_iso)
         fresh["last_updated_at"] = now_iso
-        fresh["update_count"] = int((cached or {}).get("update_count", 0)) + 1 if cached else 1
-        _wx_save(cpath, fresh)
+        fresh["update_count"] = 1
+
+        base_path = _wx_base_file_today(tz)  # openmeteo_MM-DD-YYYY.json
+        _wx_save(base_path, fresh)
+
+        # ensure only this base file exists for today
+        for p in glob(_wx_today_glob_mdy(tz)):
+            if p != base_path:
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
         fresh["_via_cache"] = False
-        return {"success": True, "data": fresh, "updated": bool(cached)}
+        return {"success": True, "data": fresh, "updated": False}
+
 
 
 
