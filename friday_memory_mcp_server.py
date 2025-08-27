@@ -44,11 +44,11 @@ HOME_LAT = 46.3366315
 HOME_LON = -94.646125
 HOME_TZ  = "America/Chicago"
 
-# Cache directory (uses FRIDAY_MEMORIES_DIR if set)
+# Cache directory (uses weather if set)
 import os, json
 from datetime import datetime
-_MEM_BASE = os.getenv("FRIDAY_MEMORIES_DIR", r"F:\Friday\Memories")
-WEATHER_CACHE_DIR = os.path.join(_MEM_BASE, "weather")
+weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
+WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
 
 def _wx_today_str(tz: str) -> str:
