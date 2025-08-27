@@ -550,24 +550,10 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                                    "latitude": {
-                                        "type": "number",
-                                        "description": "Optional lat (defaults to Motley, MN)",
-                                        "nullable": True,
-                                        "default": None
-                                    },
-                                    "longitude": {
-                                        "type": "number",
-                                        "description": "Optional lon (defaults to Motley, MN)",
-                                        "nullable": True,
-                                        "default": None
-                                    },
-                                    "timezone_str": {
-                                        "type": "string",
-                                        "description": "IANA TZ (default America/Chicago)",
-                                        "nullable": True,
-                                        "default": None
-                                    },
+                                    "latitude":  {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
+                                    "longitude": {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
+                                    "timezone_str": {"type": ["string","null"], "description": "Ignored unless override=True", "default": None},
+
                                     "update_today": {
                                         "type": "boolean",
                                         "description": "If true (default), fetch and merge changes into today's file before returning.",
