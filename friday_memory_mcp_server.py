@@ -48,7 +48,7 @@ HOME_TZ  = "America/Chicago"
 import os, json
 from datetime import datetime
 weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
-WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
+WEATHER_CACHE_DIR = os.path.join(weather_directory)
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
 
 def _wx_today_str(tz: str) -> str:
