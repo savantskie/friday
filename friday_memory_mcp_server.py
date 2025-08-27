@@ -76,6 +76,76 @@ def _wx_save(path: str, payload: dict):
     except Exception:
         pass  # cache failures should never break the tool
 
+# --- REQUIRED HELPERS (paste above your class) ---
+import os, json
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import requests
+
+# If you already defined these elsewhere, keep your existing ones and skip duplicates.
+
+def _wx_today_str(tz: str) -> str:
+    return datetime.now(ZoneInfo(tz)).date().isoformat()
+
+def _wx_load_cache(path: str):
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def _wx_save_cache(path: str, payload: dict) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception:
+        # cache write should never break the tool
+        pass
+
+def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_2m,precipitation_probability",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "timezone": tz,
+    }
+    r = requests.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+
+    # Build compact hourly (next 48h)
+    hourly = []
+    hh = data.get("hourly") or {}
+    for t, tc, pop in zip(hh.get("time") or [],
+                          hh.get("temperature_2m") or [],
+                          hh.get("precipitation_probability") or []):
+        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
+    hourly = hourly[:48]
+
+    # Build daily
+    daily = []
+    dd = data.get("daily") or {}
+    for d, mx, mn, p in zip(dd.get("time") or [],
+                            dd.get("temperature_2m_max") or [],
+                            dd.get("temperature_2m_min") or [],
+                            dd.get("precipitation_probability_max") or []):
+        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
+
+    return {
+        "source": "open-meteo",
+        "tz": tz,
+        "latitude": lat,
+        "longitude": lon,
+        "cached_for_day": _wx_today_str(tz),
+        "hourly": hourly,
+        "daily": daily
+    }
+
+
 # --- change detection for weather payloads (add-only) ---
 from datetime import datetime
 
@@ -120,75 +190,6 @@ def _wx_diff_summ(old: dict, new: dict) -> dict:
     if not changes["daily_changed"] and not changes["hourly_changed"]:
         return {}
     return changes
-
-
-async def get_weather_open_meteo(self,
-                                 latitude: float | None = None,
-                                 longitude: float | None = None,
-                                 timezone_str: str | None = None,
-                                 force_refresh: bool = False,
-                                 override: bool = False,
-                                 update_today: bool = True,
-                                 return_changes_only: bool = False) -> dict:
-    url = "https://api.open-meteo.com/v1/forecast"
-    # Lock to home unless explicitly overridden
-    if ENFORCE_HOME_COORDS and not override:
-        lat = float(HOME_LAT)
-        lon = float(HOME_LON)
-        tz  = HOME_TZ if timezone_str is None else timezone_str
-    else:
-        lat = float(HOME_LAT if latitude is None else latitude)
-        lon = float(HOME_LON if longitude is None else longitude)
-        tz  = timezone_str or HOME_TZ
-
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "timezone": tz,
-        "hourly": "temperature_2m,precipitation_probability",
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-    }
-    cpath = _wx_cache_path(tz, lat, lon)
-    cached = _load_cache(cpath)
-
-    # if we have today's file and we're not forcing a refresh, decide whether to update
-    if cached and cached.get("cached_for_day") == _wx_today_str(tz) and not force_refresh:
-        if update_today:
-            fresh = _wx_fetch_openmeteo(lat, lon, tz)
-            diff = _wx_diff_summ(cached, fresh)
-            if diff:
-                # merge by replacing core arrays, bump metadata, keep same filename
-                fresh["first_saved_at"] = cached.get("first_saved_at") or datetime.now().isoformat(timespec="seconds")
-                fresh["last_updated_at"] = datetime.now().isoformat(timespec="seconds")
-                fresh["update_count"] = int(cached.get("update_count", 0)) + 1
-                _save_cache(cpath, fresh)
-                if return_changes_only:
-                    return {"success": True, "updated": True, "changes": diff}
-                fresh["_via_cache"] = False  # we just wrote a fresh payload
-                fresh["changes"] = diff
-                return {"success": True, "data": fresh, "updated": True}
-            else:
-                # nothing changed; serve cached
-                cached["_via_cache"] = True
-                if return_changes_only:
-                    return {"success": True, "updated": False, "changes": {}}
-                return {"success": True, "data": cached, "updated": False}
-        else:
-            # not updating during the day; just serve cached
-                cached["_via_cache"] = True
-            return {"success": True, "data": cached, "updated": False}
-        else:
-            # no cache for today OR force refresh: fetch and save
-                fresh = _wx_fetch_openmeteo(lat, lon, tz)
-                now_iso = datetime.now().isoformat(timespec="seconds")
-                fresh.setdefault("first_saved_at", now_iso)
-                fresh["last_updated_at"] = now_iso
-                fresh["update_count"] = int((cached or {}).get("update_count", 0)) + 1 if cached else 1
-                _save_cache(cpath, fresh)
-                fresh["_via_cache"] = False
-        return {"success": True, "data": fresh, "updated": bool(cached), "source": "open-meteo", "tz": tz, "latitude": lat, "longitude": lon, "cached_for_day": _wx_today_str(tz), "hourly": hourly, "daily": daily}
-
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -250,25 +251,63 @@ class FridayMemoryMCPServer:
         asyncio.create_task(delayed_start())    
 
     async def get_weather_open_meteo(self,
-                                     latitude: float | None = None,
-                                     longitude: float | None = None,
-                                     timezone_str: str | None = None,
-                                     force_refresh: bool = False) -> dict:
-        lat = float(HOME_LAT if latitude is None else latitude)
-        lon = float(HOME_LON if longitude is None else longitude)
-        tz  = timezone_str or HOME_TZ
+                                    latitude: float | None = None,
+                                    longitude: float | None = None,
+                                    timezone_str: str | None = None,
+                                    force_refresh: bool = False,
+                                    override: bool = False,
+                                    update_today: bool = True,
+                                    return_changes_only: bool = False) -> dict:
+        # Lock to home unless explicitly overridden
+        if ENFORCE_HOME_COORDS and not override:
+            lat = float(HOME_LAT)
+            lon = float(HOME_LON)
+            tz  = HOME_TZ if timezone_str is None else timezone_str
+        else:
+            lat = float(HOME_LAT if latitude is None else latitude)
+            lon = float(HOME_LON if longitude is None else longitude)
+            tz  = timezone_str or HOME_TZ
 
         cpath = _wx_cache_path(tz, lat, lon)
-        if not force_refresh:
-            cached = _wx_load(cpath)
-            if cached and cached.get("cached_for_day") == _wx_today_str(tz):
-                cached["_via_cache"] = True
-                return {"success": True, "data": cached}
+        cached = _wx_load(cpath)
 
+        # If we have today's file and we're not forcing a refresh, decide whether to update
+        if cached and cached.get("cached_for_day") == _wx_today_str(tz) and not force_refresh:
+            if update_today:
+                fresh = _wx_fetch_openmeteo(lat, lon, tz)
+                diff = _wx_diff_summ(cached, fresh)
+                if diff:
+                    # merge: replace arrays, bump metadata, same filename
+                    fresh["first_saved_at"] = cached.get("first_saved_at") or datetime.now().isoformat(timespec="seconds")
+                    fresh["last_updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    fresh["update_count"] = int(cached.get("update_count", 0)) + 1
+                    _wx_save(cpath, fresh)
+                    if return_changes_only:
+                        return {"success": True, "updated": True, "changes": diff}
+                    fresh["_via_cache"] = False
+                    fresh["changes"] = diff
+                    return {"success": True, "data": fresh, "updated": True}
+                else:
+                    # nothing changed; serve cached
+                    cached["_via_cache"] = True
+                    if return_changes_only:
+                        return {"success": True, "updated": False, "changes": {}}
+                    return {"success": True, "data": cached, "updated": False}
+            else:
+                # not updating during the day; just serve cached
+                cached["_via_cache"] = True
+                return {"success": True, "data": cached, "updated": False}
+
+        # no cache for today OR force refresh: fetch and save
         fresh = _wx_fetch_openmeteo(lat, lon, tz)
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        fresh.setdefault("first_saved_at", now_iso)
+        fresh["last_updated_at"] = now_iso
+        fresh["update_count"] = int((cached or {}).get("update_count", 0)) + 1 if cached else 1
         _wx_save(cpath, fresh)
         fresh["_via_cache"] = False
-        return {"success": True, "data": fresh}
+        return {"success": True, "data": fresh, "updated": bool(cached)}
+
 
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
