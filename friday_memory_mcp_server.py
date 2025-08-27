@@ -298,7 +298,7 @@ class FridayMemoryMCPServer:
                                     override: bool = False,
                                     update_today: bool = True,
                                     return_changes_only: bool = False,
-                                    severe_update: bool = false) -> dict:
+                                    severe_update: bool = False) -> dict:
         # Lock to home unless explicitly overridden
         if ENFORCE_HOME_COORDS and not override:
             lat = float(HOME_LAT)
