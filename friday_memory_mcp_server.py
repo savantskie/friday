@@ -43,7 +43,7 @@ memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
 HOME_LAT = 46.3366315
 HOME_LON = -94.646125
 HOME_TZ  = "America/Chicago"
-
+ENFORCE_HOME_COORDS = True
 # Cache directory (uses weather if set)
 import os, json
 from datetime import datetime
@@ -76,14 +76,29 @@ def _wx_save(path: str, payload: dict):
     except Exception:
         pass  # cache failures should never break the tool
 
-def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
+async def get_weather_open_meteo(self,
+                                 latitude: float | None = None,
+                                 longitude: float | None = None,
+                                 timezone_str: str | None = None,
+                                 force_refresh: bool = False,
+                                 override: bool = False) -> dict:
     url = "https://api.open-meteo.com/v1/forecast"
+    # Lock to home unless explicitly overridden
+    if ENFORCE_HOME_COORDS and not override:
+        lat = float(HOME_LAT)
+        lon = float(HOME_LON)
+        tz  = HOME_TZ if timezone_str is None else timezone_str
+    else:
+        lat = float(HOME_LAT if latitude is None else latitude)
+        lon = float(HOME_LON if longitude is None else longitude)
+        tz  = timezone_str or HOME_TZ
+
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": "temperature_2m,precipitation_probability",
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
         "timezone": tz,
+        "hourly": "temperature_2m,precipitation_probability",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max"
     }
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
@@ -930,6 +945,7 @@ class FridayMemoryMCPServer:
                     longitude=arguments.get("longitude"),
                     timezone_str=arguments.get("timezone_str"),
                     force_refresh=arguments.get("force_refresh", False),
+                    override=arguments.get("override", False),
                 )
             elif tool_name == "reschedule_reminder":
                 return await self.memory_system.reschedule_reminder(**arguments)
