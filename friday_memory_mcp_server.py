@@ -1410,5 +1410,43 @@ async def main():
         await mcp_server.cleanup()
 
 
+# ---- MCP STDIO ENTRYPOINT (keeps your main() intact) ----
 if __name__ == "__main__":
-    asyncio.run(main())
+    import os, sys, logging, asyncio
+    from contextlib import redirect_stdout
+    from mcp.server.stdio import stdio_server
+
+    # Logs -> file + stderr (never stdout)
+    LOG_DIR = r"F:\Friday\logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE = os.path.join(LOG_DIR, "mcp_server.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
+    )
+
+    # 1) Run your main() FIRST (exactly as you wrote it), but:
+    #    - redirect stdout to stderr so MCP stdout stays clean
+    #    - prevent a sys.exit() from killing the process
+    try:
+        with redirect_stdout(sys.stderr):
+            if asyncio.iscoroutinefunction(main):
+                asyncio.run(main())
+            else:
+                main()
+    except SystemExit:
+        logging.warning("main() called sys.exit(); continuing to start MCP stdio server.")
+    except Exception:
+        logging.exception("Error while running main() init")
+
+    # 2) Start MCP stdio server (this must own stdout)
+    try:
+        srv = FridayMemoryMCPServer()
+        asyncio.run(stdio_server(srv))
+    except Exception:
+        logging.exception("Fatal error starting MCP stdio server")
+        sys.exit(1)
