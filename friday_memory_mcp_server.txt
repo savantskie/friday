@@ -40,8 +40,8 @@ memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
-HOME_LAT = 46.3366315
-HOME_LON = -94.646125
+HOME_LAT = 46.33301
+HOME_LON = -94.64384
 NATE_HOME = (HOME_LAT,HOME_LON)
 HOME_TZ  = "America/Chicago"
 ENFORCE_HOME_COORDS = True
@@ -1385,24 +1385,31 @@ async def main():
     mcp_server = FridayMemoryMCPServer()
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
+    import friday_memory_system as fms
+    asyncio.create_task(fms.main())
+    logger.info("Memory system started in background.")
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
-        async with stdio_server(srv,
-                                InitializationOptions(
-                                    server_name="friday-memory",
-                                    server_version="1.0.0",
-                                    capabilities=srv.server.get_capabilities(
-                                        notification_options=NotificationOptions(),
-                                        experimental_capabilities={}
-                                    )
-                                )):
-            await asyncio.Future()  # keeps it running forever
+        async with stdio_server() as (read_stream, write_stream):
+            await srv.server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="friday-memory",
+                    server_version="1.0.0",
+                    capabilities=srv.server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={}
+                    )
+                )
+            )
 
-    except Exception as e:
+    except Exception:
         logger.exception("Server error")
         await mcp_server.cleanup()
         await srv.cleanup()
+
 
 
 
