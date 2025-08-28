@@ -40,8 +40,8 @@ memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
-HOME_LAT = 46.3366315
-HOME_LON = -94.646125
+HOME_LAT = 46.33301
+HOME_LON = -94.64384
 NATE_HOME = (HOME_LAT,HOME_LON)
 HOME_TZ  = "America/Chicago"
 ENFORCE_HOME_COORDS = True
