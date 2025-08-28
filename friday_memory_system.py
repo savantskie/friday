@@ -5141,6 +5141,8 @@ async def main():
     print("   The system will automatically detect and import conversations from:")
     print("   - VS Code chat sessions")
     print("   - LM Studio conversations")
+    print("   - Ollama conversations")
+    print("   - OpenWebUI Conversations")
     
     print("\n=== Memory System Test Complete ===")
     print("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")

@@ -1383,79 +1383,41 @@ async def main():
     logging.getLogger("mcp.server").setLevel(logging.DEBUG)
     
     mcp_server = FridayMemoryMCPServer()
-    
+    srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
+    import friday_memory_system as fms
+    asyncio.create_task(fms.main())
+    logger.info("Memory system started in background.")
     
     try:
-        # Only use stdio for LM Studio - no HTTP server needed
-        logger.info("Waiting for stdio connection from LM Studio...")
+        from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
         async with stdio_server() as (read_stream, write_stream):
-            logger.info("LM Studio connected via stdio")
-            await mcp_server.server.run(
+            await srv.server.run(
                 read_stream,
                 write_stream,
                 InitializationOptions(
                     server_name="friday-memory",
                     server_version="1.0.0",
-                    capabilities=mcp_server.server.get_capabilities(
+                    capabilities=srv.server.get_capabilities(
                         notification_options=NotificationOptions(),
                         experimental_capabilities={}
                     )
                 )
             )
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-        raise
-    finally:
+
+    except Exception:
+        logger.exception("Server error")
         await mcp_server.cleanup()
+        await srv.cleanup()
+
 
 
 
 # ---- MCP STDIO ENTRYPOINT (run main() in background; start MCP correctly) ----
 if __name__ == "__main__":
-    import os, sys, logging, asyncio, threading, time
-    from contextlib import redirect_stdout
-    from mcp.server.stdio import stdio_server  # async context manager
+    import asyncio
+    asyncio.run(main())
 
-    # Logs -> file + stderr (never stdout)
-    LOG_DIR = r"F:\Friday\logs"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    LOG_FILE = os.path.join(LOG_DIR, "mcp_server.log")
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"),
-                  logging.StreamHandler(sys.stderr)],
-    )
 
-    # 1) Run your main() EXACTLY AS-IS in a background thread (so it can block forever)
-    def _run_main_background():
-        try:
-            with redirect_stdout(sys.stderr):
-                if asyncio.iscoroutinefunction(main):
-                    asyncio.run(main())
-                else:
-                    main()
-        except SystemExit:
-            logging.warning("main() called sys.exit(); continuing (daemon thread).")
-        except Exception:
-            logging.exception("Error inside main() background thread")
-
-    t = threading.Thread(target=_run_main_background, name="main-bg", daemon=True)
-    t.start()
-    time.sleep(0.5)  # small head-start if you want
-
-    # 2) Start the MCP stdio server (this must own stdout)
-    async def _run_stdio():
-        srv = FridayMemoryMCPServer()  # your server object
-        # stdio_server is an async context manager that yields (read, write)
-        async with stdio_server() as (read, write):
-            await srv.run(read, write)
-
-    try:
-        asyncio.run(_run_stdio())
-    except Exception:
-        logging.exception("Fatal error starting MCP stdio server")
-        sys.exit(1)
 
 

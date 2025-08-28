@@ -14,6 +14,8 @@ import json
 import logging
 import sqlite3
 import threading
+import requests
+from zoneinfo import ZoneInfo
 import os
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
@@ -36,6 +38,196 @@ from mcp.types import (
 from friday_memory_system import FridayMemorySystem
 memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
 
+# ---------- Friday Weather (Open-Meteo) with same-day cache ----------
+# Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
+HOME_LAT = 46.3366315
+HOME_LON = -94.646125
+NATE_HOME = (HOME_LAT,HOME_LON)
+HOME_TZ  = "America/Chicago"
+ENFORCE_HOME_COORDS = True
+# Cache directory (uses weather if set)
+import os, json
+weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
+WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
+os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
+
+def _wx_today_str(tz: str) -> str:
+        return datetime.now(ZoneInfo(tz)).date().isoformat()
+
+def _wx_cache_path(tz: str, lat: float, lon: float) -> str:
+    day = _wx_today_str(tz)
+    key_lat = f"{lat:.3f}"
+    key_lon = f"{lon:.3f}"
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}{lat}{lon}.json")
+
+def _wx_load(path: str):
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def _wx_save(path: str, payload: dict):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception:
+        pass  # cache failures should never break the tool
+
+_wx_load_cache = _wx_load
+_wx_save_cache = _wx_save
+
+
+from glob import glob
+from datetime import datetime, timedelta
+
+def _wx_today_mdy(tz: str) -> str:
+    # e.g., "08-27-2025"
+    return datetime.now(ZoneInfo(tz)).strftime("%m-%d-%Y")
+
+def _wx_time_HHMM(now: datetime) -> str:
+    # e.g., "0900"
+    return now.strftime("%H%M")
+
+def _wx_today_glob_mdy(tz: str) -> str:
+    # matches openmeteo_MM-DD-YYYY.json and openmeteo_MM-DD-YYYY_*.json
+    day = _wx_today_mdy(tz)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}*.json")
+
+def _wx_find_today_latest_file(tz: str) -> str | None:
+    paths = glob(_wx_today_glob_mdy(tz))
+    if not paths:
+        return None
+    paths.sort(key=lambda p: os.path.getmtime(p))
+    return paths[-1]
+
+def _wx_base_file_today(tz: str) -> str:
+    # openmeteo_MM-DD-YYYY.json
+    day = _wx_today_mdy(tz)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}.json")
+
+def _wx_timestamped_file_today(tz: str, now_local: datetime) -> str:
+    # openmeteo_MM-DD-YYYY_HHMM.json
+    day = _wx_today_mdy(tz)
+    hhmm = _wx_time_HHMM(now_local)
+    return os.path.join(WEATHER_CACHE_DIR, f"openmeteo_{day}_{hhmm}.json")
+
+def _wx_last_updated_iso(payload: dict | None) -> datetime | None:
+    if not payload:
+        return None
+    ts = payload.get("last_updated_at") or payload.get("first_saved_at")
+    if not ts:
+        return None
+    try:
+        # supports both "2025-08-27T10:05:00" and "2025-08-27 10:05:00"
+        ts = ts.replace("T", " ")
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+# --- REQUIRED HELPERS (paste above your class) ---
+import os, json
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import requests
+
+# If you already defined these elsewhere, keep your existing ones and skip duplicates.
+# --- update windows ---
+DEFAULT_UPDATE_WINDOW_MIN = 240   # 4 hours
+SEVERE_UPDATE_WINDOW_MIN  = 30    # 30 minutes
+
+def _wx_today_str(tz: str) -> str:
+    return datetime.now(ZoneInfo(tz)).date().isoformat()
+
+
+def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_2m,precipitation_probability",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "timezone": tz,
+    }
+    r = requests.get(url, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+
+    # Build compact hourly (next 48h)
+    hourly = []
+    hh = data.get("hourly") or {}
+    for t, tc, pop in zip(hh.get("time") or [],
+                          hh.get("temperature_2m") or [],
+                          hh.get("precipitation_probability") or []):
+        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
+    hourly = hourly[:48]
+
+    # Build daily
+    daily = []
+    dd = data.get("daily") or {}
+    for d, mx, mn, p in zip(dd.get("time") or [],
+                            dd.get("temperature_2m_max") or [],
+                            dd.get("temperature_2m_min") or [],
+                            dd.get("precipitation_probability_max") or []):
+        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
+
+    return {
+        "source": "open-meteo",
+        "tz": tz,
+        "latitude": lat,
+        "longitude": lon,
+        "cached_for_day": _wx_today_str(tz),
+        "hourly": hourly,
+        "daily": daily
+    }
+
+
+# --- change detection for weather payloads (add-only) ---
+from datetime import datetime
+
+def _wx_index_by(items: list[dict], key: str) -> dict:
+    out = {}
+    for it in items or []:
+        k = it.get(key)
+        if k is not None:
+            out[k] = it
+    return out
+
+def _wx_diff_summ(old: dict, new: dict) -> dict:
+    """Return only what changed in 'daily' (by date) and 'hourly' (by time)."""
+    changes = {"daily_changed": [], "hourly_changed": []}
+
+    # --- daily (by date) ---
+    old_d = _wx_index_by((old or {}).get("daily", []), "date")
+    new_d = _wx_index_by((new or {}).get("daily", []), "date")
+    for date_key, new_row in new_d.items():
+        o = old_d.get(date_key)
+        if not o:
+            changes["daily_changed"].append({"date": date_key, "old": None, "new": new_row})
+            continue
+        # compare keys we actually set
+        fields = ("tmax_c", "tmin_c", "pop_max")
+        if any(o.get(f) != new_row.get(f) for f in fields):
+            changes["daily_changed"].append({"date": date_key, "old": o, "new": new_row})
+
+    # --- hourly (by time) -> just first 48 like we return
+    old_h = _wx_index_by((old or {}).get("hourly", []), "time")
+    new_h = _wx_index_by((new or {}).get("hourly", []), "time")
+    # to keep this concise, check only overlapping times
+    for t_key, new_row in list(new_h.items())[:48]:
+        o = old_h.get(t_key)
+        if not o:
+            changes["hourly_changed"].append({"time": t_key, "old": None, "new": new_row})
+            continue
+        if (o.get("temp_c") != new_row.get("temp_c")) or (o.get("pop") != new_row.get("pop")):
+            changes["hourly_changed"].append({"time": t_key, "old": o, "new": new_row})
+
+    # prune empties
+    if not changes["daily_changed"] and not changes["hourly_changed"]:
+        return {}
+    return changes
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +243,21 @@ class FridayMemoryMCPServer:
             loop.run_until_complete(self.memory_system.background_main())
         t = threading.Thread(target=run_background, daemon=True)
         t.start()
+
+    async def get_current_time_tool(self) -> Dict:
+        """Return the current server time in ISO format (system local time only)"""
+        try:
+            now_local = datetime.now().isoformat()
+            return {
+                "success": True,
+                "current_time": now_local
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    """MCP Server for Friday's Memory System"""
 
     async def handle_initialization(self, *args, **kwargs):
         # Call this after LM Studio/OpenWebUI tool registration
@@ -79,35 +286,139 @@ class FridayMemoryMCPServer:
                             logger.error(f"❌ Error importing OpenWebUI chat: {e}")
                         await asyncio.sleep(3 * 60 * 60)  # 3 hours
                 asyncio.create_task(openwebui_import_loop())
-        asyncio.create_task(delayed_start())
-    
+        asyncio.create_task(delayed_start())    
+
+    async def get_weather_open_meteo(self,
+                                    latitude: float | None = None,
+                                    longitude: float | None = None,
+                                    timezone_str: str | None = None,
+                                    force_refresh: bool = False,
+                                    override: bool = False,
+                                    update_today: bool = True,
+                                    return_changes_only: bool = False,
+                                    severe_update: bool = False) -> dict:
+        # Lock to home unless explicitly overridden
+        if ENFORCE_HOME_COORDS and not override:
+            lat = float(HOME_LAT)
+            lon = float(HOME_LON)
+            tz  = HOME_TZ if timezone_str is None else timezone_str
+        else:
+            lat = float(HOME_LAT if latitude is None else latitude)
+            lon = float(HOME_LON if longitude is None else longitude)
+            tz  = timezone_str or HOME_TZ
+
+        cpath = _wx_cache_path(tz, lat, lon)
+        cached = _wx_load(cpath)
+
+        # -------- single-file-per-day, rename after ≥4h logic --------
+        now_local = datetime.now(ZoneInfo(tz))
+
+        latest_path = _wx_find_today_latest_file(tz)   # e.g., ...\openmeteo_08-27-2025.json or ..._0900.json
+        cached = _wx_load(latest_path) if latest_path else None
+
+        # If we already have today's file and we're not forcing a refresh
+        if cached and not force_refresh:
+            last_upd = _wx_last_updated_iso(cached)
+            within_4h = bool(last_upd and (now_local - last_upd) < timedelta(hours=4))
+
+        # decide the window (4h normal, 30m for severe)
+        window_minutes = SEVERE_UPDATE_WINDOW_MIN if severe_update else DEFAULT_UPDATE_WINDOW_MIN
+
+        last_upd = _wx_last_updated_iso(cached) if cached else None
+        within_window = bool(last_upd and (now_local - last_upd) < timedelta(minutes=window_minutes))
+
+        if cached and not force_refresh:
+            if within_window:
+                cached["_via_cache"] = True
+                return {"success": True, "data": cached, "updated": False}
+            # outside window -> fetch/rename/update as you already do...
+
+            # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
+            fresh = _wx_fetch_openmeteo(lat, lon, tz)
+            diff = _wx_diff_summ(cached, fresh)
+
+            # stamp metadata
+            fresh["first_saved_at"] = cached.get("first_saved_at") or now_local.isoformat(timespec="seconds")
+            fresh["last_updated_at"] = now_local.isoformat(timespec="seconds")
+            fresh["update_count"] = int(cached.get("update_count", 0)) + 1
+
+            # new filename with HHMM
+            new_path = _wx_timestamped_file_today(tz, now_local)
+            _wx_save(new_path, fresh)
+
+            # delete any other files for today so exactly one remains
+            for p in glob(_wx_today_glob_mdy(tz)):
+                if p != new_path:
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+            if diff:
+                fresh["_via_cache"] = False
+                fresh["changes"] = diff
+                return {"success": True, "data": fresh, "updated": True}
+            else:
+                fresh["_via_cache"] = False
+                fresh["changes"] = {}
+                return {"success": True, "data": fresh, "updated": True}
+
+        # No file for today yet, or force refresh -> create the base MM-DD-YYYY.json
+        fresh = _wx_fetch_openmeteo(lat, lon, tz)
+        now_iso = now_local.isoformat(timespec="seconds")
+        fresh.setdefault("first_saved_at", now_iso)
+        fresh["last_updated_at"] = now_iso
+        fresh["update_count"] = 1
+
+        base_path = _wx_base_file_today(tz)  # openmeteo_MM-DD-YYYY.json
+        _wx_save(base_path, fresh)
+
+        # ensure only this base file exists for today
+        for p in glob(_wx_today_glob_mdy(tz)):
+            if p != base_path:
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
+        fresh["_via_cache"] = False
+        return {"success": True, "data": fresh, "updated": False}
+
+
+
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
-        # -- add right here, first lines in get_reminders --
         try:
-            limit = int(limit) if isinstance(limit, str) and limit != "" else limit
-            days_ahead = int(days_ahead) if isinstance(days_ahead, str) and days_ahead != "" else days_ahead
-            if isinstance(include_completed, str):
-                include_completed = include_completed.strip().lower() in ("true", "1", "yes", "y", "on")
-        except Exception:
-            pass
+            from datetime import datetime, timedelta
+            now = datetime.now().isoformat()
+            future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
 
-        try:
             with sqlite3.connect(self.schedule_db_path) as conn:
                 cursor = conn.cursor()
-                query = "SELECT reminder_id, content, due_datetime, completed, priority_level FROM reminders WHERE 1=1"
+                query = """
+                    SELECT reminder_id, content, due_datetime, completed, priority_level
+                    FROM reminders
+                    WHERE 1=1
+                """
                 params = []
+
                 if not include_completed:
                     query += " AND completed = 0"
+
+                # Only return reminders that are due now or in the future
+                query += " AND due_datetime >= ?"
+                params.append(now)
+
                 if days_ahead > 0:
-                    from datetime import datetime, timedelta
-                    future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
                     query += " AND due_datetime <= ?"
                     params.append(future_date)
+
                 query += " ORDER BY due_datetime ASC LIMIT ?"
                 params.append(limit)
+
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
+
                 return {
                     "success": True,
                     "reminders": [
@@ -126,20 +437,6 @@ class FridayMemoryMCPServer:
                 "error": str(e)
             }
 
-    async def get_current_time_tool(self) -> Dict:
-        """Return the current server time in ISO format (system local time only)"""
-        try:
-            now_local = datetime.now().isoformat()
-            return {
-                "success": True,
-                "current_time": now_local
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    """MCP Server for Friday's Memory System"""
     
     def __init__(self):
         self.memory_data_dir = ("F:/Friday/memory_data")
@@ -242,6 +539,37 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of reminders to return", "default": 10},
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30}
+                    }
+                }
+            ),
+            Tool(
+                name="get_weather_open_meteo",
+                description="Open-Meteo forecast (no API key). Defaults to Motley, MN and caches once per local day.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                                    "latitude":  {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
+                                    "longitude": {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
+                                    "timezone_str": {"type": ["string","null"], "description": "Ignored unless override=True", "default": None},
+
+                                    "update_today": {
+                                        "type": "boolean",
+                                        "description": "If true (default), fetch and merge changes into today's file before returning.",
+                                        "default": True
+                                    },
+                                    "return_changes_only": {
+                                        "type": "boolean",
+                                        "description": "If true, return only a summary of changed fields for today.",
+                                        "default": False
+                                    },
+                                    "severe_update": {
+                                    "type": "boolean",
+                                    "description": "If true, shrink the update window to 30 minutes for severe weather.",
+                                    "default": False
+                                    },
+
+
+                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
                     }
                 }
             ),
@@ -453,7 +781,7 @@ class FridayMemoryMCPServer:
                 }
             )
             ,
-                        Tool(
+            Tool(
                 name="store_ai_reflection",
                 description="Store an AI self-reflection/insight record (manual write)",
                 inputSchema={
@@ -734,12 +1062,11 @@ class FridayMemoryMCPServer:
                 "status": "error",
                 "error": str(e)
             }
-
         
     def _get_total_reminders_count(self, include_completed: bool = False) -> int:
         """Get total count of reminders in database"""
         try:
-            with sqlite3.connect(self.schedule_db_path) as conn:
+            with sqlite3.connect(self.reminders_db_path) as conn:
                 cursor = conn.cursor()
                 
                 if include_completed:
@@ -760,7 +1087,7 @@ class FridayMemoryMCPServer:
                 with sqlite3.connect(self.schedule_db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
-                        "UPDATE reminders SET embedding = ? WHERE reminder_id = ?",
+                        "UPDATE reminders SET embedding = ? WHERE id = ?",
                         (embedding_blob, reminder_id)
                     )
                     conn.commit()
@@ -794,6 +1121,7 @@ class FridayMemoryMCPServer:
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
                 result = {"status": "success", "reflection_id": reflection_id}
+
             elif tool_name == "get_appointments":
                 result = await self.memory_system.get_appointments(
                     limit=arguments.get("limit", 5),
@@ -809,6 +1137,31 @@ class FridayMemoryMCPServer:
             # ...existing code for other tools...
             elif tool_name == "complete_reminder":
                 return await self.memory_system.complete_reminder(**arguments)
+            elif tool_name == "get_weather_open_meteo":
+                # Hard gate: ignore coords unless override=True
+                override = bool(arguments.get("override", False))
+                if not override:
+                    # strip any coordinates or tz Friday tried to send
+                    attempted_lat = arguments.pop("latitude", None)
+                    attempted_lon = arguments.pop("longitude", None)
+                    attempted_tz  = arguments.pop("timezone_str", None)
+                    # optional: log the attempt so you can see when she tries
+                    try:
+                        with open(r"F:\Friday\logs\friday.log", "a", encoding="utf-8") as _lf:
+                            _lf.write(f"[weather] blocked coords (override=False) lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n")
+                    except Exception:
+                        pass
+
+                result = await self.get_weather_open_meteo(
+                    latitude=arguments.get("latitude"),
+                    longitude=arguments.get("longitude"),
+                    timezone_str=arguments.get("timezone_str"),
+                    force_refresh=arguments.get("force_refresh", False),
+                    override=override,
+                    update_today=arguments.get("update_today", True),
+                    return_changes_only=arguments.get("return_changes_only", False),
+                    severe_update=arguments.get("severe_update", False),
+                )
             elif tool_name == "reschedule_reminder":
                 return await self.memory_system.reschedule_reminder(**arguments)
             elif tool_name == "get_active_reminders":
@@ -1030,32 +1383,34 @@ async def main():
     logging.getLogger("mcp.server").setLevel(logging.DEBUG)
     
     mcp_server = FridayMemoryMCPServer()
-    
+    srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
     
     try:
-        # Only use stdio for LM Studio - no HTTP server needed
-        logger.info("Waiting for stdio connection from LM Studio...")
-        async with stdio_server() as (read_stream, write_stream):
-            logger.info("LM Studio connected via stdio")
-            await mcp_server.server.run(
-                read_stream,
-                write_stream,
-                InitializationOptions(
-                    server_name="friday-memory",
-                    server_version="1.0.0",
-                    capabilities=mcp_server.server.get_capabilities(
-                        notification_options=NotificationOptions(),
-                        experimental_capabilities={}
-                    )
-                )
-            )
+        from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
+        async with stdio_server(srv,
+                                InitializationOptions(
+                                    server_name="friday-memory",
+                                    server_version="1.0.0",
+                                    capabilities=srv.server.get_capabilities(
+                                        notification_options=NotificationOptions(),
+                                        experimental_capabilities={}
+                                    )
+                                )):
+            await asyncio.Future()  # keeps it running forever
+
     except Exception as e:
-        logger.error(f"Server error: {e}")
-        raise
-    finally:
+        logger.exception("Server error")
         await mcp_server.cleanup()
+        await srv.cleanup()
 
 
+
+# ---- MCP STDIO ENTRYPOINT (run main() in background; start MCP correctly) ----
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
+
+
+
+
