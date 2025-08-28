@@ -3213,14 +3213,17 @@ class FridayMemorySystem:
         }
     """Main memory system that coordinates all databases and operations"""
     def __init__(self, data_dir: str = "memory_data", enable_file_monitoring: bool = True, 
-                 watch_directories: List[str] = None):
+                 watch_directories: List[str] = None, workspace_path: str = r"F:\Friday"):
+        self.workspace_path = workspace_path
         # Hardcoded database paths for reliability
         self.conversations_db = ConversationDatabase("F:/Friday/memory_data/conversations.db")
         self.ai_memory_db = AIMemoryDatabase("F:/Friday/memory_data/ai_memories.db")
         self.schedule_db = ScheduleDatabase("F:/Friday/memory_data/schedule.db")
         self.vscode_db = VSCodeProjectDatabase("F:/Friday/memory_data/vscode_project.db")
         self.mcp_db = MCPToolCallDatabase("F:/Friday/memory_data/mcp_tool_calls.db")
-        
+        self.workspace_path = Path(self.workspace_path) if isinstance(self.workspace_path, str) else self.workspace_path
+        self.data_dir = Path(self.workspace_path) / "memory_data"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
@@ -5085,7 +5088,7 @@ async def main():
     # Test VS Code project tracking
     print("\n5. Testing VS Code project features...")
     session = await memory.save_development_session(
-        workspace_path="F:\Friday",
+        workspace_path= r"F:\Friday",
         active_files=["friday_memory_system.py", "friday_memory_mcp_server.py"],
         git_branch="main",
         session_summary="Implementing file monitoring and semantic search for memory system"
@@ -5126,7 +5129,7 @@ async def main():
         print(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
     
     # Test project continuity
-    continuity = await memory.get_project_continuity("F:\Friday")
+    continuity = await memory.get_project_continuity(r"F:\Friday")
     print(f"\nProject continuity data: {len(continuity['continuity_data']['recent_sessions'])} sessions, "
           f"{len(continuity['continuity_data']['important_insights'])} important insights")
     

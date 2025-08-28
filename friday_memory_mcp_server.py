@@ -1411,11 +1411,11 @@ async def main():
 
 
 
-# ---- MCP STDIO ENTRYPOINT (run main() in background; start MCP immediately) ----
+# ---- MCP STDIO ENTRYPOINT (run main() in background; start MCP correctly) ----
 if __name__ == "__main__":
     import os, sys, logging, asyncio, threading, time
     from contextlib import redirect_stdout
-    from mcp.server.stdio import stdio_server
+    from mcp.server.stdio import stdio_server  # async context manager
 
     # Logs -> file + stderr (never stdout)
     LOG_DIR = r"F:\Friday\logs"
@@ -1424,17 +1424,15 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.FileHandler(LOG_FILE, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
+        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"),
+                  logging.StreamHandler(sys.stderr)],
     )
 
+    # 1) Run your main() EXACTLY AS-IS in a background thread (so it can block forever)
     def _run_main_background():
         try:
             with redirect_stdout(sys.stderr):
                 if asyncio.iscoroutinefunction(main):
-                    # run async main in its own event loop in this thread
                     asyncio.run(main())
                 else:
                     main()
@@ -1443,18 +1441,21 @@ if __name__ == "__main__":
         except Exception:
             logging.exception("Error inside main() background thread")
 
-    # 1) Start your main() in a background daemon thread so it can run forever
     t = threading.Thread(target=_run_main_background, name="main-bg", daemon=True)
     t.start()
+    time.sleep(0.5)  # small head-start if you want
 
-    # (Optional) give it a moment to initialize (DB, caches, etc.)
-    time.sleep(0.5)
+    # 2) Start the MCP stdio server (this must own stdout)
+    async def _run_stdio():
+        srv = FridayMemoryMCPServer()  # your server object
+        # stdio_server is an async context manager that yields (read, write)
+        async with stdio_server() as (read, write):
+            await srv.run(read, write)
 
-    # 2) Now start the MCP stdio server (must own stdout)
     try:
-        srv = FridayMemoryMCPServer()
-        asyncio.run(stdio_server(srv))
+        asyncio.run(_run_stdio())
     except Exception:
         logging.exception("Fatal error starting MCP stdio server")
         sys.exit(1)
+
 
