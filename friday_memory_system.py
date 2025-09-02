@@ -507,37 +507,52 @@ class AIMemoryDatabase(DatabaseManager):
 
 
 class ScheduleDatabase(DatabaseManager):
-    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> List[Dict]:
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds."""
         now = datetime.now(get_local_timezone())
         future = now + timedelta(days=days_ahead)
-
         now_epoch = int(now.timestamp())
         future_epoch = int(future.timestamp())
-
-        query = """
-            SELECT *
-            FROM appointments
-            WHERE
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END >= ?
-            AND
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END <= ?
-            ORDER BY
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END ASC
-            LIMIT ?
-        """
-        rows = await self.execute_query(query, (now_epoch, future_epoch, limit))
-        return [dict(row) for row in rows]
-
+        
+        try:
+            query = """
+                SELECT *
+                FROM appointments
+                WHERE
+                    CASE
+                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                    END >= ?
+                AND
+                    CASE
+                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                    END <= ?
+                ORDER BY
+                    CASE
+                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                    END ASC
+                LIMIT ?
+            """
+            rows = await self.execute_query(query, (now_epoch, future_epoch, limit))
+            
+            if not rows:
+                return {
+                    "status": "no_appointments",
+                    "message": f"No upcoming appointments in the next {days_ahead} days."
+                }
+            
+            return {
+                "status": "success",
+                "count": len(rows),
+                "appointments": [dict(row) for row in rows]
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to retrieve appointments. Please try again later. Error: {str(e)}"
+            }
     
     def __init__(self, db_path: str = "memory_data/schedule.db"):
         super().__init__(db_path)
@@ -3207,9 +3222,18 @@ class FridayMemorySystem:
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get recent appointments from the schedule database"""
         appointments = await self.schedule_db.get_appointments(limit, days_ahead)
+        
+        if not appointments:
+            return {
+                "status": "no_appointments",
+                "message": "No appointments in the next {} days.".format(days_ahead),
+                "appointments": []
+            }
+        
         return {
-            "appointments": appointments,
-            "count": len(appointments)
+            "status": "success",
+            "count": len(appointments),
+            "appointments": appointments
         }
     """Main memory system that coordinates all databases and operations"""
     def __init__(self, data_dir: str = "memory_data", enable_file_monitoring: bool = True, 
@@ -3371,6 +3395,13 @@ class FridayMemorySystem:
             "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? ORDER BY completed_at DESC",
             (cutoff,)
         )
+        
+        if not rows:
+            return {
+                "status": "no_completed_reminders",
+                "message": "All reminders are completed in the last {} days.".format(days)
+            }
+        
         return {
             "status": "success",
             "count": len(rows),
@@ -3385,8 +3416,15 @@ class FridayMemorySystem:
             ]
         }
 
-    async def reschedule_reminder(self, reminder_id: str, new_due_datetime: str) -> Dict:
-        """Update the due date of a reminder"""
+    async def reschedule_reminder_post(self, body: Dict) -> Dict:
+        if "reminder_id" not in body or "new_due_datetime" not in body:
+            return {
+                "error": "HTTP error! Status: 422. Message: Missing required fields. Please provide 'reminder_id' and 'new_due_datetime'."
+            }
+        
+        reminder_id = body["reminder_id"]
+        new_due_datetime = body["new_due_datetime"]
+        
         result = await self.schedule_db.execute_update(
             "UPDATE reminders SET due_datetime = ? WHERE reminder_id = ?",
             (new_due_datetime, reminder_id)
@@ -3396,8 +3434,14 @@ class FridayMemorySystem:
         else:
             return {"status": "error", "message": "Reminder not found"}
 
-    async def delete_reminder(self, reminder_id: str) -> Dict:
-        """Permanently delete a reminder"""
+    async def delete_reminder_post(self, body: Dict) -> Dict:
+        if "reminder_id" not in body:
+            return {
+                "error": "HTTP error! Status: 422. Message: Missing required field. Please provide 'reminder_id'."
+            }
+        
+        reminder_id = body["reminder_id"]
+        
         result = await self.schedule_db.execute_update(
             "DELETE FROM reminders WHERE reminder_id = ?",
             (reminder_id,)
@@ -3423,10 +3467,8 @@ class FridayMemorySystem:
         """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes."""
         now_local = datetime.now(get_local_timezone())
         cutoff_local = now_local + timedelta(days=days_ahead)
-
         now_epoch = int(now_local.timestamp())
         cutoff_epoch = int(cutoff_local.timestamp())
-
         query = """
             SELECT *
             FROM appointments
@@ -3444,9 +3486,14 @@ class FridayMemorySystem:
                 END ASC
             LIMIT ?
         """
-
         rows = await self.schedule_db.execute_query(query, (now_epoch, cutoff_epoch, limit))
-
+        
+        if not rows:
+            return {
+                "status": "no_appointments",
+                "message": "No upcoming appointments in the next {} days.".format(days_ahead)
+            }
+        
         return {
             "status": "success",
             "count": len(rows),
