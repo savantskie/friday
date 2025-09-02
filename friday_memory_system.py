@@ -3342,6 +3342,13 @@ class FridayMemorySystem:
             "SELECT * FROM reminders WHERE completed = 0 AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
             (cutoff, limit)
         )
+        
+        if not rows:
+            return {
+                "status": "no_reminders",
+                "message": "No active reminders scheduled."
+            }
+        
         return {
             "status": "success",
             "count": len(rows),
