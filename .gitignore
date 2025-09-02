@@ -45,9 +45,7 @@ services/
 templates/
 tests/
 tools/
-
+Koboldcpp/
 .github/
 mobile/
 
-# Allow tracking of ai-memory-mcp_server.py
-!persistent-ai-memory/ai-memory-mcp_server.py
