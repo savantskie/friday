@@ -1,7 +1,7 @@
 fridayonline.bounceme.net {
     tls "F:\Friday\certs\friday.pem" "F:\Friday\certs\friday.key"
 	
-	# Security headers, and securing mcpo (add-only)
+	# Security headers (add-only)
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Frame-Options "DENY"
@@ -9,16 +9,6 @@ fridayonline.bounceme.net {
         Referrer-Policy "no-referrer"
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }
-
-    @bad_api_key {
-        path /mcpo*
-        not header X-API-Key {$MCPO_API_KEY}
-    }
-    
-    respond @bad_api_key 403 {
-        body "[🔥 BLOCKED] Unauthorized access attempt to /mcpo — missing or wrong API key."
-    }
-
 
     # Route ordering: specific paths first, then default OWUI
     route {

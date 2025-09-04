@@ -24,6 +24,7 @@
 			"c:/Users/Dad/.vscode/extensions/continue.continue-1.1.61-win32-x64/config-yaml-schema.json": "file:///c%3A/Users/Dad/.continue/config.yaml"
 		},
 		"powershell.cwd": "Friday",
-		"editor.scrollbar.horizontal": "visible"
+		"editor.scrollbar.horizontal": "visible",
+		"CodeGPT.apiKey": "Ollama"
 	}
 }

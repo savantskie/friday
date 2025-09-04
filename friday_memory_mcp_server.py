@@ -1349,6 +1349,16 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
         import uvicorn
         
         app = FastAPI(title="Friday Memory API")
+
+        from fastapi import Request, HTTPException
+
+        API_KEY = "0d4b94f58f5a401ea88b149a17f09fc9"  # Change this later or load from env
+
+        async def verify_api_key(request: Request):
+            client_key = request.headers.get("X-API-Key")
+            if client_key != API_KEY:
+                raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
+
         
         # Add CORS middleware
         app.add_middleware(
