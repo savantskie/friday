@@ -330,38 +330,52 @@ class FridayMemoryMCPServer:
         if cached and not force_refresh:
             if within_window:
                 cached["_via_cache"] = True
+                # If return_changes_only is True, return just the changes summary
+                if return_changes_only:
+                    return {"success": True, "changes": {}, "updated": False, "via_cache": True}
                 return {"success": True, "data": cached, "updated": False}
-            # outside window -> fetch/rename/update as you already do...
+            
+            # outside window and update_today is True -> fetch/rename/update
+            if update_today:
+                # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
+                fresh = _wx_fetch_openmeteo(lat, lon, tz)
+                diff = _wx_diff_summ(cached, fresh)
 
-            # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
-            fresh = _wx_fetch_openmeteo(lat, lon, tz)
-            diff = _wx_diff_summ(cached, fresh)
+                # stamp metadata
+                fresh["first_saved_at"] = cached.get("first_saved_at") or now_local.isoformat(timespec="seconds")
+                fresh["last_updated_at"] = now_local.isoformat(timespec="seconds")
+                fresh["update_count"] = int(cached.get("update_count", 0)) + 1
 
-            # stamp metadata
-            fresh["first_saved_at"] = cached.get("first_saved_at") or now_local.isoformat(timespec="seconds")
-            fresh["last_updated_at"] = now_local.isoformat(timespec="seconds")
-            fresh["update_count"] = int(cached.get("update_count", 0)) + 1
+                # new filename with HHMM
+                new_path = _wx_timestamped_file_today(tz, now_local)
+                _wx_save(new_path, fresh)
 
-            # new filename with HHMM
-            new_path = _wx_timestamped_file_today(tz, now_local)
-            _wx_save(new_path, fresh)
+                # delete any other files for today so exactly one remains
+                for p in glob(_wx_today_glob_mdy(tz)):
+                    if p != new_path:
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
 
-            # delete any other files for today so exactly one remains
-            for p in glob(_wx_today_glob_mdy(tz)):
-                if p != new_path:
-                    try:
-                        os.remove(p)
-                    except Exception:
-                        pass
-
-            if diff:
-                fresh["_via_cache"] = False
-                fresh["changes"] = diff
-                return {"success": True, "data": fresh, "updated": True}
+                # If return_changes_only is True, return just the changes
+                if return_changes_only:
+                    return {"success": True, "changes": diff, "updated": True, "via_cache": False}
+                
+                if diff:
+                    fresh["_via_cache"] = False
+                    fresh["changes"] = diff
+                    return {"success": True, "data": fresh, "updated": True}
+                else:
+                    fresh["_via_cache"] = False
+                    fresh["changes"] = {}
+                    return {"success": True, "data": fresh, "updated": True}
             else:
-                fresh["_via_cache"] = False
-                fresh["changes"] = {}
-                return {"success": True, "data": fresh, "updated": True}
+                # update_today is False, return cached data
+                cached["_via_cache"] = True
+                if return_changes_only:
+                    return {"success": True, "changes": {}, "updated": False, "via_cache": True}
+                return {"success": True, "data": cached, "updated": False}
 
         # No file for today yet, or force refresh -> create the base MM-DD-YYYY.json
         fresh = _wx_fetch_openmeteo(lat, lon, tz)
@@ -382,6 +396,11 @@ class FridayMemoryMCPServer:
                     pass
 
         fresh["_via_cache"] = False
+        
+        # If return_changes_only is True, return empty changes since this is a new file
+        if return_changes_only:
+            return {"success": True, "changes": {}, "updated": False, "via_cache": False}
+            
         return {"success": True, "data": fresh, "updated": False}
 
 
@@ -548,27 +567,25 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                                    "latitude":  {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
-                                    "longitude": {"type": ["number","null"], "description": "Ignored unless override=True", "default": None},
-                                    "timezone_str": {"type": ["string","null"], "description": "Ignored unless override=True", "default": None},
-
-                                    "update_today": {
-                                        "type": "boolean",
-                                        "description": "If true (default), fetch and merge changes into today's file before returning.",
-                                        "default": True
-                                    },
-                                    "return_changes_only": {
-                                        "type": "boolean",
-                                        "description": "If true, return only a summary of changed fields for today.",
-                                        "default": False
-                                    },
-                                    "severe_update": {
-                                    "type": "boolean",
-                                    "description": "If true, shrink the update window to 30 minutes for severe weather.",
-                                    "default": False
-                                    },
-
-
+                        "latitude":  {"type": ["number","null"], "description": "Ignored unless override=True"},
+                        "longitude": {"type": ["number","null"], "description": "Ignored unless override=True"},
+                        "timezone_str": {"type": ["string","null"], "description": "Ignored unless override=True"},
+                        "override": {"type": "boolean", "description": "Set to true to use custom coordinates", "default": False},
+                        "update_today": {
+                            "type": "boolean",
+                            "description": "If true (default), fetch and merge changes into today's file before returning.",
+                            "default": True
+                        },
+                        "return_changes_only": {
+                            "type": "boolean",
+                            "description": "If true, return only a summary of changed fields for today.",
+                            "default": False
+                        },
+                        "severe_update": {
+                            "type": "boolean",
+                            "description": "If true, shrink the update window to 30 minutes for severe weather.",
+                            "default": False
+                        },
                         "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
                     }
                 }
@@ -1140,11 +1157,26 @@ class FridayMemoryMCPServer:
             elif tool_name == "get_weather_open_meteo":
                 # Hard gate: ignore coords unless override=True
                 override = bool(arguments.get("override", False))
+                
+                # Convert empty strings to None for proper handling
+                latitude = arguments.get("latitude")
+                if latitude == "":
+                    latitude = None
+                longitude = arguments.get("longitude")
+                if longitude == "":
+                    longitude = None
+                timezone_str = arguments.get("timezone_str")
+                if timezone_str == "":
+                    timezone_str = None
+                
                 if not override:
                     # strip any coordinates or tz Friday tried to send
-                    attempted_lat = arguments.pop("latitude", None)
-                    attempted_lon = arguments.pop("longitude", None)
-                    attempted_tz  = arguments.pop("timezone_str", None)
+                    attempted_lat = latitude
+                    attempted_lon = longitude
+                    attempted_tz = timezone_str
+                    latitude = None
+                    longitude = None
+                    timezone_str = None
                     # optional: log the attempt so you can see when she tries
                     try:
                         with open(r"F:\Friday\logs\friday.log", "a", encoding="utf-8") as _lf:
@@ -1153,9 +1185,9 @@ class FridayMemoryMCPServer:
                         pass
 
                 result = await self.get_weather_open_meteo(
-                    latitude=arguments.get("latitude"),
-                    longitude=arguments.get("longitude"),
-                    timezone_str=arguments.get("timezone_str"),
+                    latitude=latitude,
+                    longitude=longitude,
+                    timezone_str=timezone_str,
                     force_refresh=arguments.get("force_refresh", False),
                     override=override,
                     update_today=arguments.get("update_today", True),
