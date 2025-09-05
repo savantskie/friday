@@ -30,6 +30,7 @@ Thumbs.db
 *.secret
 *.key
 key.pem
+
 # Project directories to ignore
 ai/
 archive/
@@ -43,9 +44,17 @@ persistent-ai-memory/
 scripts/
 services/
 templates/
-tests/
 tools/
 Koboldcpp/
 .github/
 mobile/
+
+# Memory system data (preserve user data)
+memory_data/
+*.db
+
+# Allow tracking of important files
+!embedding_config.json
+!EMBEDDING_PRESERVATION_STRATEGY.md
+!tests/
 

@@ -3149,41 +3149,245 @@ class ConversationFileMonitor:
 
 
 class EmbeddingService:
-    """Handles embedding generation via LM Studio"""
+    """Intelligent embedding service that preserves existing embeddings while optimizing for quality"""
     
-    def __init__(self, base_url: str = "http://192.168.1.50:1234"):
-        self.base_url = base_url
-        self.embeddings_endpoint = f"{base_url}/v1/embeddings"
-        self.initialized = False  # Track if we've successfully generated an embedding
-    
-    async def generate_embedding(self, text: str, model: str = "text-embedding-nomic-embed-text-v1.5") -> List[float]:
-        """Generate embedding for text using LM Studio, with retry if model is not found (JIT loading race)."""
-        import asyncio
-        max_retries = 3
+    def __init__(self, config_path: str = "embedding_config.json"):
+        self.config_path = config_path
+        self.full_config = self._load_full_config()
+        self.primary_config = self.full_config.get("primary", {})
+        self.fallback_config = self.full_config.get("fallback", {})
+        self.initialized = False
+        self.provider_availability = {
+            "lm_studio": None,  # Will be tested on first use
+            "ollama": None,
+            "openai": None
+        }
         
-        # If we haven't successfully generated an embedding yet, use more retries
-        if not self.initialized:
-            max_retries = 5  # More retries during initial setup
+        print("🔧 Intelligent Embedding Service Configuration")
+        primary_provider = self.primary_config.get('provider', 'lm_studio')
+        primary_model = self.primary_config.get('model', 'text-embedding-nomic-embed-text-v1.5')
+        fallback_provider = self.fallback_config.get('provider', 'ollama')
+        fallback_model = self.fallback_config.get('model', 'nomic-embed-text')
+        
+        print(f"✅ Primary: {primary_provider} ({primary_model})")
+        print(f"⚡ Fallback: {fallback_provider} ({fallback_model})")
+        print(f"💾 Preserving existing 768D embeddings, using best available for new ones")
+        print("To customize, edit embedding_config.json in the Friday directory")
+    
+    def _load_full_config(self) -> dict:
+        """Load complete embedding configuration from JSON file"""
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r') as f:
+                    config_data = json.load(f)
+                    return config_data.get("embedding_configuration", {})
+            else:
+                # Create default config file if it doesn't exist
+                self._create_default_config()
+                return self._get_default_full_config()
+        except Exception as e:
+            logger.warning(f"Failed to load embedding config: {e}, using defaults")
+            return self._get_default_full_config()
+    
+    def _get_default_full_config(self) -> dict:
+        """Get default full configuration for Friday system"""
+        return {
+            "primary": {
+                "provider": "lm_studio",
+                "model": "text-embedding-nomic-embed-text-v1.5",
+                "base_url": "http://192.168.1.50:1234",
+                "description": "High-quality LM Studio embeddings for semantic search"
+            },
+            "fallback": {
+                "provider": "ollama",
+                "model": "nomic-embed-text",
+                "base_url": "http://localhost:11434",
+                "description": "Fast local Ollama embeddings"
+            }
+        }
+    
+    def _create_default_config(self):
+        """Create default embedding configuration file"""
+        default_config = {
+            "embedding_configuration": {
+                "primary": {
+                    "provider": "lm_studio",
+                    "model": "text-embedding-nomic-embed-text-v1.5", 
+                    "base_url": "http://192.168.1.50:1234",
+                    "description": "High-quality LM Studio embeddings for semantic search"
+                },
+                "fallback": {
+                    "provider": "ollama",
+                    "model": "nomic-embed-text",
+                    "base_url": "http://localhost:11434",
+                    "description": "Fast local Ollama embeddings"
+                },
+                "options": {
+                    "openai": {
+                        "provider": "openai",
+                        "model": "text-embedding-3-small",
+                        "base_url": "https://api.openai.com/v1",
+                        "api_key": "your-openai-api-key-here",
+                        "description": "OpenAI embeddings (requires API key)"
+                    }
+                }
+            },
+            "instructions": {
+                "setup": [
+                    "1. Edit this file to configure your preferred embedding providers",
+                    "2. Configure 'primary' for your main embedding service",
+                    "3. Configure 'fallback' for backup when primary fails",
+                    "4. For Ollama: Make sure model is pulled (ollama pull nomic-embed-text)",
+                    "5. For LM Studio: Load an embedding model and update base_url if needed",
+                    "6. For OpenAI: Add your API key",
+                    "7. Restart Friday to apply changes"
+                ],
+                "providers": {
+                    "lm_studio": "High quality embeddings, best for semantic search",
+                    "ollama": "Fast local embeddings, good for development",
+                    "openai": "Premium quality but requires internet and API costs"
+                },
+                "preservation_note": "Existing embeddings are preserved automatically - new embeddings use your configured providers"
+            }
+        }
+        
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(default_config, f, indent=2)
+            logger.info(f"Created default embedding config at {self.config_path}")
+        except Exception as e:
+            logger.error(f"Failed to create default config: {e}")
+    
+    @property
+    def config(self) -> dict:
+        """Backward compatibility property - returns primary config"""
+        return self.primary_config
+    
+    async def generate_embedding(self, text: str) -> List[float]:
+        """Generate embedding using intelligent provider selection with preservation strategy"""
+        
+        # Try primary provider first
+        primary_provider = self.primary_config.get("provider", "lm_studio")
+        
+        try:
+            if primary_provider == "lm_studio":
+                result = await self._generate_lm_studio_embedding(text)
+                if result:
+                    self.provider_availability["lm_studio"] = True
+                    self.initialized = True
+                    return result
+                else:
+                    self.provider_availability["lm_studio"] = False
+                    logger.warning("LM Studio unavailable, trying fallback")
+                    
+            elif primary_provider == "ollama":
+                result = await self._generate_ollama_embedding(text)
+                if result:
+                    self.provider_availability["ollama"] = True
+                    self.initialized = True
+                    return result
+                else:
+                    self.provider_availability["ollama"] = False
+                    logger.warning("Ollama unavailable, trying fallback")
+                    
+            elif primary_provider == "openai":
+                result = await self._generate_openai_embedding(text)
+                if result:
+                    self.provider_availability["openai"] = True
+                    self.initialized = True
+                    return result
+                else:
+                    self.provider_availability["openai"] = False
+                    logger.warning("OpenAI unavailable, trying fallback")
+                    
+        except Exception as e:
+            logger.warning(f"Primary provider {primary_provider} failed: {e}")
+        
+        # Try fallback provider
+        fallback_provider = self.fallback_config.get("provider")
+        if fallback_provider and fallback_provider != primary_provider:
+            try:
+                if fallback_provider == "lm_studio":
+                    result = await self._generate_lm_studio_embedding(text, fallback=True)
+                    if result:
+                        self.provider_availability["lm_studio"] = True
+                        self.initialized = True
+                        logger.info("Using LM Studio fallback for embedding")
+                        return result
+                        
+                elif fallback_provider == "ollama":
+                    result = await self._generate_ollama_embedding(text, fallback=True)
+                    if result:
+                        self.provider_availability["ollama"] = True
+                        self.initialized = True
+                        logger.info("Using Ollama fallback for embedding")
+                        return result
+                        
+                elif fallback_provider == "openai":
+                    result = await self._generate_openai_embedding(text, fallback=True)
+                    if result:
+                        self.provider_availability["openai"] = True
+                        self.initialized = True
+                        logger.info("Using OpenAI fallback for embedding")
+                        return result
+                        
+            except Exception as e:
+                logger.error(f"Fallback provider {fallback_provider} also failed: {e}")
+        
+        # If both primary and fallback fail, log the issue
+        logger.error("All embedding providers failed - semantic search will be unavailable")
+        return []
+    
+    async def _generate_ollama_embedding(self, text: str, fallback: bool = False) -> List[float]:
+        """Generate embedding using Ollama"""
+        if fallback:
+            config = self.fallback_config
+        else:
+            config = self.primary_config if self.primary_config.get("provider") == "ollama" else self.fallback_config
+            
+        base_url = config.get("base_url", "http://localhost:11434")
+        model = config.get("model", "nomic-embed-text")
+        
+        async with aiohttp.ClientSession() as session:
+            payload = {"model": model, "prompt": text}
+            async with session.post(f"{base_url}/api/embeddings", json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("embedding")
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Ollama API error {response.status}: {error_text}")
+                    return None
+    
+    async def _generate_lm_studio_embedding(self, text: str, fallback: bool = False) -> List[float]:
+        """Generate embedding using LM Studio"""
+        if fallback:
+            config = self.fallback_config
+        else:
+            config = self.primary_config if self.primary_config.get("provider") == "lm_studio" else self.fallback_config
+            
+        base_url = config.get("base_url", "http://192.168.1.50:1234")
+        model = config.get("model", "text-embedding-nomic-embed-text-v1.5")
+        
+        max_retries = 3 if self.initialized else 5
+        
         for attempt in range(max_retries):
             try:
                 async with aiohttp.ClientSession() as session:
-                    payload = {
-                        "model": model,
-                        "input": text
-                    }
-                    async with session.post(self.embeddings_endpoint, json=payload) as response:
+                    payload = {"model": model, "input": text}
+                    async with session.post(f"{base_url}/v1/embeddings", json=payload) as response:
                         if response.status == 200:
                             data = await response.json()
                             if data and "data" in data and len(data["data"]) > 0:
                                 embedding = data["data"][0].get("embedding")
                                 if embedding:
-                                    self.initialized = True  # Mark as successfully initialized
                                     return embedding
-                            logger.error(f"Invalid response format: {data}")
+                            logger.error(f"Invalid LM Studio response format: {data}")
                             return None
                         else:
                             error_text = await response.text()
-                            logger.error(f"Embedding API error {response.status}: {error_text}")
+                            logger.error(f"LM Studio API error {response.status}: {error_text}")
+                            
                             # Retry if model not found (JIT race)
                             if (
                                 (response.status == 404 or response.status == 400) and
@@ -3192,15 +3396,63 @@ class EmbeddingService:
                                  "cannot read properties of null" in error_text.lower())
                                 and attempt < max_retries - 1
                             ):
-                                delay = (attempt + 1) * 5  # Increase delay with each retry: 5s, 10s, 15s
-                                logger.info(f"Retrying embedding request in {delay} seconds (attempt {attempt+2}/{max_retries})...")
+                                delay = (attempt + 1) * 5
+                                logger.info(f"Retrying LM Studio in {delay} seconds (attempt {attempt+2}/{max_retries})...")
                                 await asyncio.sleep(delay)
                                 continue
                             return None
             except Exception as e:
-                logger.error(f"Error generating embedding: {e}")
+                logger.error(f"LM Studio embedding error: {e}")
                 return None
         return None
+    
+    async def _generate_openai_embedding(self, text: str, fallback: bool = False) -> List[float]:
+        """Generate embedding using OpenAI"""
+        if fallback:
+            config = self.fallback_config
+        else:
+            config = self.primary_config if self.primary_config.get("provider") == "openai" else self.fallback_config
+            
+        api_key = config.get("api_key")
+        if not api_key or api_key == "your-openai-api-key-here":
+            logger.error("OpenAI API key not configured")
+            return None
+            
+        base_url = self.config.get("base_url", "https://api.openai.com/v1")
+        model = self.config.get("model", "text-embedding-3-small")
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            payload = {"model": model, "input": text}
+            async with session.post(f"{base_url}/embeddings", json=payload, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data and "data" in data and len(data["data"]) > 0:
+                        return data["data"][0]["embedding"]
+                else:
+                    error_text = await response.text()
+                    logger.error(f"OpenAI API error {response.status}: {error_text}")
+                    return None
+    
+    async def _generate_custom_embedding(self, text: str) -> List[float]:
+        """Generate embedding using custom endpoint"""
+        base_url = self.config.get("base_url", "http://localhost:8000")
+        model = self.config.get("model", "custom-model")
+        
+        async with aiohttp.ClientSession() as session:
+            payload = {"model": model, "input": text}
+            async with session.post(f"{base_url}/embeddings", json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("embedding") or data.get("data", [{}])[0].get("embedding")
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Custom API error {response.status}: {error_text}")
+                    return None
     
     async def batch_generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
