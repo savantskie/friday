@@ -4800,8 +4800,17 @@ class FridayMemorySystem:
     
     # Helper methods for embedding management
     async def _add_embedding_to_message(self, message_id: str, content: str):
-        """Add embedding to a message (background task)"""
+        """Add embedding to a message (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.conversations_db.execute_query(
+                "SELECT embedding FROM messages WHERE message_id = ? AND embedding IS NOT NULL",
+                (message_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for message {message_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 # Convert to binary format for storage
@@ -4810,12 +4819,22 @@ class FridayMemorySystem:
                     "UPDATE messages SET embedding = ? WHERE message_id = ?",
                     (embedding_blob, message_id)
                 )
+                logger.debug(f"Generated embedding for message {message_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to message {message_id}: {e}")
     
     async def _add_embedding_to_memory(self, memory_id: str, content: str):
-        """Add embedding to a memory (background task)"""
+        """Add embedding to a memory (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.ai_memory_db.execute_query(
+                "SELECT embedding FROM curated_memories WHERE memory_id = ? AND embedding IS NOT NULL",
+                (memory_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for memory {memory_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 # Convert to binary format for storage
@@ -4824,12 +4843,22 @@ class FridayMemorySystem:
                     "UPDATE curated_memories SET embedding = ? WHERE memory_id = ?",
                     (embedding_blob, memory_id)
                 )
+                logger.debug(f"Generated embedding for memory {memory_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to memory {memory_id}: {e}")
     
     async def _add_embedding_to_appointment(self, appointment_id: str, content: str):
-        """Add embedding to an appointment (background task)"""
+        """Add embedding to an appointment (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.schedule_db.execute_query(
+                "SELECT embedding FROM appointments WHERE appointment_id = ? AND embedding IS NOT NULL",
+                (appointment_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for appointment {appointment_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
@@ -4837,12 +4866,22 @@ class FridayMemorySystem:
                     "UPDATE appointments SET embedding = ? WHERE appointment_id = ?",
                     (embedding_blob, appointment_id)
                 )
+                logger.debug(f"Generated embedding for appointment {appointment_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to appointment {appointment_id}: {e}")
     
     async def _add_embedding_to_reminder(self, reminder_id: str, content: str):
-        """Add embedding to a reminder (background task)"""
+        """Add embedding to a reminder (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.schedule_db.execute_query(
+                "SELECT embedding FROM reminders WHERE reminder_id = ? AND embedding IS NOT NULL",
+                (reminder_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for reminder {reminder_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
@@ -4850,12 +4889,22 @@ class FridayMemorySystem:
                     "UPDATE reminders SET embedding = ? WHERE reminder_id = ?",
                     (embedding_blob, reminder_id)
                 )
+                logger.debug(f"Generated embedding for reminder {reminder_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to reminder {reminder_id}: {e}")
     
     async def _add_embedding_to_project_insight(self, insight_id: str, content: str):
-        """Add embedding to a project insight (background task)"""
+        """Add embedding to a project insight (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.vscode_db.execute_query(
+                "SELECT embedding FROM project_insights WHERE insight_id = ? AND embedding IS NOT NULL",
+                (insight_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for insight {insight_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
@@ -4863,12 +4912,22 @@ class FridayMemorySystem:
                     "UPDATE project_insights SET embedding = ? WHERE insight_id = ?",
                     (embedding_blob, insight_id)
                 )
+                logger.debug(f"Generated embedding for insight {insight_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to project insight {insight_id}: {e}")
     
     async def _add_embedding_to_code_context(self, context_id: str, content: str):
-        """Add embedding to code context (background task)"""
+        """Add embedding to code context (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.vscode_db.execute_query(
+                "SELECT embedding FROM code_context WHERE context_id = ? AND embedding IS NOT NULL",
+                (context_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for code context {context_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
@@ -4876,12 +4935,22 @@ class FridayMemorySystem:
                     "UPDATE code_context SET embedding = ? WHERE context_id = ?",
                     (embedding_blob, context_id)
                 )
+                logger.debug(f"Generated embedding for code context {context_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to code context {context_id}: {e}")
     
     async def _add_embedding_to_development_conversation(self, conversation_id: str, content: str):
-        """Add embedding to development conversation (background task)"""
+        """Add embedding to development conversation (background task) - skip if already exists"""
         try:
+            # Check if embedding already exists
+            existing = await self.vscode_db.execute_query(
+                "SELECT embedding FROM development_conversations WHERE conversation_id = ? AND embedding IS NOT NULL",
+                (conversation_id,)
+            )
+            if existing:
+                logger.debug(f"Embedding already exists for dev conversation {conversation_id}, skipping")
+                return
+                
             embedding = await self.embedding_service.generate_embedding(content)
             if embedding:
                 embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
@@ -4889,6 +4958,7 @@ class FridayMemorySystem:
                     "UPDATE development_conversations SET embedding = ? WHERE conversation_id = ?",
                     (embedding_blob, conversation_id)
                 )
+                logger.debug(f"Generated embedding for dev conversation {conversation_id}")
         except Exception as e:
             logger.error(f"Error adding embedding to development conversation {conversation_id}: {e}")
     
