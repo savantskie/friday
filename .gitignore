@@ -58,3 +58,4 @@ memory_data/
 !EMBEDDING_PRESERVATION_STRATEGY.md
 !tests/
 
+memory_data/db_debug_log.txt
