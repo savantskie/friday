@@ -15,7 +15,7 @@ start /b "Friday Caddy" caddy.exe run --config Caddyfile --watch
 
 REM Monitor loop - check OpenWebUI and Caddy status every 30 seconds
 :monitor_loop
-timeout /t 30 /nobreak >nul
+timeout /t 60 /nobreak >nul
 
 REM Check if Caddy is still running
 tasklist /fi "imagename eq caddy.exe" 2>nul | find /i "caddy.exe" >nul
@@ -26,12 +26,12 @@ if %ERRORLEVEL% neq 0 (
 )
 
 REM Check if OpenWebUI is responding
-curl -s --max-time 5 http://localhost:3000 >nul 2>&1
+curl -s --max-time 20 http://localhost:3000 >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo OpenWebUI appears down, checking again in 10 seconds...
     timeout /t 10 /nobreak >nul
     
-    curl -s --max-time 5 http://localhost:3000 >nul 2>&1
+    curl -s --max-time 20 http://localhost:3000 >nul 2>&1
     if %ERRORLEVEL% neq 0 (
         echo OpenWebUI confirmed down, but keeping Caddy running for error pages...
     ) else (
