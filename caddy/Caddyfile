@@ -12,7 +12,7 @@ fridayonline.bounceme.net {
 
     @bad_api_key {
         path /mcpo*
-        not header X-API-Key {$MCPO_API_KEY}
+        not header X-API-Key "{env.MCPO_API_KEY}"
     }
     
     respond @bad_api_key 403 {

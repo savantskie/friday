@@ -3686,7 +3686,7 @@ class FridayMemorySystem:
         else:
             return {"status": "error", "message": "Reminder not found"}
 
-    async def delete_reminder_post(self, body: Dict) -> Dict:
+    async def delete_reminder(self, body: Dict) -> Dict:
         if "reminder_id" not in body:
             return {
                 "error": "HTTP error! Status: 422. Message: Missing required field. Please provide 'reminder_id'."
@@ -5519,6 +5519,39 @@ async def main():
     print("   - LM Studio conversations")
     print("   - Ollama conversations")
     print("   - OpenWebUI Conversations")
+    
+    print("\n9. Cleaning up test data...")
+    
+    # Delete the test reminder we created
+    try:
+        cleanup_result = await memory.delete_reminder(reminder['reminder_id'])
+        print(f"   Deleted test reminder: {cleanup_result['message']}")
+    except Exception as e:
+        print(f"   Failed to delete test reminder: {e}")
+    
+    # Cancel the test appointment we created  
+    try:
+        cleanup_result = await memory.cancel_appointment(appointment['appointment_id'])
+        print(f"   Cancelled test appointment: {cleanup_result['message']}")
+    except Exception as e:
+        print(f"   Failed to cancel test appointment: {e}")
+    
+    # Delete the test memories we created
+    try:
+        # Delete memory1 and memory2 using their IDs
+        cleanup_result = await memory.ai_memory_db.execute_update(
+            "DELETE FROM curated_memories WHERE memory_id = ?", 
+            (memory1['memory_id'],)
+        )
+        cleanup_result = await memory.ai_memory_db.execute_update(
+            "DELETE FROM curated_memories WHERE memory_id = ?", 
+            (memory2['memory_id'],)
+        )
+        print(f"   Deleted test memories")
+    except Exception as e:
+        print(f"   Failed to delete test memories: {e}")
+    
+    print("   Test data cleanup complete!")
     
     print("\n=== Memory System Test Complete ===")
     print("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")
