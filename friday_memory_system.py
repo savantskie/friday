@@ -3686,19 +3686,12 @@ class FridayMemorySystem:
         else:
             return {"status": "error", "message": "Reminder not found"}
 
-    async def delete_reminder(self, body: Dict) -> Dict:
-        if "reminder_id" not in body:
-            return {
-                "error": "HTTP error! Status: 422. Message: Missing required field. Please provide 'reminder_id'."
-            }
-        
-        reminder_id = body["reminder_id"]
-        
+    async def delete_reminder(self, reminder_id: str) -> Dict:
         result = await self.schedule_db.execute_update(
             "DELETE FROM reminders WHERE reminder_id = ?",
             (reminder_id,)
         )
-        if result > 0:
+        if result and result != "0":
             return {"status": "success", "message": f"Reminder {reminder_id} deleted"}
         else:
             return {"status": "error", "message": "Reminder not found"}
