@@ -3613,10 +3613,11 @@ class FridayMemorySystem:
 
     async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
         """Get active (not completed) reminders within the next X days"""
+        now = datetime.now(get_local_timezone()).isoformat()
         cutoff = (datetime.now(get_local_timezone()) + timedelta(days=days_ahead)).isoformat()
         rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
-            (cutoff, limit)
+            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
+            (now, cutoff, limit)
         )
         
         if not rows:
