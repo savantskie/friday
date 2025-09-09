@@ -3613,10 +3613,11 @@ class FridayMemorySystem:
 
     async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
         """Get active (not completed) reminders within the next X days"""
+        now = datetime.now(get_local_timezone()).isoformat()
         cutoff = (datetime.now(get_local_timezone()) + timedelta(days=days_ahead)).isoformat()
         rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
-            (cutoff, limit)
+            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
+            (now, cutoff, limit)
         )
         
         if not rows:
@@ -3686,19 +3687,12 @@ class FridayMemorySystem:
         else:
             return {"status": "error", "message": "Reminder not found"}
 
-    async def delete_reminder_post(self, body: Dict) -> Dict:
-        if "reminder_id" not in body:
-            return {
-                "error": "HTTP error! Status: 422. Message: Missing required field. Please provide 'reminder_id'."
-            }
-        
-        reminder_id = body["reminder_id"]
-        
+    async def delete_reminder(self, reminder_id: str) -> Dict:
         result = await self.schedule_db.execute_update(
             "DELETE FROM reminders WHERE reminder_id = ?",
             (reminder_id,)
         )
-        if result > 0:
+        if result and result != "0":
             return {"status": "success", "message": f"Reminder {reminder_id} deleted"}
         else:
             return {"status": "error", "message": "Reminder not found"}
@@ -5519,6 +5513,39 @@ async def main():
     print("   - LM Studio conversations")
     print("   - Ollama conversations")
     print("   - OpenWebUI Conversations")
+    
+    print("\n9. Cleaning up test data...")
+    
+    # Delete the test reminder we created
+    try:
+        cleanup_result = await memory.delete_reminder(reminder['reminder_id'])
+        print(f"   Deleted test reminder: {cleanup_result['message']}")
+    except Exception as e:
+        print(f"   Failed to delete test reminder: {e}")
+    
+    # Cancel the test appointment we created  
+    try:
+        cleanup_result = await memory.cancel_appointment(appointment['appointment_id'])
+        print(f"   Cancelled test appointment: {cleanup_result['message']}")
+    except Exception as e:
+        print(f"   Failed to cancel test appointment: {e}")
+    
+    # Delete the test memories we created
+    try:
+        # Delete memory1 and memory2 using their IDs
+        cleanup_result = await memory.ai_memory_db.execute_update(
+            "DELETE FROM curated_memories WHERE memory_id = ?", 
+            (memory1['memory_id'],)
+        )
+        cleanup_result = await memory.ai_memory_db.execute_update(
+            "DELETE FROM curated_memories WHERE memory_id = ?", 
+            (memory2['memory_id'],)
+        )
+        print(f"   Deleted test memories")
+    except Exception as e:
+        print(f"   Failed to delete test memories: {e}")
+    
+    print("   Test data cleanup complete!")
     
     print("\n=== Memory System Test Complete ===")
     print("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")

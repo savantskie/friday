@@ -408,48 +408,41 @@ class FridayMemoryMCPServer:
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
         try:
-            from datetime import datetime, timedelta
-            now = datetime.now().isoformat()
-            future_date = (datetime.now() + timedelta(days=days_ahead)).isoformat()
-
-            with sqlite3.connect(self.schedule_db_path) as conn:
-                cursor = conn.cursor()
-                query = """
-                    SELECT reminder_id, content, due_datetime, completed, priority_level
-                    FROM reminders
-                    WHERE 1=1
-                """
-                params = []
-
-                if not include_completed:
-                    query += " AND completed = 0"
-
-                # Only return reminders that are due now or in the future
-                query += " AND due_datetime >= ?"
-                params.append(now)
-
-                if days_ahead > 0:
-                    query += " AND due_datetime <= ?"
-                    params.append(future_date)
-
-                query += " ORDER BY due_datetime ASC LIMIT ?"
-                params.append(limit)
-
-                cursor.execute(query, params)
-                rows = cursor.fetchall()
-
-                return {
-                    "success": True,
-                    "reminders": [
-                        {
-                            "id": r[0],
-                            "content": r[1],
-                            "due": r[2],
-                            "completed": bool(r[3]),
-                            "priority": r[4]
-                        } for r in rows
-                    ]
-                }
+            if include_completed:
+                # For completed reminders, use memory system's method
+                result = await self.memory_system.get_completed_reminders(days=days_ahead)
+                if result["status"] == "success":
+                    return {
+                        "success": True,
+                        "reminders": [
+                            {
+                                "id": r["reminder_id"],
+                                "content": r["content"],
+                                "due": r["due_datetime"],
+                                "completed": True,
+                                "priority": r.get("priority_level", 5)
+                            } for r in result["reminders"][:limit]
+                        ]
+                    }
+            else:
+                # For active reminders, use memory system's method
+                result = await self.memory_system.get_active_reminders(limit=limit, days_ahead=days_ahead)
+                if result["status"] == "success":
+                    return {
+                        "success": True,
+                        "reminders": [
+                            {
+                                "id": r["reminder_id"],
+                                "content": r["content"],
+                                "due": r["due_datetime"],
+                                "completed": False,
+                                "priority": r["priority_level"]
+                            } for r in result["reminders"]
+                        ]
+                    }
+            
+            return {"success": True, "reminders": []}
+            
         except Exception as e:
             return {
                 "success": False,
