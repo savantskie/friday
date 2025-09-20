@@ -59,3 +59,4 @@ memory_data/
 !tests/
 
 memory_data/db_debug_log.txt
+Ollama Server GUI/API_FIX_MODEL_UNLOAD.md

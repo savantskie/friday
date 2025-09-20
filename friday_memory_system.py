@@ -333,28 +333,34 @@ class ConversationDatabase(DatabaseManager):
             "duplicate": False
         }
     
-    async def get_recent_messages(self, limit: int = 10, session_id: str = None) -> List[Dict]:
-        """Get recent messages, optionally filtered by session"""
+    async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7) -> List[Dict]:
+        """Get recent messages, optionally filtered by session and within specified days"""
+        
+        # Calculate cutoff date
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=days_back)
+        cutoff_timestamp = cutoff_date.isoformat()
         
         if session_id:
             query = """
                 SELECT m.*, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
-                WHERE c.session_id = ?
+                WHERE c.session_id = ? AND m.timestamp >= ?
                 ORDER BY m.timestamp DESC 
                 LIMIT ?
             """
-            params = (session_id, limit)
+            params = (session_id, cutoff_timestamp, limit)
         else:
             query = """
                 SELECT m.*, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
+                WHERE m.timestamp >= ?
                 ORDER BY m.timestamp DESC 
                 LIMIT ?
             """
-            params = (limit,)
+            params = (cutoff_timestamp, limit)
         
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
@@ -4080,15 +4086,16 @@ class FridayMemorySystem:
             "session_id": result["session_id"]
         }
     
-    async def get_recent_context(self, limit: int = 5, session_id: str = None) -> Dict:
-        """Get recent conversation context"""
+    async def get_recent_context(self, limit: int = 5, session_id: str = None, days_back: int = 7) -> Dict:
+        """Get recent conversation context from the last N days"""
         
-        messages = await self.conversations_db.get_recent_messages(limit, session_id)
+        messages = await self.conversations_db.get_recent_messages(limit, session_id, days_back)
         
         return {
             "status": "success",
             "messages": messages,
-            "count": len(messages)
+            "count": len(messages),
+            "days_back": days_back
         }
     
     # AI Memory operations

@@ -739,12 +739,13 @@ class FridayMemoryMCPServer:
             ),
             Tool(
                 name="get_recent_context",
-                description="Get recent conversation context",
+                description="Get recent conversation context from the last N days",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of recent items", "default": 5},
-                        "session_id": {"type": "string", "description": "Specific session ID"}
+                        "session_id": {"type": "string", "description": "Specific session ID"},
+                        "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7}
                     }
                 }
             ),

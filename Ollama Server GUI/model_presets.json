@@ -1,0 +1,22 @@
+{
+  "gpt-oss:20b": {
+    "Friday": {
+      "temperature": 0.8500000238418579,
+      "top_k": 40,
+      "num_ctx": 92,
+      "keep_alive": -1,
+      "num_gpu": 999,
+      "main_gpu": 0,
+      "numa": false
+    },
+    "Friday-gpt-oss-20b": {
+      "temperature": 0.8500000238418579,
+      "top_k": 40,
+      "num_ctx": 92160,
+      "keep_alive": -1,
+      "num_gpu": 999,
+      "main_gpu": 0,
+      "numa": false
+    }
+  }
+}
