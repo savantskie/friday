@@ -628,6 +628,17 @@ class FridayMemoryMCPServer:
                 }
             ),
             Tool(
+                name="complete_appointment",
+                description="Mark an appointment as completed",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "appointment_id": {"type": "string", "description": "ID of the appointment to complete"}
+                    },
+                    "required": ["appointment_id"]
+                }
+            ),
+            Tool(
                 name="get_upcoming_appointments",
                 description="Get upcoming appointments (not cancelled)",
                 inputSchema={
@@ -700,27 +711,45 @@ class FridayMemoryMCPServer:
             ),
             Tool(
                 name="create_appointment",
-                description="Create an appointment",
+                description="Create an appointment, optionally recurring (e.g., weekly mental health appointments)",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "title": {"type": "string", "description": "Appointment title"},
                         "description": {"type": "string", "description": "Appointment description"},
-                        "scheduled_datetime": {"type": "string", "description": "ISO format datetime"},
-                        "location": {"type": "string", "description": "Location"}
+                        "scheduled_datetime": {"type": "string", "description": "ISO format datetime for first appointment"},
+                        "location": {"type": "string", "description": "Location"},
+                        "recurrence_pattern": {"type": "string", "description": "Recurrence pattern: 'daily', 'weekly', 'monthly', 'yearly'", "enum": ["daily", "weekly", "monthly", "yearly"]},
+                        "recurrence_count": {"type": "integer", "description": "Number of appointments to create (including first), e.g., 12 for 12 weeks", "minimum": 1},
+                        "recurrence_end_date": {"type": "string", "description": "End date for recurrences (ISO format), alternative to recurrence_count"}
                     },
                     "required": ["title", "scheduled_datetime"]
                 }
             ),
             Tool(
                 name="create_reminder",
-                description="Create a reminder",
+                description="Create a reminder or multiple recurring reminders",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "content": {"type": "string", "description": "Reminder content"},
                         "due_datetime": {"type": "string", "description": "ISO format datetime"},
-                        "priority_level": {"type": "integer", "description": "Priority (1-10)", "default": 5}
+                        "priority_level": {"type": "integer", "description": "Priority (1-10)", "default": 5},
+                        "recurrence_pattern": {
+                            "type": "string", 
+                            "enum": ["daily", "weekly", "monthly", "yearly"],
+                            "description": "Optional: Pattern for recurring reminders"
+                        },
+                        "recurrence_count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 365,
+                            "description": "Optional: Number of recurring reminders to create"
+                        },
+                        "recurrence_end_date": {
+                            "type": "string",
+                            "description": "Optional: ISO format datetime to stop recurring reminders"
+                        }
                     },
                     "required": ["content", "due_datetime"]
                 }
@@ -1122,13 +1151,7 @@ class FridayMemoryMCPServer:
             elif tool_name == "store_conversation":
                 result = await self.memory_system.store_conversation(**arguments)
             if tool_name == "create_appointment":
-                result = await self.memory_system.create_appointment(
-                    title=arguments.get("title"),
-                    scheduled_datetime=arguments.get("scheduled_datetime"),
-                    description=arguments.get("description"),
-                    location=arguments.get("location"),
-                    source_conversation_id=arguments.get("source_conversation_id")
-                )
+                result = await self.memory_system.create_appointment(**arguments)
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
                 result = {"status": "success", "reflection_id": reflection_id}
@@ -1139,12 +1162,7 @@ class FridayMemoryMCPServer:
                     days_ahead=arguments.get("days_ahead", 30)
                 )
             elif tool_name == "create_reminder":
-                result = await self.memory_system.create_reminder(
-                    content=arguments.get("content"),
-                    due_datetime=arguments.get("due_datetime"),
-                    priority_level=arguments.get("priority_level", 5),
-                    source_conversation_id=arguments.get("source_conversation_id")
-                )
+                result = await self.memory_system.create_reminder(**arguments)
             # ...existing code for other tools...
             elif tool_name == "complete_reminder":
                 return await self.memory_system.complete_reminder(**arguments)
@@ -1198,6 +1216,8 @@ class FridayMemoryMCPServer:
                 return await self.memory_system.delete_reminder(**arguments)
             elif tool_name == "cancel_appointment":
                 return await self.memory_system.cancel_appointment(**arguments)
+            elif tool_name == "complete_appointment":
+                return await self.memory_system.complete_appointment(**arguments)
             elif tool_name == "get_upcoming_appointments":
                 return await self.memory_system.get_upcoming_appointments(**arguments)
             elif tool_name == "search_memories":
