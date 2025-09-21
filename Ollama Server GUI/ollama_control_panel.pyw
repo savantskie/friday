@@ -879,6 +879,24 @@ class OllamaControlPanel:
             
             self.show_success(f"Loaded preset '{preset_name}'")
     
+    def load_preset_button_callback(self):
+        """Callback for the Load Preset button"""
+        if not self.selected_model:
+            self.show_error("Please select a model first")
+            return
+        
+        selected_preset = dpg.get_value("preset_dropdown")
+        if not selected_preset or selected_preset == "No presets available":
+            self.show_error("Please select a preset to load")
+            return
+        
+        # Load the selected preset and the model
+        self.load_preset_callback(None, selected_preset)
+        
+        # Load the model with the preset parameters
+        self.show_success(f"Loading model '{self.selected_model}' with preset '{selected_preset}'...")
+        threading.Thread(target=self.load_model, args=(self.selected_model, self.current_params), daemon=True).start()
+    
     def model_selected_callback(self, sender, model_name):
         """Callback for model selection"""
         self.selected_model = model_name
@@ -886,19 +904,15 @@ class OllamaControlPanel:
     
     def update_preset_combo(self):
         """Update the preset combo box for the selected model"""
-        if dpg.does_item_exist("preset_combo"):
-            dpg.delete_item("preset_combo")
-        
-        if self.selected_model and self.selected_model in self.presets:
-            presets = list(self.presets[self.selected_model].keys())
-            dpg.add_combo(
-                presets,
-                label="Load Preset",
-                callback=self.load_preset_callback,
-                parent="preset_group",
-                tag="preset_combo",
-                width=200
-            )
+        if dpg.does_item_exist("preset_dropdown"):
+            if self.selected_model and self.selected_model in self.presets:
+                presets = list(self.presets[self.selected_model].keys())
+                if presets:
+                    dpg.configure_item("preset_dropdown", items=presets)
+                else:
+                    dpg.configure_item("preset_dropdown", items=["No presets available"])
+            else:
+                dpg.configure_item("preset_dropdown", items=["No presets available"])
     
     def auto_refresh_worker(self):
         """Background worker for auto-refreshing data"""
@@ -1265,6 +1279,16 @@ class OllamaControlPanel:
                     dpg.add_button(
                         label="Save Preset",
                         callback=self.save_preset_callback
+                    )
+                    dpg.add_combo(
+                        ["No presets available"],
+                        label="##preset_dropdown",
+                        tag="preset_dropdown",
+                        width=150
+                    )
+                    dpg.add_button(
+                        label="Load Preset",
+                        callback=self.load_preset_button_callback
                     )
         
         # Set main window as primary

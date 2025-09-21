@@ -49,6 +49,16 @@ Koboldcpp/
 .github/
 mobile/
 
+# Desktop app build artifacts
+desktop-app/node_modules/
+desktop-app/dist/
+desktop-app/build/
+desktop-app/out/
+desktop-app/logs/
+desktop-app/temp/
+desktop-app/.env
+desktop-app/.env.local
+
 # Memory system data (preserve user data)
 memory_data/
 *.db

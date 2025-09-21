@@ -26,6 +26,24 @@
       "num_gpu": 999,
       "main_gpu": 0,
       "numa": false
+    },
+    "Friday gpt-oss-20b": {
+      "temperature": 0.800000011920929,
+      "top_k": 40,
+      "num_ctx": 131,
+      "keep_alive": -1,
+      "num_gpu": 999,
+      "main_gpu": 0,
+      "numa": false
+    },
+    "Friday main": {
+      "temperature": 0.75,
+      "top_k": 40,
+      "num_ctx": 131072,
+      "keep_alive": -1,
+      "num_gpu": -1,
+      "main_gpu": 0,
+      "numa": false
     }
   }
 }
