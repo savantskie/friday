@@ -652,7 +652,7 @@ class FridayMemoryMCPServer:
             
             Tool(
                 name="search_memories",
-                description="Search memories using semantic similarity with importance and type filtering",
+                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -661,9 +661,13 @@ class FridayMemoryMCPServer:
                         "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
-                        "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"}
+                        "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
+                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search)"}
                     },
-                    "required": ["query"]
+                    "anyOf": [
+                        {"required": ["query"]},
+                        {"required": ["memory_id"]}
+                    ]
                 }
             ),
             Tool(

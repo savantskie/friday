@@ -4738,10 +4738,23 @@ class FridayMemorySystem:
         }
     
     # Search operations
-    async def search_memories(self, query: str, limit: int = 10, database_filter: str = "all",
+    async def search_memories(self, query: str = None, limit: int = 10, database_filter: str = "all",
                             min_importance: int = None, max_importance: int = None,
-                            memory_type: str = None) -> Dict:
-        """Search memories across databases using semantic similarity with importance filtering"""
+                            memory_type: str = None, memory_id: str = None) -> Dict:
+        """Search memories across databases using semantic similarity with importance filtering, or direct ID lookup"""
+        
+        # If memory_id is provided, do direct ID lookup instead of semantic search
+        if memory_id:
+            return await self._get_memory_by_id(memory_id)
+        
+        # Require query if no memory_id provided
+        if not query:
+            return {
+                "status": "error",
+                "error": "Either 'query' or 'memory_id' parameter is required",
+                "results": [],
+                "count": 0
+            }
         
         # Generate embedding for the search query
         query_embedding = await self.embedding_service.generate_embedding(query)
@@ -4780,6 +4793,123 @@ class FridayMemorySystem:
                 "memory_type": memory_type,
                 "database_filter": database_filter
             }
+        }
+    
+
+    async def _get_memory_by_id(self, memory_id: str) -> Dict:
+        """Get a specific memory by ID from any database"""
+        
+        # Check AI memories first
+        ai_memory = await self.ai_memory_db.execute_query(
+            "SELECT * FROM curated_memories WHERE memory_id = ?", (memory_id,)
+        )
+        if ai_memory:
+            memory = dict(ai_memory[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "ai_memory",
+                    "similarity_score": 1.0,  # Perfect match for direct lookup
+                    "data": {
+                        "memory_id": memory["memory_id"],
+                        "content": memory["content"],
+                        "memory_type": memory["memory_type"],
+                        "importance_level": memory["importance_level"],
+                        "tags": json.loads(memory["tags"]) if memory["tags"] else [],
+                        "timestamp_created": memory["timestamp_created"],
+                        "timestamp_updated": memory["timestamp_updated"],
+                        "source_conversation_id": memory["source_conversation_id"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Check conversations
+        conversation = await self.conversations_db.execute_query(
+            "SELECT * FROM messages WHERE message_id = ?", (memory_id,)
+        )
+        if conversation:
+            msg = dict(conversation[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "conversation",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "message_id": msg["message_id"],
+                        "conversation_id": msg["conversation_id"],
+                        "timestamp": msg["timestamp"],
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "metadata": json.loads(msg["metadata"]) if msg["metadata"] else None
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Check schedule items (appointments and reminders)
+        appointment = await self.schedule_db.execute_query(
+            "SELECT * FROM appointments WHERE appointment_id = ?", (memory_id,)
+        )
+        if appointment:
+            appt = dict(appointment[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "appointment",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "appointment_id": appt["appointment_id"],
+                        "title": appt["title"],
+                        "scheduled_datetime": appt["scheduled_datetime"],
+                        "description": appt["description"],
+                        "location": appt["location"],
+                        "status": appt["status"],
+                        "timestamp_created": appt["timestamp_created"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        reminder = await self.schedule_db.execute_query(
+            "SELECT * FROM reminders WHERE reminder_id = ?", (memory_id,)
+        )
+        if reminder:
+            rem = dict(reminder[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "reminder",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "reminder_id": rem["reminder_id"],
+                        "content": rem["content"],
+                        "due_datetime": rem["due_datetime"],
+                        "priority_level": rem["priority_level"],
+                        "completed": bool(rem["completed"]),
+                        "completed_at": rem["completed_at"],
+                        "timestamp_created": rem["timestamp_created"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Memory ID not found in any database
+        return {
+            "status": "not_found",
+            "query": f"memory_id:{memory_id}",
+            "results": [],
+            "count": 0,
+            "search_type": "direct_id_lookup",
+            "error": f"No memory found with ID: {memory_id}"
         }
     
     async def _search_conversations(self, query_embedding: List[float], limit: int) -> List[Dict]:
@@ -4988,7 +5118,14 @@ class FridayMemorySystem:
                     results.append({
                         "type": "conversation",
                         "similarity_score": 0.5,  # Default score for text match
-                        "data": dict(row)
+                        "data": {
+                            "message_id": row["message_id"],
+                            "conversation_id": row["conversation_id"],
+                            "timestamp": row["timestamp"],
+                            "role": row["role"],
+                            "content": row["content"],
+                            "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                        }
                     })
         
         if database_filter in ["all", "ai_memories"]:
@@ -5026,7 +5163,16 @@ class FridayMemorySystem:
                 results.append({
                     "type": "ai_memory",
                     "similarity_score": 0.5,
-                    "data": dict(row)
+                    "data": {
+                        "memory_id": row["memory_id"],
+                        "timestamp_created": row["timestamp_created"],
+                        "timestamp_updated": row["timestamp_updated"],
+                        "source_conversation_id": row["source_conversation_id"],
+                        "memory_type": row["memory_type"],
+                        "content": row["content"],
+                        "importance_level": row["importance_level"],
+                        "tags": json.loads(row["tags"]) if row["tags"] else None
+                    }
                 })
         
         # Remove duplicates and limit results
