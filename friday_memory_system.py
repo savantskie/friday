@@ -343,7 +343,7 @@ class ConversationDatabase(DatabaseManager):
         
         if session_id:
             query = """
-                SELECT m.*, c.session_id 
+                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
                 WHERE c.session_id = ? AND m.timestamp >= ?
@@ -353,7 +353,7 @@ class ConversationDatabase(DatabaseManager):
             params = (session_id, cutoff_timestamp, limit)
         else:
             query = """
-                SELECT m.*, c.session_id 
+                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
                 WHERE m.timestamp >= ?
@@ -4315,14 +4315,28 @@ class FridayMemorySystem:
         }
     
     async def get_recent_context(self, limit: int = 5, session_id: str = None, days_back: int = 7) -> Dict:
-        """Get recent conversation context from the last N days"""
+        """Get recent conversation context from the last N days - returns clean text content, not embeddings"""
         
         messages = await self.conversations_db.get_recent_messages(limit, session_id, days_back)
         
+        # Clean the messages to remove embeddings and provide only useful context
+        clean_messages = []
+        for msg in messages:
+            clean_msg = {
+                "message_id": msg["message_id"],
+                "conversation_id": msg["conversation_id"],
+                "timestamp": msg["timestamp"],
+                "role": msg["role"],
+                "content": msg["content"],
+                "metadata": json.loads(msg["metadata"]) if msg["metadata"] else None
+            }
+            # Explicitly exclude embedding data
+            clean_messages.append(clean_msg)
+        
         return {
             "status": "success",
-            "messages": messages,
-            "count": len(messages),
+            "messages": clean_messages,
+            "count": len(clean_messages),
             "days_back": days_back
         }
     

@@ -1,14 +1,14 @@
 {
   "primary": {
-    "provider": "ollama",
-    "model": "nomic-embed-text:latest",
-    "base_url": "",
-    "description": "Ollama"
+    "provider": "lmstudio",
+    "model": "Nomic-embed-text-v1.5-Embedding-GGUF/nomic-embed-text-v1.5.f16.gguf",
+    "base_url": "http://localhost:1234",
+    "description": "LM Studio Nomic Embed v1.5"
   },
   "fallback": {
     "provider": "ollama",
-    "model": "qwen2.5:1.5b",
+    "model": "nomic-embed-text:latest",
     "base_url": "http://localhost:11434",
-    "description": "ollama fallback"
+    "description": "Ollama fallback"
   }
 }
