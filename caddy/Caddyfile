@@ -84,9 +84,14 @@ fridayonline.bounceme.net {
         handle_path /lmstudio* {
             reverse_proxy 192.168.1.50:1234
         }
+        handle_path /mcp-anythingllm* {
+            uri strip_prefix /mcp-anythingllm
+            reverse_proxy 192.168.1.50:12345
+        }
 
         # ---------- Default: proxy OpenWebUI ----------
         reverse_proxy localhost:3000
+	
     }
 
 

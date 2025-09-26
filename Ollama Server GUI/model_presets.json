@@ -53,6 +53,15 @@
       "num_gpu": 999,
       "main_gpu": 0,
       "numa": false
+    },
+    "Friday gpt 2h": {
+      "temperature": 0.8500000238418579,
+      "top_k": 40,
+      "num_ctx": 129024,
+      "keep_alive": 7200,
+      "num_gpu": 999,
+      "main_gpu": 0,
+      "numa": false
     }
   },
   "alibayram/Qwen3-30B-A3B-Instruct-2507:latest": {
@@ -89,6 +98,15 @@
       "temperature": 0.8500000238418579,
       "top_k": 40,
       "num_ctx": 256000,
+      "keep_alive": -1,
+      "num_gpu": 999,
+      "main_gpu": 0,
+      "numa": false
+    },
+    "Friday-Qwen3-30B-A3b": {
+      "temperature": 0.8500000238418579,
+      "top_k": 40,
+      "num_ctx": 262144,
       "keep_alive": -1,
       "num_gpu": 999,
       "main_gpu": 0,

@@ -1,0 +1,6 @@
+{
+  "name": "friday-memory",
+  "version": "1.0.0",
+  "sse": true,
+  "streamable": true
+}

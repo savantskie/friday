@@ -89,12 +89,12 @@ class DatabaseManager:
             cursor = conn.execute(query, params)
             return cursor.fetchall()
     
-    async def execute_update(self, query: str, params: Tuple = ()) -> str:
-        """Execute an INSERT/UPDATE/DELETE query and return last row ID"""
+    async def execute_update(self, query: str, params: Tuple = ()) -> int:
+        """Execute an INSERT/UPDATE/DELETE query and return number of affected rows"""
         with self.get_connection() as conn:
             cursor = conn.execute(query, params)
             conn.commit()
-            return str(cursor.lastrowid)
+            return cursor.rowcount
 
 
 class ConversationDatabase(DatabaseManager):
@@ -343,7 +343,7 @@ class ConversationDatabase(DatabaseManager):
         
         if session_id:
             query = """
-                SELECT m.*, c.session_id 
+                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
                 WHERE c.session_id = ? AND m.timestamp >= ?
@@ -353,7 +353,7 @@ class ConversationDatabase(DatabaseManager):
             params = (session_id, cutoff_timestamp, limit)
         else:
             query = """
-                SELECT m.*, c.session_id 
+                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
                 WHERE m.timestamp >= ?
@@ -516,8 +516,10 @@ class ScheduleDatabase(DatabaseManager):
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds."""
         now = datetime.now(get_local_timezone())
+        # Use start of today instead of current time to include all appointments scheduled for today
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         future = now + timedelta(days=days_ahead)
-        now_epoch = int(now.timestamp())
+        start_of_today_epoch = int(start_of_today.timestamp())
         future_epoch = int(future.timestamp())
         
         try:
@@ -541,7 +543,7 @@ class ScheduleDatabase(DatabaseManager):
                     END ASC
                 LIMIT ?
             """
-            rows = await self.execute_query(query, (now_epoch, future_epoch, limit))
+            rows = await self.execute_query(query, (start_of_today_epoch, future_epoch, limit))
             
             if not rows:
                 return {
@@ -570,7 +572,7 @@ class ScheduleDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR APPOINTMENTS TABLE ---
             appointments_expected = [
                 'appointment_id', 'timestamp_created', 'scheduled_datetime', 'title', 'description',
-                'location', 'source_conversation_id', 'embedding', 'created_at', "status"
+                'location', 'cancelled_at', 'completed_at', 'source_conversation_id', 'embedding', 'created_at', "status"
             ]
             cur = conn.execute("PRAGMA table_info(appointments)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -592,6 +594,9 @@ class ScheduleDatabase(DatabaseManager):
                         title TEXT NOT NULL,
                         description TEXT,
                         location TEXT,
+                        status TEXT DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'cancelled', 'completed')),
+                        cancelled_at TEXT,
+                        completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -603,6 +608,10 @@ class ScheduleDatabase(DatabaseManager):
                         if col not in row_dict:
                             if col == 'timestamp_created' or col == 'scheduled_datetime' or col == 'created_at':
                                 row_dict[col] = datetime.now().isoformat()
+                            elif col == 'status':
+                                row_dict[col] = 'scheduled'  # Default status for migrated appointments
+                            elif col == 'cancelled_at' or col == 'completed_at':
+                                row_dict[col] = None  # Default to None for new timestamp columns
                             else:
                                 row_dict[col] = None
                     conn.execute(
@@ -619,6 +628,9 @@ class ScheduleDatabase(DatabaseManager):
                         title TEXT NOT NULL,
                         description TEXT,
                         location TEXT,
+                        status TEXT DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'cancelled', 'completed')),
+                        cancelled_at TEXT,
+                        completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -628,7 +640,7 @@ class ScheduleDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR REMINDERS TABLE ---
             reminders_expected = [
                 'reminder_id', 'timestamp_created', 'due_datetime', 'content', 'priority_level',
-                'completed', 'source_conversation_id', 'embedding', 'created_at'
+                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'embedding', 'created_at'
             ]
             cur = conn.execute("PRAGMA table_info(reminders)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -650,6 +662,8 @@ class ScheduleDatabase(DatabaseManager):
                         content TEXT NOT NULL,
                         priority_level INTEGER DEFAULT 5,
                         completed INTEGER DEFAULT 0,
+                        is_completed INTEGER DEFAULT 0,
+                        completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -665,6 +679,10 @@ class ScheduleDatabase(DatabaseManager):
                                 row_dict[col] = 5
                             elif col == 'completed':
                                 row_dict[col] = 0
+                            elif col == 'is_completed':
+                                row_dict[col] = row_dict.get('completed', 0)  # Copy from completed field
+                            elif col == 'completed_at':
+                                row_dict[col] = None  # No completion timestamp for migrated reminders
                             else:
                                 row_dict[col] = None
                     conn.execute(
@@ -690,9 +708,29 @@ class ScheduleDatabase(DatabaseManager):
     
     async def create_appointment(self, title: str, scheduled_datetime: str, 
                                description: str = None, location: str = None,
-                               source_conversation_id: str = None) -> str:
-        """Create a new appointment"""
+                               source_conversation_id: str = None,
+                               recurrence_pattern: str = None,
+                               recurrence_count: int = None,
+                               recurrence_end_date: str = None) -> Union[str, List[str]]:
+        """Create a new appointment, optionally recurring
         
+        Args:
+            title: Appointment title
+            scheduled_datetime: ISO format datetime for first appointment
+            description: Optional description
+            location: Optional location
+            source_conversation_id: Optional source conversation ID
+            recurrence_pattern: Optional recurrence pattern ('weekly', 'monthly', 'daily')
+            recurrence_count: Optional number of recurrences (including first appointment)
+            recurrence_end_date: Optional end date for recurrences (ISO format)
+            
+        Returns:
+            Single appointment_id if no recurrence, list of appointment_ids if recurring
+        """
+        from dateutil.relativedelta import relativedelta
+        from dateutil.parser import parse as parse_date
+        
+        # Create the first appointment
         appointment_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
         
@@ -703,23 +741,195 @@ class ScheduleDatabase(DatabaseManager):
             (appointment_id, timestamp, scheduled_datetime, title, description, location, source_conversation_id)
         )
         
-        return appointment_id
+        appointment_ids = [appointment_id]
+        
+        # Handle recurring appointments
+        if recurrence_pattern and (recurrence_count or recurrence_end_date):
+            try:
+                base_datetime = parse_date(scheduled_datetime)
+                if recurrence_end_date:
+                    end_date = parse_date(recurrence_end_date)
+                else:
+                    end_date = None
+                
+                # Determine the increment pattern
+                if recurrence_pattern.lower() == 'daily':
+                    delta = relativedelta(days=1)
+                elif recurrence_pattern.lower() == 'weekly':
+                    delta = relativedelta(weeks=1)
+                elif recurrence_pattern.lower() == 'monthly':
+                    delta = relativedelta(months=1)
+                elif recurrence_pattern.lower() == 'yearly':
+                    delta = relativedelta(years=1)
+                else:
+                    raise ValueError(f"Unsupported recurrence pattern: {recurrence_pattern}")
+                
+                current_datetime = base_datetime
+                created_count = 1  # Already created the first one
+                
+                # Create recurring appointments
+                while True:
+                    # Check if we should stop
+                    if recurrence_count and created_count >= recurrence_count:
+                        break
+                    if end_date and current_datetime >= end_date:
+                        break
+                    
+                    # Calculate next occurrence
+                    current_datetime += delta
+                    
+                    # Check end date again after increment
+                    if end_date and current_datetime > end_date:
+                        break
+                    
+                    # Create the recurring appointment
+                    recurring_id = str(uuid.uuid4())
+                    recurring_datetime = current_datetime.isoformat()
+                    
+                    await self.execute_update(
+                        """INSERT INTO appointments 
+                           (appointment_id, timestamp_created, scheduled_datetime, title, description, location, source_conversation_id) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (recurring_id, timestamp, recurring_datetime, title, description, location, source_conversation_id)
+                    )
+                    
+                    appointment_ids.append(recurring_id)
+                    created_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error creating recurring appointments: {e}")
+                # Return the first appointment ID even if recurring failed
+                return appointment_id
+        
+        # Return single ID if no recurrence, list if recurring
+        return appointment_id if len(appointment_ids) == 1 else appointment_ids
     
     async def create_reminder(self, content: str, due_datetime: str, 
-                            priority_level: int = 5, source_conversation_id: str = None) -> str:
-        """Create a new reminder"""
+                            priority_level: int = 5, source_conversation_id: str = None,
+                            recurrence_pattern: str = None, recurrence_count: int = None,
+                            recurrence_end_date: str = None) -> Union[str, List[str]]:
+        """Create a new reminder or multiple recurring reminders"""
         
-        reminder_id = str(uuid.uuid4())
+        # If no recurrence pattern, create a single reminder
+        if not recurrence_pattern:
+            reminder_id = str(uuid.uuid4())
+            timestamp = get_current_timestamp()
+            
+            await self.execute_update(
+                """INSERT INTO reminders 
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id) 
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id)
+            )
+            
+            return reminder_id
+        
+        # Handle recurring reminders
+        from dateutil.relativedelta import relativedelta
+        from datetime import datetime
+        import pytz
+        
+        # Parse the start datetime
+        if due_datetime.endswith('Z'):
+            start_dt = datetime.fromisoformat(due_datetime[:-1]).replace(tzinfo=pytz.UTC)
+        else:
+            start_dt = datetime.fromisoformat(due_datetime)
+            if start_dt.tzinfo is None:
+                # Assume America/Chicago timezone if no timezone specified
+                chicago_tz = pytz.timezone('America/Chicago')
+                start_dt = chicago_tz.localize(start_dt)
+        
+        # Parse end date if provided
+        end_dt = None
+        if recurrence_end_date:
+            if recurrence_end_date.endswith('Z'):
+                end_dt = datetime.fromisoformat(recurrence_end_date[:-1]).replace(tzinfo=pytz.UTC)
+            else:
+                end_dt = datetime.fromisoformat(recurrence_end_date)
+                if end_dt.tzinfo is None:
+                    chicago_tz = pytz.timezone('America/Chicago')
+                    end_dt = chicago_tz.localize(end_dt)
+        
+        # Calculate delta based on pattern
+        delta_map = {
+            'daily': relativedelta(days=1),
+            'weekly': relativedelta(weeks=1),
+            'monthly': relativedelta(months=1),
+            'yearly': relativedelta(years=1)
+        }
+        
+        if recurrence_pattern not in delta_map:
+            raise ValueError(f"Invalid recurrence pattern: {recurrence_pattern}")
+        
+        delta = delta_map[recurrence_pattern]
+        reminder_ids = []
+        current_dt = start_dt
+        count = 0
         timestamp = get_current_timestamp()
         
-        await self.execute_update(
-            """INSERT INTO reminders 
-               (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id) 
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id)
+        while True:
+            # Check stopping conditions
+            if recurrence_count and count >= recurrence_count:
+                break
+            if end_dt and current_dt > end_dt:
+                break
+            
+            # Create reminder for this occurrence
+            reminder_id = str(uuid.uuid4())
+            
+            await self.execute_update(
+                """INSERT INTO reminders 
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id) 
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id)
+            )
+            
+            reminder_ids.append(reminder_id)
+            
+            # Move to next occurrence
+            current_dt += delta
+            count += 1
+            
+            # Safety check to prevent infinite loops
+            if count > 1000:
+                break
+        
+        return reminder_ids[0] if len(reminder_ids) == 1 else reminder_ids
+
+    async def auto_complete_overdue_reminders(self) -> Dict[str, int]:
+        """
+        Auto-complete overdue reminders at midnight.
+        Returns count of reminders that were auto-completed.
+        """
+        current_time = datetime.now()
+        
+        # Find overdue reminders that aren't already completed
+        overdue_reminders = await self.execute_query(
+            """SELECT reminder_id, content, due_datetime 
+               FROM reminders 
+               WHERE due_datetime < ? 
+               AND completed = 0 
+               AND is_completed = 0""",
+            (current_time.isoformat(),)
         )
         
-        return reminder_id
+        completed_count = 0
+        for reminder in overdue_reminders:
+            # Mark as completed
+            await self.execute_update(
+                """UPDATE reminders 
+                   SET completed = 1, is_completed = 1, completed_at = ?
+                   WHERE reminder_id = ?""",
+                (current_time.isoformat(), reminder['reminder_id'])
+            )
+            completed_count += 1
+            
+            logger.info(f"Auto-completed overdue reminder: {reminder['content']}")
+        
+        return {
+            "completed_count": completed_count,
+            "processed_at": current_time.isoformat()
+        }
 
 
 class VSCodeProjectDatabase(DatabaseManager):
@@ -3479,15 +3689,16 @@ class FridayMemorySystem:
         # ...other background tasks as needed...
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get recent appointments from the schedule database"""
-        appointments = await self.schedule_db.get_appointments(limit, days_ahead)
+        result = await self.schedule_db.get_appointments(limit, days_ahead)
         
-        if not appointments:
+        if result.get("status") != "success":
             return {
                 "status": "no_appointments",
                 "message": "No appointments in the next {} days.".format(days_ahead),
                 "appointments": []
             }
         
+        appointments = result.get("appointments", [])
         return {
             "status": "success",
             "count": len(appointments),
@@ -3619,11 +3830,13 @@ class FridayMemorySystem:
 
     async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
         """Get active (not completed) reminders within the next X days"""
-        now = datetime.now(get_local_timezone()).isoformat()
-        cutoff = (datetime.now(get_local_timezone()) + timedelta(days=days_ahead)).isoformat()
+        now = datetime.now(get_local_timezone())
+        # Use start of today instead of current time to include all reminders due today
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        cutoff = (now + timedelta(days=days_ahead)).isoformat()
         rows = await self.schedule_db.execute_query(
             "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
-            (now, cutoff, limit)
+            (start_of_today, cutoff, limit)
         )
         
         if not rows:
@@ -3715,6 +3928,17 @@ class FridayMemorySystem:
         else:
             return {"status": "error", "message": "Appointment not found"}
 
+    async def complete_appointment(self, appointment_id: str) -> Dict:
+        """Mark an appointment as completed"""
+        result = await self.schedule_db.execute_update(
+            "UPDATE appointments SET status = 'completed', completed_at = ? WHERE appointment_id = ?",
+            (get_current_timestamp(), appointment_id)
+        )
+        if result > 0:
+            return {"status": "success", "message": f"Appointment {appointment_id} marked as completed"}
+        else:
+            return {"status": "error", "message": "Appointment not found"}
+
     async def get_upcoming_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes."""
         now_local = datetime.now(get_local_timezone())
@@ -3792,15 +4016,19 @@ class FridayMemorySystem:
             (str(self.data_dir / "schedule.db"), """
                 CREATE TABLE IF NOT EXISTS reminders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    text TEXT,
-                    datetime TEXT,
-                    is_active INTEGER
+                    content TEXT NOT NULL,
+                    due_datetime TEXT NOT NULL,
+                    priority_level INTEGER DEFAULT 5,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    completed INTEGER DEFAULT 0,
+                    is_completed INTEGER DEFAULT 0,
+                    completed_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS appointments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT,
                     datetime TEXT,
-                    notes TEXT
+                    notes TEXT,
                     status TEXT DEFAULT 'scheduled' CHECK("status" IN ('scheduled', 'cancelled', 'completed'))
                 );
             """),
@@ -4087,14 +4315,28 @@ class FridayMemorySystem:
         }
     
     async def get_recent_context(self, limit: int = 5, session_id: str = None, days_back: int = 7) -> Dict:
-        """Get recent conversation context from the last N days"""
+        """Get recent conversation context from the last N days - returns clean text content, not embeddings"""
         
         messages = await self.conversations_db.get_recent_messages(limit, session_id, days_back)
         
+        # Clean the messages to remove embeddings and provide only useful context
+        clean_messages = []
+        for msg in messages:
+            clean_msg = {
+                "message_id": msg["message_id"],
+                "conversation_id": msg["conversation_id"],
+                "timestamp": msg["timestamp"],
+                "role": msg["role"],
+                "content": msg["content"],
+                "metadata": json.loads(msg["metadata"]) if msg["metadata"] else None
+            }
+            # Explicitly exclude embedding data
+            clean_messages.append(clean_msg)
+        
         return {
             "status": "success",
-            "messages": messages,
-            "count": len(messages),
+            "messages": clean_messages,
+            "count": len(clean_messages),
             "days_back": days_back
         }
     
@@ -4134,40 +4376,66 @@ class FridayMemorySystem:
     # Schedule operations
     async def create_appointment(self, title: str, scheduled_datetime: str,
                                description: str = None, location: str = None,
-                               source_conversation_id: str = None) -> Dict:
-        """Create an appointment"""
+                               source_conversation_id: str = None,
+                               recurrence_pattern: str = None,
+                               recurrence_count: int = None,
+                               recurrence_end_date: str = None) -> Dict:
+        """Create an appointment, optionally recurring"""
         
-        appointment_id = await self.schedule_db.create_appointment(
-            title, scheduled_datetime, description, location, source_conversation_id
+        appointment_result = await self.schedule_db.create_appointment(
+            title, scheduled_datetime, description, location, source_conversation_id,
+            recurrence_pattern, recurrence_count, recurrence_end_date
         )
+        
+        # Handle the result based on whether it's a single ID or list of IDs
+        if isinstance(appointment_result, list):
+            appointment_ids = appointment_result
+        else:
+            appointment_ids = [appointment_result]
         
         # Generate embedding for search (combine title and description)
         content_for_embedding = f"{title}"
         if description:
             content_for_embedding += f" {description}"
         
-        asyncio.create_task(self._add_embedding_to_appointment(appointment_id, content_for_embedding))
+        # Add embeddings for all created appointments
+        for appointment_id in appointment_ids:
+            asyncio.create_task(self._add_embedding_to_appointment(appointment_id, content_for_embedding))
         
         return {
             "status": "success",
-            "appointment_id": appointment_id
+            "appointment_ids": appointment_ids,
+            "count": len(appointment_ids)
         }
     
     async def create_reminder(self, content: str, due_datetime: str,
-                            priority_level: int = 5, source_conversation_id: str = None) -> Dict:
-        """Create a reminder"""
+                            priority_level: int = 5, source_conversation_id: str = None,
+                            recurrence_pattern: str = None, recurrence_count: int = None,
+                            recurrence_end_date: str = None) -> Dict:
+        """Create a reminder or multiple recurring reminders"""
         
-        reminder_id = await self.schedule_db.create_reminder(
-            content, due_datetime, priority_level, source_conversation_id
+        reminder_result = await self.schedule_db.create_reminder(
+            content, due_datetime, priority_level, source_conversation_id,
+            recurrence_pattern, recurrence_count, recurrence_end_date
         )
         
-        # Generate and store embedding for the reminder content
-        asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
-        
-        return {
-            "status": "success",
-            "reminder_id": reminder_id
-        }
+        # Handle embedding generation for single or multiple reminders
+        if isinstance(reminder_result, list):
+            # Multiple reminders created
+            for reminder_id in reminder_result:
+                asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
+            return {
+                "status": "success",
+                "reminder_ids": reminder_result,
+                "count": len(reminder_result)
+            }
+        else:
+            # Single reminder created
+            asyncio.create_task(self._add_embedding_to_reminder(reminder_result, content))
+            return {
+                "status": "success",
+                "reminder_id": reminder_result
+            }
     
     # VS Code project operations
     async def save_development_session(self, workspace_path: str, active_files: List[str] = None,
@@ -4484,10 +4752,23 @@ class FridayMemorySystem:
         }
     
     # Search operations
-    async def search_memories(self, query: str, limit: int = 10, database_filter: str = "all",
+    async def search_memories(self, query: str = None, limit: int = 10, database_filter: str = "all",
                             min_importance: int = None, max_importance: int = None,
-                            memory_type: str = None) -> Dict:
-        """Search memories across databases using semantic similarity with importance filtering"""
+                            memory_type: str = None, memory_id: str = None) -> Dict:
+        """Search memories across databases using semantic similarity with importance filtering, or direct ID lookup"""
+        
+        # If memory_id is provided, do direct ID lookup instead of semantic search
+        if memory_id:
+            return await self._get_memory_by_id(memory_id)
+        
+        # Require query if no memory_id provided
+        if not query:
+            return {
+                "status": "error",
+                "error": "Either 'query' or 'memory_id' parameter is required",
+                "results": [],
+                "count": 0
+            }
         
         # Generate embedding for the search query
         query_embedding = await self.embedding_service.generate_embedding(query)
@@ -4526,6 +4807,123 @@ class FridayMemorySystem:
                 "memory_type": memory_type,
                 "database_filter": database_filter
             }
+        }
+    
+
+    async def _get_memory_by_id(self, memory_id: str) -> Dict:
+        """Get a specific memory by ID from any database"""
+        
+        # Check AI memories first
+        ai_memory = await self.ai_memory_db.execute_query(
+            "SELECT * FROM curated_memories WHERE memory_id = ?", (memory_id,)
+        )
+        if ai_memory:
+            memory = dict(ai_memory[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "ai_memory",
+                    "similarity_score": 1.0,  # Perfect match for direct lookup
+                    "data": {
+                        "memory_id": memory["memory_id"],
+                        "content": memory["content"],
+                        "memory_type": memory["memory_type"],
+                        "importance_level": memory["importance_level"],
+                        "tags": json.loads(memory["tags"]) if memory["tags"] else [],
+                        "timestamp_created": memory["timestamp_created"],
+                        "timestamp_updated": memory["timestamp_updated"],
+                        "source_conversation_id": memory["source_conversation_id"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Check conversations
+        conversation = await self.conversations_db.execute_query(
+            "SELECT * FROM messages WHERE message_id = ?", (memory_id,)
+        )
+        if conversation:
+            msg = dict(conversation[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "conversation",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "message_id": msg["message_id"],
+                        "conversation_id": msg["conversation_id"],
+                        "timestamp": msg["timestamp"],
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "metadata": json.loads(msg["metadata"]) if msg["metadata"] else None
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Check schedule items (appointments and reminders)
+        appointment = await self.schedule_db.execute_query(
+            "SELECT * FROM appointments WHERE appointment_id = ?", (memory_id,)
+        )
+        if appointment:
+            appt = dict(appointment[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "appointment",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "appointment_id": appt["appointment_id"],
+                        "title": appt["title"],
+                        "scheduled_datetime": appt["scheduled_datetime"],
+                        "description": appt["description"],
+                        "location": appt["location"],
+                        "status": appt["status"],
+                        "timestamp_created": appt["timestamp_created"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        reminder = await self.schedule_db.execute_query(
+            "SELECT * FROM reminders WHERE reminder_id = ?", (memory_id,)
+        )
+        if reminder:
+            rem = dict(reminder[0])
+            return {
+                "status": "success",
+                "query": f"memory_id:{memory_id}",
+                "results": [{
+                    "type": "reminder",
+                    "similarity_score": 1.0,
+                    "data": {
+                        "reminder_id": rem["reminder_id"],
+                        "content": rem["content"],
+                        "due_datetime": rem["due_datetime"],
+                        "priority_level": rem["priority_level"],
+                        "completed": bool(rem["completed"]),
+                        "completed_at": rem["completed_at"],
+                        "timestamp_created": rem["timestamp_created"]
+                    }
+                }],
+                "count": 1,
+                "search_type": "direct_id_lookup"
+            }
+        
+        # Memory ID not found in any database
+        return {
+            "status": "not_found",
+            "query": f"memory_id:{memory_id}",
+            "results": [],
+            "count": 0,
+            "search_type": "direct_id_lookup",
+            "error": f"No memory found with ID: {memory_id}"
         }
     
     async def _search_conversations(self, query_embedding: List[float], limit: int) -> List[Dict]:
@@ -4734,7 +5132,14 @@ class FridayMemorySystem:
                     results.append({
                         "type": "conversation",
                         "similarity_score": 0.5,  # Default score for text match
-                        "data": dict(row)
+                        "data": {
+                            "message_id": row["message_id"],
+                            "conversation_id": row["conversation_id"],
+                            "timestamp": row["timestamp"],
+                            "role": row["role"],
+                            "content": row["content"],
+                            "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                        }
                     })
         
         if database_filter in ["all", "ai_memories"]:
@@ -4772,7 +5177,16 @@ class FridayMemorySystem:
                 results.append({
                     "type": "ai_memory",
                     "similarity_score": 0.5,
-                    "data": dict(row)
+                    "data": {
+                        "memory_id": row["memory_id"],
+                        "timestamp_created": row["timestamp_created"],
+                        "timestamp_updated": row["timestamp_updated"],
+                        "source_conversation_id": row["source_conversation_id"],
+                        "memory_type": row["memory_type"],
+                        "content": row["content"],
+                        "importance_level": row["importance_level"],
+                        "tags": json.loads(row["tags"]) if row["tags"] else None
+                    }
                 })
         
         # Remove duplicates and limit results
