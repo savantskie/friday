@@ -10,8 +10,16 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+# Get base path dynamically
+def get_base_path():
+    """Get the base Friday path, works on both Windows and Linux"""
+    current_file = Path(__file__).resolve()
+    # Go up from tests/ to Friday/ directory
+    return current_file.parent.parent
+
 # Create test conversation directory
-test_dir = Path("f:/Friday/test_conversations")
+base_path = get_base_path()
+test_dir = base_path / "test_conversations"
 test_dir.mkdir(exist_ok=True)
 
 # Create a test conversation file

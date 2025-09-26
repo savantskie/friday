@@ -1,1 +1,0 @@
-mcpo --host 0.0.0.0 --port 12345 -- python -u F:\Friday\friday_memory_mcp_server.py

@@ -1,9 +1,9 @@
 {
   "primary": {
     "provider": "lmstudio",
-    "model": "Nomic-embed-text-v1.5-Embedding-GGUF/nomic-embed-text-v1.5.f16.gguf",
-    "base_url": "http://localhost:1234",
-    "description": "LM Studio Nomic Embed v1.5"
+    "model": "text-embedding-nomic-embed-text-v1.5",
+    "base_url": "http://192.168.1.50:1234",
+    "description": "LM Studio text-embedding-nomic-embed-text-v1.5"
   },
   "fallback": {
     "provider": "ollama",

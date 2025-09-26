@@ -23,6 +23,13 @@ from datetime import datetime, timezone
 import time
 import warnings
 from pathlib import Path
+
+# Get the base directory dynamically - works on both Windows and Linux
+def get_base_path():
+    """Get the base Friday path, works on both Windows and Linux"""
+    current_file = Path(__file__).resolve()
+    # This should return /media/nate/Friday/Friday on Linux or F:\Friday on Windows
+    return current_file.parent
 # MCP imports
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -36,7 +43,10 @@ from mcp.types import (
 
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
-memory_system = FridayMemorySystem(data_dir="F:/Friday/memory_data")
+
+# Initialize with dynamic path
+BASE_PATH = get_base_path()
+memory_system = FridayMemorySystem(data_dir=str(BASE_PATH / "memory_data"))
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
@@ -47,7 +57,7 @@ HOME_TZ  = "America/Chicago"
 ENFORCE_HOME_COORDS = True
 # Cache directory (uses weather if set)
 import os, json
-weather_directory = os.getenv("weather_directory", r"F:\Friday\weather_directory")
+weather_directory = os.getenv("weather_directory", str(BASE_PATH / "weather_directory"))
 WEATHER_CACHE_DIR = os.path.join(weather_directory, "weather")
 os.makedirs(WEATHER_CACHE_DIR, exist_ok=True)
 
@@ -451,7 +461,7 @@ class FridayMemoryMCPServer:
 
     
     def __init__(self):
-        self.memory_data_dir = ("F:/Friday/memory_data")
+        self.memory_data_dir = BASE_PATH / "memory_data"
         self.memory_system = FridayMemorySystem(data_dir=str(self.memory_data_dir))
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
@@ -1195,7 +1205,9 @@ class FridayMemoryMCPServer:
                     timezone_str = None
                     # optional: log the attempt so you can see when she tries
                     try:
-                        with open(r"F:\Friday\logs\friday.log", "a", encoding="utf-8") as _lf:
+                        log_path = BASE_PATH / "logs" / "friday.log"
+                        log_path.parent.mkdir(exist_ok=True)
+                        with open(log_path, "a", encoding="utf-8") as _lf:
                             _lf.write(f"[weather] blocked coords (override=False) lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n")
                     except Exception:
                         pass

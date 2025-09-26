@@ -1,12 +1,27 @@
+# Core dependencies
 aiohttp>=3.8.0
 watchdog>=2.1.0
 numpy>=1.21.0
-mcp>=1.0.0
-aiosqlite>=0.21.0
-sqlalchemy>=2.0.0
-uvicorn>=0.35.0
-fastapi>=0.116.0
-python-dotenv>=1.1.1
 requests>=2.32.3
 python-dateutil>=2.8.0
 tzdata>=2024.1
+
+# Database
+aiosqlite>=0.21.0
+sqlalchemy>=2.0.0
+
+# MCP Server
+mcp>=1.0.0
+
+# Web framework (optional for HTTP API)
+uvicorn>=0.35.0
+fastapi>=0.116.0
+
+# Environment management
+python-dotenv>=1.1.1
+
+# Optional dependencies for specific features
+# Uncomment if needed:
+# transformers>=4.21.0  # For AutoTokenizer (autotokenizer.py)
+# dearpygui>=1.6.0      # For Ollama Server GUI
+# torch>=1.12.0         # May be needed for transformers
