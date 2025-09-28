@@ -1,5 +1,5 @@
 fridayonline.bounceme.net {
-    tls "F:\Friday\certs\friday.pem" "F:\Friday\certs\friday.key"
+    tls "/media/nate/Friday/Friday/certs/friday.pem" "/media/nate/Friday/Friday/certs/friday.key"
 	
 	# Security headers, and securing mcpo (add-only)
     header {
@@ -44,17 +44,17 @@ fridayonline.bounceme.net {
         }    
         # ---- static /notify test page (add-only) ----
         handle /notify* {
-            root * F:\Friday\pwa
+            root * media/nate/Friday/pwa
             file_server
         }
-                # ---- static /pwa (serves F:\Friday\pwa) ----
+                # ---- static /pwa (serves /media/nate/Friday/pwa) ----
         handle_path /pwa* {
-            root * F:\Friday\pwa
+            root * /media/nate/Friday/pwa
             file_server
         }
         # Root-scope SW for OWUI (serve from disk)
         handle /owui-sw.js* {
-            root * F:\Friday\pwa
+            root * /media/nate/Friday/pwa
             file_server
         }
 
