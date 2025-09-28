@@ -1403,7 +1403,7 @@ class FridayMemoryMCPServer:
             logger.info("🔧 Automatic maintenance stopped")
 
 
-async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: int = 11434):
+async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: int = 21434):
     """Start the HTTP API server if needed"""
     try:
         from fastapi import FastAPI, HTTPException

@@ -4170,11 +4170,9 @@ class FridayMemorySystem:
         import sqlite3
         from datetime import datetime
         
-        # Set default path dynamically if not provided
+        # Set default path to the new OpenWebUI location if not provided
         if db_path is None:
-            # OpenWebUI is at the workspace level next to Friday directory
-            openwebui_path = get_base_path().parent / "OpenWebUI" / "data" / "webui.db"
-            db_path = str(openwebui_path)
+            db_path = "/media/nate/Friday/OpenWebUI/data/webui.db"
         if not os.path.exists(db_path):
             print(f"OpenWebUI database not found at {db_path}")
             return

@@ -95,9 +95,3 @@ fridayonline.bounceme.net {
                 versions 1.1
             }
         }
-
-
-
-:80 {
-    redir https://fridayonline.bounceme.net{uri}
-}
