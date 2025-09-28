@@ -90,9 +90,12 @@ fridayonline.bounceme.net {
         }
 
         # ---------- Default: proxy OpenWebUI ----------
-        reverse_proxy localhost:3000
-	
-    }
+        reverse_proxy 127.0.0.1:3000 {
+            transport http {
+                versions 1.1
+            }
+        }
+
 
 
 :80 {
