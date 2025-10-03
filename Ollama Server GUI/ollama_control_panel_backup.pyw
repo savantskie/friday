@@ -1243,25 +1243,20 @@ class OllamaControlPanel:
         self.refresh_system_info()
     
     def setup_gui(self):
-        """Initialize the Dear PyGui interface with horizontal 3-column layout"""
+        """Initialize the Dear PyGui interface"""
         dpg.create_context()
         
-        # Configure enhanced theme for better visual organization
+        # Configure theme
         with dpg.theme() as global_theme:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (20, 25, 30))
-                dpg.add_theme_color(dpg.mvThemeCol_Button, (60, 80, 100))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (80, 100, 120))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (100, 120, 140))
-                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (30, 35, 40))
-                dpg.add_theme_color(dpg.mvThemeCol_Header, (50, 60, 70))
-                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (60, 70, 80))
-                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (80, 120, 160))
-                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (100, 140, 180))
+                dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (25, 25, 25))
+                dpg.add_theme_color(dpg.mvThemeCol_Button, (70, 70, 70))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (90, 90, 90))
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (35, 35, 35))
         
         dpg.bind_theme(global_theme)
         
-        # Main window with horizontal layout
+        # Main window
         with dpg.window(label="Ollama Server Control Panel", tag="main_window"):
             
             # Top Status Bar
