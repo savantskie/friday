@@ -7,12 +7,29 @@ A comprehensive GUI dashboard for managing Ollama models and parameters
 import dearpygui.dearpygui as dpg
 import requests
 import psutil
+import platform
+try:
+    if platform.system() == 'Linux':
+        from . import gpu_utils
+    else:
+        gpu_utils = None
+except Exception:
+    # Fallback for running as script (not package)
+    try:
+        if platform.system() == 'Linux':
+            import gpu_utils
+            gpu_utils = gpu_utils
+        else:
+            gpu_utils = None
+    except Exception:
+        gpu_utils = None
 import json
 import os
 import threading
 import time
 import logging
 import subprocess
+import importlib
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -34,15 +51,41 @@ class OllamaControlPanel:
         self.initialize_gpu_monitoring()
         self.running = False
         
-        # Current model parameters
+        # Current model parameters - ALL available Ollama parameters
         self.current_params = {
+            # Core generation parameters
             "temperature": 0.7,
             "top_k": 40,
+            "top_p": 0.9,
+            "min_p": 0.0,
+            "typical_p": 1.0,
+            
+            # Context and prediction parameters
             "num_ctx": 8192,
-            "keep_alive": -1,
-            "num_gpu": -1,  # -1 = auto, 0 = CPU only, >0 = number of layers on GPU
-            "main_gpu": 0,  # Which GPU to use (0-based index)
-            "numa": False   # Enable NUMA support
+            "num_predict": -1,  # -1 = infinite, >0 = max tokens to generate
+            "num_keep": 0,      # Number of tokens to keep from prompt
+            
+            # Repetition control
+            "repeat_penalty": 1.1,
+            "repeat_last_n": 64,  # How far back to look for repetition (0 = disabled, -1 = num_ctx)
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "penalize_newline": True,
+            
+            # System and performance parameters
+            "num_thread": 0,    # 0 = auto, >0 = specific thread count
+            "num_batch": 512,   # Batch size for token processing
+            "num_gpu": -1,      # -1 = auto, 0 = CPU only, >0 = number of layers on GPU
+            "main_gpu": 0,      # Which GPU to use (0-based index)
+            "use_mmap": True,   # Use memory mapping
+            "numa": False,      # Enable NUMA support
+            
+            # Reproducibility and control
+            "seed": -1,         # -1 = random, >=0 = specific seed for reproducible outputs
+            "keep_alive": -1,   # Model persistence (-1 = forever, 0 = unload immediately, >0 = seconds)
+            
+            # Stop sequences (will be handled separately as it's a list)
+            "stop": []          # List of stop sequences
         }
         
         # Model data
@@ -93,8 +136,14 @@ class OllamaControlPanel:
         # Initialize persistent WMI connection for real-time monitoring
         self.wmi_connection = None
         try:
-            import wmi
-            self.wmi_connection = wmi.WMI()
+            try:
+                wmi = importlib.import_module('wmi')
+            except Exception:
+                wmi = None
+            if wmi is not None:
+                self.wmi_connection = wmi.WMI()
+            else:
+                self.wmi_connection = None
         except Exception as e:
             print(f"Failed to initialize WMI connection: {e}")
             self.wmi_connection = None
@@ -102,31 +151,47 @@ class OllamaControlPanel:
         # Try to get GPU hardware info once
         self.gpu_info = None
         try:
-            import wmi
-            temp_wmi = wmi.WMI()
-            gpus = temp_wmi.Win32_VideoController()
-            for gpu in gpus:
-                if gpu.Name and 'Microsoft' not in gpu.Name:
-                    self.gpu_info = {
-                        'name': gpu.Name,
-                        'memory': gpu.AdapterRAM if gpu.AdapterRAM else 0
-                    }
-                    break
-            del temp_wmi
+            try:
+                wmi = importlib.import_module('wmi')
+            except Exception:
+                wmi = None
+            if wmi is not None:
+                temp_wmi = wmi.WMI()
+                gpus = temp_wmi.Win32_VideoController()
+                for gpu in gpus:
+                    if gpu.Name and 'Microsoft' not in gpu.Name:
+                        self.gpu_info = {
+                            'name': gpu.Name,
+                            'memory': gpu.AdapterRAM if gpu.AdapterRAM else 0
+                        }
+                        break
+                try:
+                    del temp_wmi
+                except Exception:
+                    pass
+            else:
+                # wmi not available on this platform
+                self.gpu_info = None
         except Exception as e:
             self.logger.error(f"Failed to get GPU info: {e}")
             
         # Try to initialize OpenCL for AMD cards (like GPU-Z does)
         try:
-            import pyopencl as cl
-            platforms = cl.get_platforms()
-            for platform in platforms:
-                devices = platform.get_devices()
-                for device in devices:
-                    if device.type == cl.device_type.GPU:
-                        self.opencl_device = device
-                        break
-        except:
+            try:
+                cl = importlib.import_module('pyopencl')
+            except Exception:
+                cl = None
+            if cl is not None:
+                platforms = cl.get_platforms()
+                for platform in platforms:
+                    devices = platform.get_devices()
+                    for device in devices:
+                        if device.type == cl.device_type.GPU:
+                            self.opencl_device = device
+                            break
+            else:
+                self.opencl_device = None
+        except Exception:
             self.opencl_device = None
     
     def load_presets(self) -> Dict:
@@ -209,11 +274,24 @@ class OllamaControlPanel:
         if params is None:
             params = self.current_params.copy()
         
+        # Clean up parameters for Ollama API
+        clean_params = {}
+        for key, value in params.items():
+            # Skip empty or default values that don't need to be sent
+            if key == "stop" and not value:
+                continue  # Skip empty stop sequences
+            if key == "seed" and value == -1:
+                continue  # Let Ollama use random seed
+            if key == "num_thread" and value == 0:
+                continue  # Let Ollama auto-detect
+            
+            clean_params[key] = value
+        
         try:
             payload = {
                 "model": model_name,
                 "prompt": "",
-                "options": params
+                "options": clean_params
             }
             
             print(f"Sending load request for {model_name}: {payload}")
@@ -227,7 +305,7 @@ class OllamaControlPanel:
             
             print(f"Response status: {response.status_code}")
             if response.status_code == 200:
-                self.show_success(f"Model '{model_name}' loaded successfully")
+                self.show_success(f"Model '{model_name}' loaded successfully with {len(clean_params)} parameters")
                 # Force refresh to show the loaded model
                 self.refresh_data()
             else:
@@ -308,78 +386,50 @@ class OllamaControlPanel:
             else:
                 # Time to refresh GPU info - run detection
                 self._gpu_info_last_update = time.time()
-                
+                # If running on Linux, use the gpu_utils module for detection and stats.
                 try:
-                    import subprocess
-                    import platform
-                    
-                    # Try PowerShell GPU detection first (most reliable on Windows)
-                    if platform.system() == "Windows":
-                        try:
-                            ps_cmd = 'Get-WmiObject Win32_VideoController | Where-Object {$_.Name -notlike "*Microsoft*"} | Select-Object Name, AdapterRAM | ConvertTo-Json'
-                            result = subprocess.run(['pwsh.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], 
-                                                  capture_output=True, text=True, timeout=5, 
-                                                  creationflags=subprocess.CREATE_NO_WINDOW)
-                            if result.returncode == 0 and result.stdout.strip():
-                                import json
-                                gpu_data = json.loads(result.stdout)
-                                if isinstance(gpu_data, list):
-                                    gpu_data = gpu_data[0]  # Take first GPU
-                                
-                                name = gpu_data.get('Name', 'Unknown GPU')
-                                ram = gpu_data.get('AdapterRAM')
-                                
-                                ram_gb = ""
-                                if ram and isinstance(ram, (int, float)) and ram > 0:
-                                    ram_gb = f" ({ram/(1024**3):.0f}GB)"
-                                
-                                # Add compute capability info
-                                compute_info = ""
-                                if "AMD" in name.upper() or "RADEON" in name.upper():
-                                    compute_info = " [Vulkan/OpenCL]"
-                                elif "NVIDIA" in name.upper() or "GEFORCE" in name.upper() or "RTX" in name.upper():
-                                    compute_info = " [CUDA/Vulkan/OpenCL]"
-                                elif "INTEL" in name.upper():
-                                    compute_info = " [Vulkan/OpenCL]"
-                                
-                                gpu_info = f"{name}{ram_gb}{compute_info}"
-                                gpu_detected = True
-                        except Exception as e:
-                            print(f"PowerShell GPU detection failed: {e}")
-                    
-                    # Fallback: Registry detection for Windows
-                    if not gpu_detected and platform.system() == "Windows":
-                        try:
-                            result = subprocess.run([
-                                'reg', 'query', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}', 
-                                '/s', '/v', 'DriverDesc'
-                            ], capture_output=True, text=True, timeout=3, 
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-                            
-                            if result.returncode == 0:
-                                import re
-                                gpu_matches = re.findall(r'DriverDesc\s+REG_SZ\s+(.+)', result.stdout)
-                                if gpu_matches:
-                                    # Filter out Microsoft Basic Display Adapter
-                                    valid_gpus = [gpu.strip() for gpu in gpu_matches if "Microsoft" not in gpu and "Basic Display" not in gpu]
-                                    if valid_gpus:
-                                        gpu_info = valid_gpus[0]
-                                        gpu_detected = True
-                        except Exception as e:
-                            print(f"Registry GPU detection failed: {e}")
-                    
-                    # If still no GPU detected, use generic message
-                    if not gpu_detected:
-                        gpu_info = "GPU present but detection unavailable"
-                        self._gpu_detection_failed = True
-                        self._gpu_retry_count += 1
+                    if platform.system() == 'Linux' and gpu_utils is not None:
+                        gpu_info = gpu_utils.detect_gpu_info()
+                        gpu_detected = True if gpu_info and 'unavailable' not in gpu_info.lower() else False
                     else:
-                        # Success - reset failure flags
-                        self._gpu_detection_failed = False
-                        self._gpu_retry_count = 0
-                    
+                        # Keep the original Windows-oriented detection path
+                        import subprocess as _sub
+                        import platform as _platform
+                        if _platform.system() == "Windows":
+                            try:
+                                ps_cmd = 'Get-WmiObject Win32_VideoController | Where-Object {$_.Name -notlike "*Microsoft*"} | Select-Object Name, AdapterRAM | ConvertTo-Json'
+                                result = _sub.run(['pwsh.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd], 
+                                                  capture_output=True, text=True, timeout=5,
+                                                  creationflags=_sub.CREATE_NO_WINDOW if hasattr(_sub, 'CREATE_NO_WINDOW') else 0)
+                                if result.returncode == 0 and result.stdout.strip():
+                                    import json as _json
+                                    gpu_data = _json.loads(result.stdout)
+                                    if isinstance(gpu_data, list):
+                                        gpu_data = gpu_data[0]
+                                    name = gpu_data.get('Name', 'Unknown GPU')
+                                    ram = gpu_data.get('AdapterRAM')
+                                    ram_gb = ""
+                                    if ram and isinstance(ram, (int, float)) and ram > 0:
+                                        ram_gb = f" ({ram/(1024**3):.0f}GB)"
+                                    compute_info = ""
+                                    if "AMD" in name.upper() or "RADEON" in name.upper():
+                                        compute_info = " [Vulkan/OpenCL]"
+                                    elif "NVIDIA" in name.upper() or "GEFORCE" in name.upper() or "RTX" in name.upper():
+                                        compute_info = " [CUDA/Vulkan/OpenCL]"
+                                    elif "INTEL" in name.upper():
+                                        compute_info = " [Vulkan/OpenCL]"
+                                    gpu_info = f"{name}{ram_gb}{compute_info}"
+                                    gpu_detected = True
+                            except Exception as e:
+                                print(f"PowerShell GPU detection failed: {e}")
+
+                        # Fallback generic message
+                        if not gpu_detected:
+                            gpu_info = "GPU present but detection unavailable"
+                            self._gpu_detection_failed = True
+                            self._gpu_retry_count += 1
+
                     self._gpu_info_cache = gpu_info
-                    
                 except Exception as e:
                     gpu_info = f"GPU Error: {str(e)[:50]}..."
                     self._gpu_detection_failed = True
@@ -447,30 +497,57 @@ class OllamaControlPanel:
             "usage_video": 0.0,
             "overall_usage": 0.0
         }
-        
         try:
-            # Initialize COM for this thread (required for WMI in background threads)
-            import pythoncom
-            pythoncom.CoInitialize()
-            
-            # Create fresh WMI connection each time
-            import wmi
-            wmi_conn = wmi.WMI()
-            engine_counters = wmi_conn.Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine()
+            # Linux: use the lightweight gpu_utils module when available
+            if platform.system() == 'Linux' and gpu_utils is not None:
+                try:
+                    lu = gpu_utils.get_gpu_usage()
+                    # Ensure keys exist
+                    for k in gpu_data.keys():
+                        if k in lu:
+                            gpu_data[k] = lu[k]
+                    return gpu_data
+                except Exception:
+                    pass
+
+            # Windows: try to use WMI via dynamic import
+            try:
+                pythoncom = importlib.import_module('pythoncom')
+            except Exception:
+                pythoncom = None
+
+            if pythoncom is not None:
+                try:
+                    pythoncom.CoInitialize()
+                except Exception:
+                    pass
+
+            try:
+                wmi = importlib.import_module('wmi')
+            except Exception:
+                wmi = None
+
+            if not wmi:
+                return gpu_data
+
+            try:
+                wmi_conn = wmi.WMI()
+                engine_counters = wmi_conn.Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine()
+            except Exception:
+                return gpu_data
+
             engine_usage = {"3D": [], "Compute": [], "Copy": [], "Video": []}
-            
             for counter in engine_counters:
                 name = getattr(counter, 'Name', '')
                 utilization = getattr(counter, 'UtilizationPercentage', 0)
-                
                 if not utilization:
                     continue
-                    
-                util_val = float(utilization)
+                try:
+                    util_val = float(utilization)
+                except Exception:
+                    continue
                 if util_val <= 0:
                     continue
-                
-                # Parse engine type from name (Task Manager style)
                 name_lower = name.lower()
                 if 'engtype_3d' in name_lower:
                     engine_usage["3D"].append(util_val)
@@ -480,8 +557,7 @@ class OllamaControlPanel:
                     engine_usage["Copy"].append(util_val)
                 elif 'engtype_video' in name_lower:
                     engine_usage["Video"].append(util_val)
-            
-            # Calculate averages for each engine type
+
             if engine_usage["3D"]:
                 gpu_data["usage_3d"] = sum(engine_usage["3D"]) / len(engine_usage["3D"])
             if engine_usage["Compute"]:
@@ -490,24 +566,29 @@ class OllamaControlPanel:
                 gpu_data["usage_copy"] = sum(engine_usage["Copy"]) / len(engine_usage["Copy"])
             if engine_usage["Video"]:
                 gpu_data["usage_video"] = sum(engine_usage["Video"]) / len(engine_usage["Video"])
-            
-            # Overall usage is the highest of all engines
+
             all_values = []
             for values in engine_usage.values():
                 if values:
                     all_values.extend(values)
-            
             if all_values:
                 gpu_data["overall_usage"] = max(all_values)
-            
-            # Clean up WMI connection and COM
-            del wmi_conn
-            pythoncom.CoUninitialize()
-                    
-        except Exception as e:
+
+            # Cleanup
+            try:
+                del wmi_conn
+            except Exception:
+                pass
+            try:
+                if pythoncom is not None:
+                    pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+        except Exception:
             # Silent fail for lightweight monitoring
             pass
-        
+
         return gpu_data
     
     def get_gpu_memory_usage(self) -> Dict:
@@ -521,13 +602,25 @@ class OllamaControlPanel:
         }
         
         try:
-            # Initialize COM for this thread (required for WMI in background threads)
-            import pythoncom
-            pythoncom.CoInitialize()
-            
+            try:
+                try:
+                    pythoncom = importlib.import_module('pythoncom')
+                except Exception:
+                    pythoncom = None
+                if pythoncom is not None:
+                    pythoncom.CoInitialize()
+            except Exception:
+                pythoncom = None
+
             # Create fresh WMI connection each time - prevents COM errors
-            import wmi
-            wmi_conn = wmi.WMI()
+            try:
+                wmi = importlib.import_module('wmi')
+            except Exception:
+                wmi = None
+            if wmi is not None:
+                wmi_conn = wmi.WMI()
+            else:
+                wmi_conn = None
             adapter_counters = wmi_conn.Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory()
             
             max_dedicated = 0
@@ -556,8 +649,15 @@ class OllamaControlPanel:
                 memory_data["usage_percent"] = (memory_data["dedicated_used_mb"] / memory_data["dedicated_total_mb"]) * 100
             
             # Clean up WMI connection and COM
-            del wmi_conn
-            pythoncom.CoUninitialize()
+            try:
+                del wmi_conn
+            except Exception:
+                pass
+            try:
+                if 'pythoncom' in locals() and pythoncom is not None:
+                    pythoncom.CoUninitialize()
+            except Exception:
+                pass
                     
         except Exception as e:
             print(f"GPU memory error: {e}")
@@ -821,6 +921,15 @@ class OllamaControlPanel:
         """Callback for parameter changes"""
         self.current_params[param_name] = value
     
+    def stop_sequences_changed(self, sender, value):
+        """Handle stop sequences input (comma-separated)"""
+        if value.strip():
+            # Split by comma and clean up whitespace
+            sequences = [seq.strip() for seq in value.split(',') if seq.strip()]
+            self.current_params["stop"] = sequences
+        else:
+            self.current_params["stop"] = []
+    
     def set_inference_preset(self, preset_type):
         """Set GPU/CPU inference presets"""
         if preset_type == "cpu_only":
@@ -837,6 +946,85 @@ class OllamaControlPanel:
             self.current_params["num_gpu"] = -1
             dpg.set_value("num_gpu_input", -1)
             self.show_success("Set to auto-balance inference")
+    
+    def set_performance_preset(self, preset_type):
+        """Set performance-focused presets"""
+        if preset_type == "max_performance":
+            # Max performance settings
+            self.current_params.update({
+                "num_gpu": -1,        # Auto GPU
+                "num_thread": 0,      # Auto threads
+                "num_batch": 1024,    # Large batch
+                "use_mmap": True,     # Enable mmap
+                "temperature": 0.3,   # Lower temp for consistency
+                "top_k": 20,          # More focused
+                "top_p": 0.8,         # More focused
+                "repeat_penalty": 1.05 # Light repeat penalty
+            })
+            
+            # Update UI
+            dpg.set_value("num_gpu_input", -1)
+            dpg.set_value("num_thread_input", 0)
+            dpg.set_value("num_batch_input", 1024)
+            dpg.set_value("use_mmap_checkbox", True)
+            dpg.set_value("temperature_slider", 0.3)
+            dpg.set_value("top_k_input", 20)
+            dpg.set_value("top_p_slider", 0.8)
+            dpg.set_value("repeat_penalty_slider", 1.05)
+            
+            self.show_success("Applied max performance preset")
+    
+    def set_quality_preset(self, preset_type):
+        """Set quality-focused presets"""
+        if preset_type == "high_quality":
+            # High quality settings
+            self.current_params.update({
+                "temperature": 0.7,
+                "top_k": 40,
+                "top_p": 0.9,
+                "repeat_penalty": 1.1,
+                "repeat_last_n": 64,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "num_predict": -1
+            })
+            
+            # Update UI
+            dpg.set_value("temperature_slider", 0.7)
+            dpg.set_value("top_k_input", 40)
+            dpg.set_value("top_p_slider", 0.9)
+            dpg.set_value("repeat_penalty_slider", 1.1)
+            dpg.set_value("repeat_last_n_input", 64)
+            dpg.set_value("presence_penalty_slider", 0.0)
+            dpg.set_value("frequency_penalty_slider", 0.0)
+            dpg.set_value("num_predict_input", -1)
+            
+            self.show_success("Applied high quality preset")
+    
+    def set_creativity_preset(self, preset_type):
+        """Set creativity-focused presets"""
+        if preset_type == "creative":
+            # Creative settings
+            self.current_params.update({
+                "temperature": 1.2,
+                "top_k": 80,
+                "top_p": 0.95,
+                "repeat_penalty": 1.15,
+                "presence_penalty": 0.5,
+                "frequency_penalty": 0.3,
+                "typical_p": 0.9
+            })
+            
+            # Update UI
+            dpg.set_value("temperature_slider", 1.2)
+            dpg.set_value("top_k_input", 80)
+            dpg.set_value("top_p_slider", 0.95)
+            dpg.set_value("repeat_penalty_slider", 1.15)
+            dpg.set_value("presence_penalty_slider", 0.5)
+            dpg.set_value("frequency_penalty_slider", 0.3)
+            dpg.set_value("typical_p_slider", 0.9)
+            
+            self.show_success("Applied creative preset")
     
     def save_preset_callback(self):
         """Save current parameters as a preset"""
@@ -868,14 +1056,40 @@ class OllamaControlPanel:
             # Update current parameters
             self.current_params.update(preset_params)
             
-            # Update UI controls
-            dpg.set_value("temperature_slider", self.current_params["temperature"])
-            dpg.set_value("top_k_input", self.current_params["top_k"])
-            dpg.set_value("num_ctx_input", self.current_params["num_ctx"])
-            dpg.set_value("keep_alive_input", self.current_params["keep_alive"])
+            # Update ALL UI controls
+            dpg.set_value("temperature_slider", self.current_params.get("temperature", 0.7))
+            dpg.set_value("top_k_input", self.current_params.get("top_k", 40))
+            dpg.set_value("top_p_slider", self.current_params.get("top_p", 0.9))
+            dpg.set_value("min_p_slider", self.current_params.get("min_p", 0.0))
+            dpg.set_value("typical_p_slider", self.current_params.get("typical_p", 1.0))
+            
+            dpg.set_value("num_ctx_input", self.current_params.get("num_ctx", 8192))
+            dpg.set_value("num_predict_input", self.current_params.get("num_predict", -1))
+            dpg.set_value("num_keep_input", self.current_params.get("num_keep", 0))
+            dpg.set_value("seed_input", self.current_params.get("seed", -1))
+            dpg.set_value("keep_alive_input", self.current_params.get("keep_alive", -1))
+            
+            dpg.set_value("repeat_penalty_slider", self.current_params.get("repeat_penalty", 1.1))
+            dpg.set_value("repeat_last_n_input", self.current_params.get("repeat_last_n", 64))
+            dpg.set_value("presence_penalty_slider", self.current_params.get("presence_penalty", 0.0))
+            dpg.set_value("frequency_penalty_slider", self.current_params.get("frequency_penalty", 0.0))
+            dpg.set_value("penalize_newline_checkbox", self.current_params.get("penalize_newline", True))
+            
+            dpg.set_value("num_thread_input", self.current_params.get("num_thread", 0))
+            dpg.set_value("num_batch_input", self.current_params.get("num_batch", 512))
+            dpg.set_value("use_mmap_checkbox", self.current_params.get("use_mmap", True))
+            
             dpg.set_value("num_gpu_input", self.current_params.get("num_gpu", -1))
             dpg.set_value("main_gpu_input", self.current_params.get("main_gpu", 0))
             dpg.set_value("numa_checkbox", self.current_params.get("numa", False))
+            
+            # Handle stop sequences (convert list to comma-separated string)
+            stop_sequences = self.current_params.get("stop", [])
+            if isinstance(stop_sequences, list):
+                stop_text = ", ".join(stop_sequences)
+            else:
+                stop_text = str(stop_sequences) if stop_sequences else ""
+            dpg.set_value("stop_sequences_input", stop_text)
             
             self.show_success(f"Loaded preset '{preset_name}'")
     
@@ -1137,13 +1351,15 @@ class OllamaControlPanel:
             
             dpg.add_separator()
             
-            # Parameter Control Panel
+            # Parameter Control Panel - ALL Ollama Parameters
             with dpg.collapsing_header(label="⚙️ Model Parameters", default_open=True):
                 
+                # Core Generation Parameters
+                dpg.add_text("🎯 Core Generation Parameters", color=(150, 255, 150))
                 with dpg.group(horizontal=True):
-                    # Parameter controls
+                    # Left column - Core generation
                     with dpg.group():
-                        dpg.add_text("Temperature:")
+                        dpg.add_text("Temperature (creativity):")
                         dpg.add_slider_float(
                             label="##temperature",
                             default_value=0.7,
@@ -1154,18 +1370,60 @@ class OllamaControlPanel:
                             tag="temperature_slider",
                             width=200
                         )
+                        dpg.add_text("0.0=deterministic, 1.0=balanced, 2.0=creative", color=(120, 120, 120))
                         
-                        dpg.add_text("Top K:")
+                        dpg.add_text("Top K (vocabulary limit):")
                         dpg.add_input_int(
                             label="##top_k",
                             default_value=40,
                             min_value=1,
-                            max_value=100,
+                            max_value=200,
                             callback=lambda s, v: self.parameter_changed(s, v, "top_k"),
                             tag="top_k_input",
                             width=200
                         )
+                        dpg.add_text("Lower=focused, Higher=diverse", color=(120, 120, 120))
+                        
+                        dpg.add_text("Top P (nucleus sampling):")
+                        dpg.add_slider_float(
+                            label="##top_p",
+                            default_value=0.9,
+                            min_value=0.1,
+                            max_value=1.0,
+                            format="%.2f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "top_p"),
+                            tag="top_p_slider",
+                            width=200
+                        )
+                        dpg.add_text("Probability cutoff for token selection", color=(120, 120, 120))
+                        
+                        dpg.add_text("Min P (minimum probability):")
+                        dpg.add_slider_float(
+                            label="##min_p",
+                            default_value=0.0,
+                            min_value=0.0,
+                            max_value=0.5,
+                            format="%.3f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "min_p"),
+                            tag="min_p_slider",
+                            width=200
+                        )
+                        dpg.add_text("Alternative to top_p", color=(120, 120, 120))
+                        
+                        dpg.add_text("Typical P (typical sampling):")
+                        dpg.add_slider_float(
+                            label="##typical_p",
+                            default_value=1.0,
+                            min_value=0.1,
+                            max_value=1.0,
+                            format="%.2f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "typical_p"),
+                            tag="typical_p_slider",
+                            width=200
+                        )
+                        dpg.add_text("1.0=disabled, <1.0=enabled", color=(120, 120, 120))
                     
+                    # Right column - Context and prediction
                     with dpg.group():
                         dpg.add_text("Context Size (num_ctx):")
                         dpg.add_input_int(
@@ -1177,8 +1435,45 @@ class OllamaControlPanel:
                             tag="num_ctx_input",
                             width=200
                         )
+                        dpg.add_text("Model's context window size", color=(120, 120, 120))
                         
-                        dpg.add_text("Keep Alive (seconds, -1=forever):")
+                        dpg.add_text("Max Output Tokens:")
+                        dpg.add_input_int(
+                            label="##num_predict",
+                            default_value=-1,
+                            min_value=-1,
+                            max_value=8192,
+                            callback=lambda s, v: self.parameter_changed(s, v, "num_predict"),
+                            tag="num_predict_input",
+                            width=200
+                        )
+                        dpg.add_text("-1=infinite, >0=limit tokens", color=(120, 120, 120))
+                        
+                        dpg.add_text("Keep Tokens from Prompt:")
+                        dpg.add_input_int(
+                            label="##num_keep",
+                            default_value=0,
+                            min_value=0,
+                            max_value=1024,
+                            callback=lambda s, v: self.parameter_changed(s, v, "num_keep"),
+                            tag="num_keep_input",
+                            width=200
+                        )
+                        dpg.add_text("Tokens to preserve from prompt", color=(120, 120, 120))
+                        
+                        dpg.add_text("Random Seed:")
+                        dpg.add_input_int(
+                            label="##seed",
+                            default_value=-1,
+                            min_value=-1,
+                            max_value=2147483647,
+                            callback=lambda s, v: self.parameter_changed(s, v, "seed"),
+                            tag="seed_input",
+                            width=200
+                        )
+                        dpg.add_text("-1=random, >=0=reproducible", color=(120, 120, 120))
+                        
+                        dpg.add_text("Keep Alive (seconds):")
                         dpg.add_input_int(
                             label="##keep_alive",
                             default_value=-1,
@@ -1188,15 +1483,129 @@ class OllamaControlPanel:
                             tag="keep_alive_input",
                             width=200
                         )
-            
-            dpg.add_separator()
-            
-            # GPU/CPU Inference Control Panel
-            with dpg.collapsing_header(label="🖥️ GPU/CPU Inference Control", default_open=True):
-                dpg.add_text("Control how Ollama distributes model layers between GPU and CPU", color=(200, 200, 200))
+                        dpg.add_text("-1=forever, 0=unload, >0=seconds", color=(120, 120, 120))
                 
+                dpg.add_separator()
+                
+                # Repetition Control Parameters
+                dpg.add_text("🔁 Repetition Control Parameters", color=(255, 200, 100))
                 with dpg.group(horizontal=True):
-                    # GPU Controls - Left column
+                    # Left column - Repetition penalties
+                    with dpg.group():
+                        dpg.add_text("Repeat Penalty:")
+                        dpg.add_slider_float(
+                            label="##repeat_penalty",
+                            default_value=1.1,
+                            min_value=0.5,
+                            max_value=2.0,
+                            format="%.2f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "repeat_penalty"),
+                            tag="repeat_penalty_slider",
+                            width=200
+                        )
+                        dpg.add_text("1.0=no penalty, >1.0=penalize repeats", color=(120, 120, 120))
+                        
+                        dpg.add_text("Repeat Lookback (tokens):")
+                        dpg.add_input_int(
+                            label="##repeat_last_n",
+                            default_value=64,
+                            min_value=-1,
+                            max_value=2048,
+                            callback=lambda s, v: self.parameter_changed(s, v, "repeat_last_n"),
+                            tag="repeat_last_n_input",
+                            width=200
+                        )
+                        dpg.add_text("0=disabled, -1=use num_ctx", color=(120, 120, 120))
+                        
+                        dpg.add_text("Presence Penalty:")
+                        dpg.add_slider_float(
+                            label="##presence_penalty",
+                            default_value=0.0,
+                            min_value=-2.0,
+                            max_value=2.0,
+                            format="%.2f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "presence_penalty"),
+                            tag="presence_penalty_slider",
+                            width=200
+                        )
+                        dpg.add_text("Penalize tokens based on presence", color=(120, 120, 120))
+                    
+                    # Right column - Frequency and newline penalty
+                    with dpg.group():
+                        dpg.add_text("Frequency Penalty:")
+                        dpg.add_slider_float(
+                            label="##frequency_penalty",
+                            default_value=0.0,
+                            min_value=-2.0,
+                            max_value=2.0,
+                            format="%.2f",
+                            callback=lambda s, v: self.parameter_changed(s, v, "frequency_penalty"),
+                            tag="frequency_penalty_slider",
+                            width=200
+                        )
+                        dpg.add_text("Penalize tokens based on frequency", color=(120, 120, 120))
+                        
+                        dpg.add_text("Penalize Newlines:")
+                        dpg.add_checkbox(
+                            label="##penalize_newline",
+                            default_value=True,
+                            callback=lambda s, v: self.parameter_changed(s, v, "penalize_newline"),
+                            tag="penalize_newline_checkbox"
+                        )
+                        dpg.add_text("Apply penalty to newline tokens", color=(120, 120, 120))
+                        
+                        dpg.add_text("Stop Sequences:")
+                        dpg.add_input_text(
+                            label="##stop_sequences",
+                            default_value="",
+                            hint="Enter sequences separated by commas",
+                            callback=self.stop_sequences_changed,
+                            tag="stop_sequences_input",
+                            width=300
+                        )
+                        dpg.add_text("Comma-separated stop sequences", color=(120, 120, 120))
+                
+                dpg.add_separator()
+                
+                # Performance Parameters
+                dpg.add_text("⚡ Performance Parameters", color=(100, 200, 255))
+                with dpg.group(horizontal=True):
+                    # Left column - CPU/Threading
+                    with dpg.group():
+                        dpg.add_text("CPU Threads:")
+                        dpg.add_input_int(
+                            label="##num_thread",
+                            default_value=0,
+                            min_value=0,
+                            max_value=64,
+                            callback=lambda s, v: self.parameter_changed(s, v, "num_thread"),
+                            tag="num_thread_input",
+                            width=200
+                        )
+                        dpg.add_text("0=auto, >0=specific thread count", color=(120, 120, 120))
+                        
+                        dpg.add_text("Batch Size:")
+                        dpg.add_input_int(
+                            label="##num_batch",
+                            default_value=512,
+                            min_value=1,
+                            max_value=2048,
+                            callback=lambda s, v: self.parameter_changed(s, v, "num_batch"),
+                            tag="num_batch_input",
+                            width=200
+                        )
+                        dpg.add_text("Token processing batch size", color=(120, 120, 120))
+                        
+                        dpg.add_text("Use Memory Mapping:")
+                        dpg.add_checkbox(
+                            label="##use_mmap",
+                            default_value=True,
+                            callback=lambda s, v: self.parameter_changed(s, v, "use_mmap"),
+                            tag="use_mmap_checkbox"
+                        )
+                        dpg.add_text("Enable memory mapping for models", color=(120, 120, 120))
+                    
+                    # Right column - GPU parameters  
                     with dpg.group():
                         dpg.add_text("GPU Layers (num_gpu):")
                         dpg.add_input_int(
@@ -1208,9 +1617,9 @@ class OllamaControlPanel:
                             tag="num_gpu_input",
                             width=200
                         )
-                        dpg.add_text("-1=Auto, 0=CPU only, >0=GPU layers", color=(150, 150, 150))
+                        dpg.add_text("-1=Auto, 0=CPU only, >0=GPU layers", color=(120, 120, 120))
                         
-                        dpg.add_text("Main GPU (multi-GPU setups):")
+                        dpg.add_text("Main GPU (multi-GPU):")
                         dpg.add_input_int(
                             label="##main_gpu",
                             default_value=0,
@@ -1220,36 +1629,52 @@ class OllamaControlPanel:
                             tag="main_gpu_input",
                             width=200
                         )
-                    
-                    # System Controls - Right column  
-                    with dpg.group():
+                        dpg.add_text("Which GPU to use (0-based)", color=(120, 120, 120))
+                        
                         dpg.add_text("NUMA Support:")
                         dpg.add_checkbox(
-                            label="Enable NUMA",
+                            label="##numa",
                             default_value=False,
                             callback=lambda s, v: self.parameter_changed(s, v, "numa"),
                             tag="numa_checkbox"
                         )
-                        dpg.add_text("For multi-socket CPU systems", color=(150, 150, 150))
-                        
-                        dpg.add_text("Quick Presets:")
-                        with dpg.group():
-                            dpg.add_button(
-                                label="🖥️ CPU Only",
-                                callback=lambda: self.set_inference_preset("cpu_only"),
-                                width=100
-                            )
-                            dpg.add_button(
-                                label="⚡ GPU Only", 
-                                callback=lambda: self.set_inference_preset("gpu_only"),
-                                width=100
-                            )
-                            dpg.add_button(
-                                label="🔄 Auto Balance",
-                                callback=lambda: self.set_inference_preset("auto"),
-                                width=100
-                            )
-            
+                        dpg.add_text("For multi-socket CPU systems", color=(120, 120, 120))
+                
+                dpg.add_separator()
+                
+                # Quick Preset Buttons
+                dpg.add_text("🚀 Quick Presets", color=(255, 150, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="🖥️ CPU Only",
+                        callback=lambda: self.set_inference_preset("cpu_only"),
+                        width=100
+                    )
+                    dpg.add_button(
+                        label="⚡ GPU Only", 
+                        callback=lambda: self.set_inference_preset("gpu_only"),
+                        width=100
+                    )
+                    dpg.add_button(
+                        label="🔄 Auto Balance",
+                        callback=lambda: self.set_inference_preset("auto"),
+                        width=100
+                    )
+                    dpg.add_button(
+                        label="💪 Max Performance",
+                        callback=lambda: self.set_performance_preset("max_performance"),
+                        width=120
+                    )
+                    dpg.add_button(
+                        label="🎯 High Quality",
+                        callback=lambda: self.set_quality_preset("high_quality"),
+                        width=100
+                    )
+                    dpg.add_button(
+                        label="🎨 Creative",
+                        callback=lambda: self.set_creativity_preset("creative"),
+                        width=80
+                    )
             dpg.add_separator()
             
             # Preset Management Panel

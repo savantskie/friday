@@ -19,7 +19,7 @@ pyinstaller --clean --onefile \
     --hidden-import "dearpygui.dearpygui" \
     --hidden-import "requests" \
     --hidden-import "psutil" \
-    ollama_control_panel.py
+    ollama_control_panel.pyw
 
 if [ $? -ne 0 ]; then
     echo "Build failed!"

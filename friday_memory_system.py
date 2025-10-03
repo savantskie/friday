@@ -2037,6 +2037,7 @@ class ConversationFileMonitor:
         self.mcp_server_running = False  # Will be updated periodically
         self.last_mcp_check = 0  # Timestamp of last MCP server check
         self.last_processed_times = {}  # Track when files were last processed
+        self.empty_files = set()  # Track files that are empty to avoid repetitive logging
         self.min_process_interval = 5.0  # Minimum seconds between processing the same file to reduce CPU usage
         
         # Tool detection patterns
@@ -2667,8 +2668,23 @@ class ConversationFileMonitor:
                 with open(file_path, 'rb') as f:
                     file_content = f.read()
                     if not file_content:
-                        logger.warning(f"Empty file detected: {file_path}")
+                        # Log empty file detection to debug log and track it
+                        debug_log_path = os.path.join(os.path.dirname(self.memory_system.conversations_db.db_path), "db_debug_log.txt")
+                        try:
+                            with open(debug_log_path, 'a', encoding='utf-8') as debug_file:
+                                debug_file.write(f"{get_current_timestamp()}: Empty file detected: {file_path}\n")
+                        except Exception as log_error:
+                            logger.error(f"Failed to write to debug log: {log_error}")
+                        
+                        # Track empty files to avoid repetitive logging
+                        self.empty_files.add(file_path)
                         return
+                    
+                    # Check if this file was previously empty but now has content
+                    if file_path in self.empty_files:
+                        logger.info(f"Previously empty file now has content: {file_path}")
+                        self.empty_files.remove(file_path)
+                    
                     file_hash = hashlib.md5(file_content).hexdigest()
                 
                 # Skip if we've already processed this exact content
@@ -3497,13 +3513,13 @@ class EmbeddingService:
             "primary": {
                 "provider": "lm_studio",
                 "model": "text-embedding-qwen3-embedding-0.6b",
-                "base_url": "http://192.168.1.50:1234",
+                "base_url": "http://192.168.1.50:1234/v1/embeddings",
                 "description": "High-quality LM Studio embeddings for semantic search"
             },
             "fallback": {
                 "provider": "ollama",
-                "model": "nomic-embed-text",
-                "base_url": "http://localhost:11434",
+                "model": "qwen3-embedding:0.6b",
+                "base_url": "http://localhost:11434/api/embeddings",
                 "description": "Fast local Ollama embeddings"
             }
         }
@@ -3515,13 +3531,13 @@ class EmbeddingService:
                 "primary": {
                     "provider": "lm_studio",
                     "model": "text-embedding-qwen3-embedding-0.6b", 
-                    "base_url": "http://192.168.1.50:1234",
+                    "base_url": "http://192.168.1.50:1234/v1/embeddings",
                     "description": "High-quality LM Studio embeddings for semantic search"
                 },
                 "fallback": {
                     "provider": "ollama",
-                    "model": "nomic-embed-text",
-                    "base_url": "http://localhost:11434",
+                    "model": "qwen3-embedding:0.6b",
+                    "base_url": "http://localhost:11434/api/embeddings",
                     "description": "Fast local Ollama embeddings"
                 },
                 "options": {
@@ -3647,8 +3663,8 @@ class EmbeddingService:
         else:
             config = self.primary_config if self.primary_config.get("provider") == "ollama" else self.fallback_config
             
-        base_url = config.get("base_url", "http://localhost:11434")
-        model = config.get("model", "nomic-embed-text")
+        base_url = config.get("base_url", "http://localhost:11434/api/embeddings")
+        model = config.get("model", "qwen3-embedding:0.6b")
         
         async with aiohttp.ClientSession() as session:
             payload = {"model": model, "prompt": text}
@@ -3668,7 +3684,7 @@ class EmbeddingService:
         else:
             config = self.primary_config if self.primary_config.get("provider") == "lm_studio" else self.fallback_config
             
-        base_url = config.get("base_url", "http://192.168.1.50:1234")
+        base_url = config.get("base_url", "http://192.168.1.50:1234/v1/embeddings")
         model = config.get("model", "text-embedding-qwen3-embedding-0.6b")
         
         max_retries = 3 if self.initialized else 5
