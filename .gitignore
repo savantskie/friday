@@ -9,6 +9,8 @@ dist/
 venv/
 env/
 .env/
+lmstudio/
+lm-studio/
 
 # File types to ignore
 *.pyc
