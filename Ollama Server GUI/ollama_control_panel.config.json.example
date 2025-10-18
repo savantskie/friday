@@ -1,0 +1,6 @@
+{
+  "custom_script_path": null,
+  "prefer_terminal": false,
+  "startup_timeout": 5,
+  "base_url": "http://localhost:11434"
+}
