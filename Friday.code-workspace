@@ -7,7 +7,7 @@
 			"path": "../OpenWebUI"
 		},
 		{
-			"path": "../ollama"
+			"path": "../ollama_core"
 		}
 	],
 	"settings": {
