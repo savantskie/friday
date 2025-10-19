@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../OpenWebUI"
+		},
+		{
+			"path": "../ollama"
 		}
 	],
 	"settings": {
