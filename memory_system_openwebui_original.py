@@ -1,5 +1,5 @@
 """
-title: Friday Memory System
+title: Friday Memory Short Term System
 version: 0.0.2 edited by Nate
 """
 
