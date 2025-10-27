@@ -328,23 +328,24 @@ async def monitor_openwebui_memories(self):
 **Adaptive Memory v3 Production Settings**
 ```python
 # Optimized for Friday integration
-llm_provider_type: "ollama"  # User configurable
-llm_model_name: "llama3:latest"  # User configurable  
-llm_api_endpoint_url: "http://host.docker.internal:11434/api/chat"
+llm_provider_type: "ollama"  # Already User configurable
+llm_model_name: "llama3:latest"  # Already User configurable  
+llm_api_endpoint_url: "http://host.docker.internal:11434/api/chat" # Already User Configurable
 
 # Memory formation settings
-filter_trivia: true
-enable_json_stripping: true
-enable_fallback_regex: true
-enable_short_preference_shortcut: true
+filter_trivia: true # User Configurable Already
+enable_json_stripping: true # User Configurable Already
+enable_fallback_regex: true # Already User Configurable
+enable_short_preference_shortcut: true # User Configurable Already
 
 # Performance optimization
-use_llm_for_relevance: false  # Use vector similarity for speed
-vector_similarity_threshold: 0.7
-llm_skip_relevance_threshold: 0.93
+use_llm_for_relevance: false  # User Configurable Already
+vector_similarity_threshold: 0.7 # User Configurable Already
+llm_skip_relevance_threshold: 0.93 # User Configurable Already
 
 # Background processing
-enable_summarization_task: true
+# These shouild be User Configurable
+enable_summarization_task: true 
 summarization_interval: 7200  # 2 hours
 enable_error_logging_task: true
 error_logging_interval: 1800   # 30 minutes
@@ -352,6 +353,7 @@ error_logging_interval: 1800   # 30 minutes
 
 **Friday Memory System Integration Settings**
 ```python
+# This all should also be user configurable within Adaptive Memory v3
 # OpenWebUI integration
 openwebui_import_interval: 300      # 5 minutes
 openwebui_full_sync_interval: 86400 # Daily
