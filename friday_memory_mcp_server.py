@@ -7,8 +7,6 @@ and the Friday Memory System. Provides standardized tools for memory operations
 while maintaining client-specific access controls.
 """
 
-print("Friday Memory MCP Server starting...")  # This will show up in stdout immediately
-
 import asyncio
 import json
 import logging
@@ -511,10 +509,10 @@ class FridayMemoryMCPServer:
                 """)
                 
                 conn.commit()
-                print(f"✅ Reminders database initialized at: {self.schedule_db_path}")
+                logger.debug(f"Reminders database initialized at: {self.schedule_db_path}")
                 
         except Exception as e:
-            print(f"❌ Error initializing reminders database: {e}")
+            logger.error(f"Error initializing reminders database: {e}")
             raise
     
     def _register_handlers(self):
@@ -1101,7 +1099,7 @@ class FridayMemoryMCPServer:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (reminder_id, created_at, due_datetime, content, priority_level, 0, source_conversation_id, created_at))
                 conn.commit()
-                print(f"✅ Reminder created with ID: {reminder_id}")
+                logger.debug(f"Reminder created with ID: {reminder_id}")
                 asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
                 return {
                     "status": "success",
@@ -1111,7 +1109,7 @@ class FridayMemoryMCPServer:
                     "priority_level": priority_level
                 }
         except Exception as e:
-            print(f"❌ Error creating reminder: {e}")
+            logger.error(f"Error creating reminder: {e}")
             return {
                 "status": "error",
                 "error": str(e)
@@ -1146,7 +1144,7 @@ class FridayMemoryMCPServer:
                     )
                     conn.commit()
         except Exception as e:
-            print(f"⚠️ Could not add embedding to reminder {reminder_id}: {e}")
+            logger.warning(f"Could not add embedding to reminder {reminder_id}: {e}")
            
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
@@ -1446,6 +1444,27 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
         logger.warning(f"Failed to start HTTP server: {e}")
         return None
 
+async def _run_memory_system_with_redirected_output():
+    """Run memory system with stdout redirected to stderr for debugging output.
+    
+    This prevents the test/debug print statements from `fms.main()` from interfering
+    with MCP's JSONRPC communication on stdout, while still displaying all output.
+    """
+    import sys
+    import io
+    import friday_memory_system as fms
+    
+    old_stdout = sys.stdout
+    try:
+        # Redirect stdout to stderr so prints don't interfere with JSONRPC
+        sys.stdout = sys.stderr
+        # Force flush before and after redirect
+        sys.stderr.flush()
+        await fms.main()
+        sys.stderr.flush()
+    finally:
+        sys.stdout = old_stdout
+
 async def main():
     """Main entry point for the MCP server"""
     logger.info("Friday Memory MCP Server starting...")
@@ -1457,9 +1476,15 @@ async def main():
     mcp_server = FridayMemoryMCPServer()
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
-    import friday_memory_system as fms
-    asyncio.create_task(fms.main())
-    logger.info("Memory system started in background.")
+    
+    # Start MCP server first, THEN start background memory system tasks
+    # This ensures JSONRPC handshake completes before any prints occur
+    async def delayed_memory_start():
+        await asyncio.sleep(2)  # Wait 2 seconds for MCP handshake
+        await _run_memory_system_with_redirected_output()
+    
+    asyncio.create_task(delayed_memory_start())
+    logger.info("Memory system will start in background after MCP handshake.")
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions

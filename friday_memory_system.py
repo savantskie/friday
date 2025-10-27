@@ -3481,16 +3481,16 @@ class EmbeddingService:
             "openai": None
         }
         
-        print("🔧 Intelligent Embedding Service Configuration")
+        logger.info("🔧 Intelligent Embedding Service Configuration")
         primary_provider = self.primary_config.get('provider', 'lm_studio')
         primary_model = self.primary_config.get('model', 'text-embedding-qwen3-embedding-0.6b')
         fallback_provider = self.fallback_config.get('provider', 'ollama')
         fallback_model = self.fallback_config.get('model', 'nomic-embed-text')
         
-        print(f"✅ Primary: {primary_provider} ({primary_model})")
-        print(f"⚡ Fallback: {fallback_provider} ({fallback_model})")
-        print(f"💾 Preserving existing 768D embeddings, using best available for new ones")
-        print("To customize, edit embedding_config.json in the Friday directory")
+        logger.info(f"✅ Primary: {primary_provider} ({primary_model})")
+        logger.info(f"⚡ Fallback: {fallback_provider} ({fallback_model})")
+        logger.info(f"💾 Preserving existing 768D embeddings, using best available for new ones")
+        logger.info("To customize, edit embedding_config.json in the Friday directory")
     
     def _load_full_config(self) -> dict:
         """Load complete embedding configuration from JSON file"""
@@ -3695,7 +3695,7 @@ class EmbeddingService:
                 timeout = aiohttp.ClientTimeout(total=120)  # 2 minutes
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     payload = {"model": model, "input": text}
-                    async with session.post(f"{base_url}/v1/embeddings", json=payload) as response:
+                    async with session.post(base_url, json=payload) as response:
                         if response.status == 200:
                             data = await response.json()
                             if data and "data" in data and len(data["data"]) > 0:

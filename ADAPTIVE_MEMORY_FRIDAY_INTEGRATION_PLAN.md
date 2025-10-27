@@ -1,7 +1,7 @@
   # Adaptive Memory v3 + Friday Layered Memory Integration Plan
 
 ## Executive Summary
-**Unified Layered Memory Architecture**: Replace Neural Recall with Adaptive Memory v3 as Friday's short-term memory system, while creating a sophisticated multi-layer memory integration that enhances Friday's long-term memory capabilities through intelligent processing and cross-system memory linking. Adaptive Memory v3's code is in the short_term_memory_candidate.py file. This is the code that we will be augmenting for this system. All changes to Adaptive Memory v3 should be done in this file: short_term_memory_candidate.py. This switch over may be done in hours, or days. Hopefully not weeks.
+**Unified Layered Memory Architecture**: Replace Neural Recall with Adaptive Memory v3 as Friday's short-term memory system, while creating a sophisticated multi-layer memory integration that enhances Friday's long-term memory capabilities through intelligent processing and cross-system memory linking. Adaptive Memory v3's code is in the Adaptive_Memory_v3.py file. This is the code that we will be augmenting for this system. All changes to Adaptive Memory v3 should be done in this file: Adaptive_Memory_v3.py. This switch over may be done in hours, or days. Hopefully not weeks.
 
 ## Current State Analysis
 
