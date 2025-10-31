@@ -259,6 +259,91 @@ class ConversationDatabase(DatabaseManager):
                 )
             """)
 
+            # Memory-Conversation Links table (Phase 1 integration with Friday Memory System)
+            # First, check if table exists with old schema (has bad foreign key to curated_memories)
+            cursor = conn.execute("PRAGMA table_info(memory_conversation_links)")
+            existing_link_cols = [row[1] for row in cursor.fetchall()]
+            
+            if existing_link_cols:
+                # Table exists - check if it has any foreign keys
+                cursor = conn.execute("PRAGMA foreign_key_list(memory_conversation_links)")
+                fks = cursor.fetchall()
+                has_bad_fk = any(fk[2] == 'curated_memories' for fk in fks)
+                
+                if has_bad_fk:
+                    logger.warning("Migrating memory_conversation_links: replacing bad foreign key to curated_memories with correct one to conversations")
+                    # Backup data
+                    old_rows = conn.execute("SELECT * FROM memory_conversation_links").fetchall()
+                    # Drop and recreate with correct foreign key (only to conversations, not curated_memories)
+                    conn.execute("DROP TABLE IF EXISTS memory_conversation_links")
+                    conn.execute("""
+                        CREATE TABLE memory_conversation_links (
+                            link_id TEXT PRIMARY KEY,
+                            memory_id TEXT NOT NULL,
+                            conversation_id TEXT NOT NULL,
+                            link_type TEXT NOT NULL,
+                            link_strength REAL DEFAULT 1.0,
+                            source_system TEXT,
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            metadata TEXT,
+                            FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
+                        )
+                    """)
+                    # Restore data
+                    for row in old_rows:
+                        conn.execute("""
+                            INSERT INTO memory_conversation_links 
+                            (link_id, memory_id, conversation_id, link_type, link_strength, source_system, created_at, updated_at, metadata)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, row)
+                    logger.warning(f"Restored {len(old_rows)} links after migration")
+            else:
+                # Table doesn't exist - create fresh
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_conversation_links (
+                        link_id TEXT PRIMARY KEY,
+                        memory_id TEXT NOT NULL,
+                        conversation_id TEXT NOT NULL,
+                        link_type TEXT NOT NULL,
+                        link_strength REAL DEFAULT 1.0,
+                        source_system TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        metadata TEXT,
+                        FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
+                    )
+                """)
+
+            # Memory Processing Queue table (tracks which conversations need processing)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_processing_queue (
+                    queue_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    memory_id TEXT,
+                    status TEXT NOT NULL,
+                    priority INTEGER DEFAULT 5,
+                    attempts INTEGER DEFAULT 0,
+                    last_attempt TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Memory Processing Log table (audit trail of processing attempts)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_processing_log (
+                    log_id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    memory_id TEXT,
+                    action TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error_message TEXT,
+                    result_metadata TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             conn.commit()
     
     async def store_message(self, content: str, role: str, session_id: str = None, 

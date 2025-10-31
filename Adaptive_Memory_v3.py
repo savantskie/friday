@@ -164,7 +164,7 @@ from open_webui.routers.memories import (
 from open_webui.models.users import Users
 from open_webui.main import app as webui_app
 
-# Set up logging
+# Set up logging (before Friday import)
 logger = logging.getLogger("openwebui.plugins.adaptive_memory")
 handler = logging.StreamHandler()
 
@@ -194,6 +194,18 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.propagate = False # Prevent duplicate logs if root logger has handlers
 # Do not override root logger level; respect GLOBAL_LOG_LEVEL or root config
+
+# Friday Memory System integration (non-blocking)
+FRIDAY_MEMORY_SYSTEM_PATH = "/media/nate/Friday/Friday"
+try:
+    import sys
+    if FRIDAY_MEMORY_SYSTEM_PATH not in sys.path:
+        sys.path.insert(0, FRIDAY_MEMORY_SYSTEM_PATH)
+    from friday_memory_system import ConversationDatabase
+    FRIDAY_MEMORY_SYSTEM_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Friday Memory System not available: {e}. Linking will be skipped.")
+    FRIDAY_MEMORY_SYSTEM_AVAILABLE = False
 
 
 class MemoryOperation(BaseModel):
@@ -3496,24 +3508,44 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                 )
                 logger.info(f"NEW memory created: {formatted_content[:50]}...")
 
+                # Extract memory ID for linking and embedding
+                mem_id = getattr(result, "id", None)
+                if mem_id is None and isinstance(result, dict):
+                    mem_id = result.get("id")
+                
+                # Link memory to Friday Memory System (non-blocking)
+                if mem_id and FRIDAY_MEMORY_SYSTEM_AVAILABLE:
+                    try:
+                        user_id = getattr(user, "id", None)
+                        if user_id:
+                            conversation_db = ConversationDatabase()
+                            await conversation_db.link_memory_to_conversation(
+                                memory_id=str(mem_id),
+                                conversation_id=f"openwebui_{user_id}",
+                                link_type="direct",
+                                metadata={
+                                    "source": "adaptive_memory_v3",
+                                    "tags": operation.tags,
+                                    "memory_bank": operation.memory_bank or self.valves.default_memory_bank,
+                                }
+                            )
+                            logger.debug(f"Linked memory {mem_id} to Friday Memory System")
+                    except Exception as e:
+                        logger.warning(f"Failed to link memory to Friday (non-blocking): {e}")
+
                 # Generate and cache embedding for new memory if embedding model is available
                 # This helps with future deduplication checks when using embedding-based similarity
-                if self.embedding_model is not None:
-                    # Handle both Pydantic model and dict response forms
-                    mem_id = getattr(result, "id", None)
-                    if mem_id is None and isinstance(result, dict):
-                        mem_id = result.get("id")
-                    if mem_id is not None:
-                        try:
-                            memory_clean = re.sub(r"\[Tags:.*?\]\s*", "", formatted_content).lower().strip()
-                            memory_embedding = self.embedding_model.encode(
-                                memory_clean, normalize_embeddings=True
-                            )
-                            self.memory_embeddings[mem_id] = memory_embedding
-                            logger.debug(f"Generated and cached embedding for new memory ID: {mem_id}")
-                        except Exception as e:
-                            logger.warning(f"Failed to generate embedding for new memory: {e}")
-                            # Non-critical error, don't raise
+                if self.embedding_model is not None and mem_id is not None:
+                    try:
+                        memory_clean = re.sub(r"\[Tags:.*?\]\s*", "", formatted_content).lower().strip()
+                        memory_embedding = self.embedding_model.encode(
+                            memory_clean, normalize_embeddings=True
+                        )
+                        self.memory_embeddings[mem_id] = memory_embedding
+                        logger.debug(f"Generated and cached embedding for new memory ID: {mem_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to generate embedding for new memory: {e}")
+                        # Non-critical error, don't raise
 
             except Exception as e:
                 self.error_counters["memory_crud_errors"] += 1
@@ -3537,33 +3569,52 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         f"UPDATE memory {operation.id}: {formatted_content[:50]}..."
                     )
 
+                    # Extract new memory ID for linking and embedding
+                    new_mem_id = getattr(result, "id", None)
+                    if new_mem_id is None and isinstance(result, dict):
+                        new_mem_id = result.get("id")
+
+                    # Link updated memory to Friday Memory System (non-blocking)
+                    if new_mem_id and FRIDAY_MEMORY_SYSTEM_AVAILABLE:
+                        try:
+                            user_id = getattr(user, "id", None)
+                            if user_id:
+                                conversation_db = ConversationDatabase()
+                                await conversation_db.link_memory_to_conversation(
+                                    memory_id=str(new_mem_id),
+                                    conversation_id=f"openwebui_{user_id}",
+                                    link_type="updated",
+                                    metadata={
+                                        "source": "adaptive_memory_v3",
+                                        "previous_id": str(operation.id),
+                                        "tags": operation.tags,
+                                    }
+                                )
+                                logger.debug(f"Linked updated memory {new_mem_id} to Friday Memory System")
+                        except Exception as e:
+                            logger.warning(f"Failed to link updated memory to Friday (non-blocking): {e}")
+
                     # Update embedding for modified memory
-                    if self.embedding_model is not None:
-                        # Handle both Pydantic model and dict response forms
-                        new_mem_id = getattr(result, "id", None)
-                        if new_mem_id is None and isinstance(result, dict):
-                            new_mem_id = result.get("id")
+                    if self.embedding_model is not None and new_mem_id is not None:
+                        try:
+                            memory_clean = re.sub(r"\[Tags:.*?\]\s*", "", formatted_content).lower().strip()
+                            memory_embedding = self.embedding_model.encode(
+                                memory_clean, normalize_embeddings=True
+                            )
+                            # Store with the new ID from the result
+                            self.memory_embeddings[new_mem_id] = memory_embedding
+                            logger.debug(
+                                f"Updated embedding for memory ID: {new_mem_id} (was: {operation.id})"
+                            )
 
-                        if new_mem_id is not None:
-                            try:
-                                memory_clean = re.sub(r"\[Tags:.*?\]\s*", "", formatted_content).lower().strip()
-                                memory_embedding = self.embedding_model.encode(
-                                    memory_clean, normalize_embeddings=True
-                                )
-                                # Store with the new ID from the result
-                                self.memory_embeddings[new_mem_id] = memory_embedding
-                                logger.debug(
-                                    f"Updated embedding for memory ID: {new_mem_id} (was: {operation.id})"
-                                )
-
-                                # Remove old embedding if ID changed
-                                if operation.id != new_mem_id and operation.id in self.memory_embeddings:
-                                    del self.memory_embeddings[operation.id]
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to update embedding for memory ID {new_mem_id}: {e}"
-                                )
-                                # Non-critical error, don't raise
+                            # Remove old embedding if ID changed
+                            if operation.id != new_mem_id and operation.id in self.memory_embeddings:
+                                del self.memory_embeddings[operation.id]
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to update embedding for memory ID {new_mem_id}: {e}"
+                            )
+                            # Non-critical error, don't raise
 
                 else:
                     logger.warning(f"Memory {operation.id} not found for UPDATE")

@@ -38,6 +38,18 @@ class DatabaseMaintenance:
             "mcp_tool_calls": {
                 "max_age_days": 30,  # Keep tool call logs for 1 month
                 "max_count": 50000   # Keep max 50k tool calls
+            },
+            "memory_conversation_links": {
+                "max_age_days": 365,  # Keep links for 1 year (same as memories)
+                "cleanup_orphaned": True  # Remove links to deleted memories/conversations
+            },
+            "memory_processing_queue": {
+                "max_age_days": 30,  # Keep processed queue entries for 1 month
+                "cleanup_completed": True  # Remove completed processing records
+            },
+            "memory_processing_log": {
+                "max_age_days": 90,  # Keep processing logs for 3 months
+                "max_count": 100000  # Keep max 100k log entries
             }
         }
     
@@ -98,6 +110,15 @@ class DatabaseMaintenance:
         
         # Clean old tool call logs
         cleanup_results["mcp_tool_calls"] = await self._cleanup_tool_calls()
+        
+        # Clean memory-conversation links
+        cleanup_results["memory_conversation_links"] = await self._cleanup_memory_links()
+        
+        # Clean memory processing queue
+        cleanup_results["memory_processing_queue"] = await self._cleanup_processing_queue()
+        
+        # Clean memory processing logs
+        cleanup_results["memory_processing_log"] = await self._cleanup_processing_log()
         
         return cleanup_results
     
@@ -243,6 +264,120 @@ class DatabaseMaintenance:
             "tool_calls_before": before_count,
             "tool_calls_after": after_count,
             "tool_calls_deleted": before_count - after_count
+        }
+    
+    async def _cleanup_memory_links(self) -> Dict:
+        """Clean up memory-conversation links and remove orphaned entries"""
+        policy = self.retention_policies["memory_conversation_links"]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
+        
+        before_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT link_id FROM memory_conversation_links", ()
+        ))
+        
+        # Remove links to non-existent memories or conversations
+        if policy.get("cleanup_orphaned"):
+            orphaned_deleted = await self.memory_system.conversations_db.execute_update(
+                """DELETE FROM memory_conversation_links 
+                   WHERE memory_id NOT IN (SELECT memory_id FROM curated_memories)
+                   OR conversation_id NOT IN (SELECT conversation_id FROM conversations)""",
+                ()
+            )
+        
+        # Also remove very old links
+        old_deleted = await self.memory_system.conversations_db.execute_update(
+            "DELETE FROM memory_conversation_links WHERE created_at < ?",
+            (cutoff_date.isoformat(),)
+        )
+        
+        after_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT link_id FROM memory_conversation_links", ()
+        ))
+        
+        return {
+            "policy_applied": policy,
+            "cutoff_date": cutoff_date.isoformat(),
+            "links_before": before_count,
+            "links_after": after_count,
+            "links_deleted": before_count - after_count,
+            "orphaned_links_removed": orphaned_deleted if policy.get("cleanup_orphaned") else 0,
+            "old_links_removed": old_deleted
+        }
+    
+    async def _cleanup_processing_queue(self) -> Dict:
+        """Clean up memory processing queue entries"""
+        policy = self.retention_policies["memory_processing_queue"]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
+        
+        before_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT queue_id FROM memory_processing_queue", ()
+        ))
+        
+        # Remove completed processing records older than cutoff
+        if policy.get("cleanup_completed"):
+            completed_deleted = await self.memory_system.conversations_db.execute_update(
+                """DELETE FROM memory_processing_queue 
+                   WHERE processing_status = 'completed' 
+                   AND updated_at < ?""",
+                (cutoff_date.isoformat(),)
+            )
+        
+        after_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT queue_id FROM memory_processing_queue", ()
+        ))
+        
+        return {
+            "policy_applied": policy,
+            "cutoff_date": cutoff_date.isoformat(),
+            "queue_entries_before": before_count,
+            "queue_entries_after": after_count,
+            "queue_entries_deleted": before_count - after_count,
+            "completed_entries_removed": completed_deleted if policy.get("cleanup_completed") else 0
+        }
+    
+    async def _cleanup_processing_log(self) -> Dict:
+        """Clean up memory processing log entries"""
+        policy = self.retention_policies["memory_processing_log"]
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
+        
+        before_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT log_id FROM memory_processing_log", ()
+        ))
+        
+        # Delete old processing logs
+        deleted = await self.memory_system.conversations_db.execute_update(
+            "DELETE FROM memory_processing_log WHERE created_at < ?",
+            (cutoff_date.isoformat(),)
+        )
+        
+        after_count = len(await self.memory_system.conversations_db.execute_query(
+            "SELECT log_id FROM memory_processing_log", ()
+        ))
+        
+        # If we have too many logs, remove the oldest ones
+        policy_max_count = policy.get("max_count", 100000)
+        if after_count > policy_max_count:
+            excess_count = after_count - policy_max_count
+            excess_deleted = await self.memory_system.conversations_db.execute_update(
+                """DELETE FROM memory_processing_log 
+                   WHERE log_id IN (
+                       SELECT log_id FROM memory_processing_log 
+                       ORDER BY created_at ASC 
+                       LIMIT ?
+                   )""",
+                (excess_count,)
+            )
+            after_count = policy_max_count
+        else:
+            excess_deleted = 0
+        
+        return {
+            "policy_applied": policy,
+            "cutoff_date": cutoff_date.isoformat(),
+            "log_entries_before": before_count,
+            "log_entries_after": after_count,
+            "old_logs_deleted": deleted,
+            "excess_logs_deleted": excess_deleted
         }
     
     async def _remove_duplicates(self) -> Dict:
