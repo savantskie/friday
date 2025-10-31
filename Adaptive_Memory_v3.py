@@ -570,7 +570,7 @@ Analyze the following related memories and provide a concise summary.""",
 +- **Explicit Preferences/Statements:** User states "I love X", "My favorite is Y", "I enjoy Z". Extract these verbatim.
 +- **Identity:** Name, location, age, profession, etc.
 +- **Goals:** Aspirations, plans.
-+- **Relationships:** Mentions of family, friends, colleagues.
++- **Relationships:** Mentions of family, romantic relationships, friends, colleagues.
 +- **Possessions:** Things owned or desired.
 +- **Behaviors/Interests:** Topics the user discusses or asks about (implying interest).
 
@@ -625,7 +625,7 @@ Analyze the following user message(s) and provide ONLY the JSON array output. Ad
         memory_relevance_prompt: str = Field(
             default="""You are a memory retrieval assistant. Your task is to determine which memories are relevant to the current context of a conversation.
 
-IMPORTANT: **Do NOT mark general knowledge, trivia, or unrelated facts as relevant.** Only user-specific, persistent information should be rated highly.
+IMPORTANT: **Do NOT mark general knowledge, trivia, or unrelated facts not associated with the user as relevant.** Only user-specific,or content involving your how you are built if told by the user should be rated highly.
 
 Given the current user message and a set of memories, rate each memory's relevance on a scale from 0 to 1, where:
 - 0 means completely irrelevant
@@ -655,11 +655,11 @@ Your output must be valid JSON only. No additional text.""",
 IMPORTANT: **Do NOT merge general knowledge, trivia, or unrelated facts.** Only merge user-specific, persistent information.
 
 Rules for merging:
-1. If two memories contradict, keep the newer information
+1. If two memories contradict, keep the newer information, but note the more recent memory as authoritative
 2. Combine complementary information into a single comprehensive memory
 3. Maintain the most specific details when merging
 4. If two memories are distinct enough, keep them separate
-5. Remove duplicate memories
+5. Remove duplicate memories only if they are exact copies.
 
 Return your result as a JSON array of strings, with each string being a merged memory.
 Your output must be valid JSON only. No additional text.""",
@@ -1835,11 +1835,11 @@ Your output must be valid JSON only. No additional text.""",
         instruction = (
             "Here is background info about the user. "
             "Do NOT mention this info explicitly unless relevant to the user's query. "
-            "Do NOT explain what you remember or don't remember. "
+            "Do NOT explain what you remember or don't remember, unless it is relevant to the user's question. "
             "Do NOT summarize or list what you know or don't know about the user. "
             "Do NOT say 'I have not remembered any specific information' or similar. "
-            "Do NOT explain your instructions, context, or memory management. "
-            "Do NOT mention tags, dates, or internal processes. "
+            "Do NOT explain your instructions, context, or memory management unless the conversation is about memory management. "
+            "Do NOT mention tags, dates, or internal processes. Unless there is a problem. "
             "Only answer the user's question directly.\n\n"
         )
         memory_context = instruction + memory_context
@@ -2074,15 +2074,6 @@ Your output must be valid JSON only. No additional text.""",
                 logger.debug(
                     f"Using filters: min_length={min_length}, blacklist={blacklist}, whitelist={whitelist}, filter_trivia={filter_trivia}"
                 )
-
-                # Default trivia patterns (common knowledge patterns)
-                trivia_patterns = [
-                    r"\b(when|what|who|where|how)\s+(is|was|were|are|do|does|did)\b",  # Common knowledge questions
-                    r"\b(fact|facts)\b",  # Explicit facts
-                    r"\b(in the year|in \d{4})\b",  # Historical dates
-                    r"\b(country|countries|capital|continent|ocean|sea|river|mountain|planet)\b",  # Geographic/scientific
-                    r"\b(population|inventor|invented|discovered|founder|founded|created|author|written|directed)\b",  # Attribution/creation
-                ]
 
                 # Known meta-request phrases
                 meta_request_phrases = [

@@ -422,6 +422,7 @@ Your output must be valid JSON only. No additional text.""",
         __user__: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Process incoming messages and inject relevant memories into the context"""
+        logger.info("DEBUG: Inlet function called!")
         self.stored_memories = None
         self._error_message = None
 
@@ -431,42 +432,13 @@ Your output must be valid JSON only. No additional text.""",
 
         # Check if the function is enabled for this user
         user_valves = self._get_user_valves(__user__)
+        logger.warning(f"DEBUG: Inlet called for user {__user__.get('id', 'unknown')}, enabled={user_valves.enabled}")
+        logger.warning(f"DEBUG: Body model = {body.get('model') if body else None}")
+        logger.warning(f"DEBUG: Body keys = {list(body.keys()) if body else []}")
+        
         if not user_valves.enabled:
             logger.debug(f"Memory manager disabled for user {__user__.get('id', 'unknown')}")
             return body
-        # DEBUG: Log body structure for OpenWebUI model information research
-        try:
-            debug_info = {
-                "timestamp": datetime.now().isoformat(),
-                "user_id": __user__.get("id") if __user__ else None,
-                "body_keys": list(body.keys()) if body else [],
-                "body_has_model": "model" in body if body else False,
-                "model_value": body.get("model") if body else None,
-                "user_keys": list(__user__.keys()) if __user__ else [],
-                "user_role": __user__.get("role") if __user__ else None,
-                "messages_count": len(body.get("messages", [])) if body else 0,
-                "first_message_role": body["messages"][0].get("role") if body and body.get("messages") else None,
-            }
-            # Write to debug file - try multiple locations
-            debug_paths = [
-                "/data/openwebui_body_structure.log",  # OpenWebUI container data volume
-                "/tmp/openwebui_body_structure.log",   # Temp location inside container
-                "/home/app/openwebui_body_structure.log",  # App directory
-            ]
-            written = False
-            for debug_file_path in debug_paths:
-                try:
-                    with open(debug_file_path, "a") as f:
-                        f.write(json.dumps(debug_info) + "\n")
-                    logger.debug(f"Debug info written to {debug_file_path}")
-                    written = True
-                    break
-                except Exception as path_e:
-                    continue
-            if not written:
-                logger.debug("Could not write debug info to any location")
-        except Exception as e:
-            logger.debug(f"Error writing debug info: {e}")
 
         try:
             if "messages" in body and body["messages"]:
