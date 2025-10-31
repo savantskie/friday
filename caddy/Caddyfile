@@ -27,7 +27,6 @@ fridayonline.bounceme.net {
             method OPTIONS
             path /mcpo*
         }
-        # Preflight CORS for /mcpo
         header @preflight_mcp {
             Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
             Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -36,32 +35,16 @@ fridayonline.bounceme.net {
         }
         respond @preflight_mcp 204
 
-        # Actual requests to /mcpo*
         @mcp path /mcpo*
         header @mcp {
             Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
             Access-Control-Allow-Credentials "true"
-        }    
-        # ---- static /notify test page (add-only) ----
-        handle /notify* {
-            root * media/nate/Friday/pwa
-            file_server
-        }
-                # ---- static /pwa (serves /media/nate/Friday/pwa) ----
-        handle_path /pwa* {
-            root * /media/nate/Friday/pwa
-            file_server
-        }
-        # Root-scope SW for OWUI (serve from disk)
-        handle /owui-sw.js* {
-            root * /media/nate/Friday/pwa
-            file_server
         }
 
-        }
         handle_path /mcpo* {
             reverse_proxy 192.168.1.50:12345
         }
+
 
         # ---------- LM Studio via same-origin HTTPS ----------
         @preflight_lms {
@@ -84,6 +67,7 @@ fridayonline.bounceme.net {
         handle_path /lmstudio* {
             reverse_proxy 192.168.1.50:1234
         }
+
         handle_path /mcp-anythingllm* {
             uri strip_prefix /mcp-anythingllm
             reverse_proxy 192.168.1.50:12345
@@ -95,3 +79,4 @@ fridayonline.bounceme.net {
                 versions 1.1
             }
         }
+    }
