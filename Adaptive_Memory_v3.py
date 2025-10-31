@@ -4125,3 +4125,4 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
         except Exception as e:
             # Should never fail, but guard to avoid cascading errors
             logger.debug(f"_increment_error_counter failed for '{counter_name}': {e}")
+

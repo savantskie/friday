@@ -372,6 +372,214 @@ class ConversationDatabase(DatabaseManager):
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
 
+    async def link_memory_to_conversation(self, memory_id: str, conversation_id: str, 
+                                         link_type: str = 'direct', link_strength: float = 1.0,
+                                         source_system: str = 'processed_from_chat', metadata: dict = None) -> str:
+        """
+        Link a memory to a conversation.
+        
+        Args:
+            memory_id: UUID of the memory
+            conversation_id: UUID of the conversation
+            link_type: 'direct', 'related', or 'enhanced'
+            link_strength: 0.0-1.0 confidence score
+            source_system: 'openwebui_import', 'processed_from_chat', 'manual', 'enhanced'
+            metadata: Optional JSON metadata for link
+        
+        Returns:
+            link_id: UUID of the created link
+        """
+        link_id = str(uuid.uuid4())
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        await self.execute_update(
+            """INSERT INTO memory_conversation_links 
+               (link_id, memory_id, conversation_id, link_type, link_strength, source_system, created_at, updated_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (link_id, memory_id, conversation_id, link_type, link_strength, source_system, 
+             timestamp, timestamp, json.dumps(metadata) if metadata else None)
+        )
+        
+        logger.debug(f"Linked memory {memory_id} to conversation {conversation_id} with type {link_type}")
+        return link_id
+
+    async def get_memory_conversation_links(self, memory_id: str = None, conversation_id: str = None,
+                                           link_type: str = None) -> List[Dict]:
+        """
+        Retrieve memory-conversation links.
+        
+        Args:
+            memory_id: Optional - filter by memory ID
+            conversation_id: Optional - filter by conversation ID
+            link_type: Optional - filter by link type ('direct', 'related', 'enhanced')
+        
+        Returns:
+            List of link dictionaries with all columns
+        """
+        query = "SELECT * FROM memory_conversation_links WHERE 1=1"
+        params = []
+        
+        if memory_id:
+            query += " AND memory_id = ?"
+            params.append(memory_id)
+        
+        if conversation_id:
+            query += " AND conversation_id = ?"
+            params.append(conversation_id)
+        
+        if link_type:
+            query += " AND link_type = ?"
+            params.append(link_type)
+        
+        query += " ORDER BY link_strength DESC, created_at DESC"
+        
+        rows = await self.execute_query(query, tuple(params))
+        return [dict(row) for row in rows]
+
+    async def queue_conversation_for_processing(self, conversation_id: str, 
+                                               processing_type: str, priority: int = 5) -> str:
+        """
+        Queue a conversation for memory processing.
+        
+        Args:
+            conversation_id: UUID of conversation to process
+            processing_type: 'new_openwebui', 'recent_chat', 'aging_chat', 'historical_chat'
+            priority: 1-10 (higher = more urgent)
+        
+        Returns:
+            queue_id: UUID of the queue entry
+        """
+        queue_id = str(uuid.uuid4())
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        # Get message count for this conversation
+        message_count_result = await self.execute_query(
+            "SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?",
+            (conversation_id,)
+        )
+        message_count = message_count_result[0]['count'] if message_count_result else 0
+        
+        try:
+            await self.execute_update(
+                """INSERT INTO memory_processing_queue 
+                   (queue_id, conversation_id, processing_status, processing_type, message_count, processing_priority, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (queue_id, conversation_id, 'pending', processing_type, message_count, priority, timestamp, timestamp)
+            )
+            logger.debug(f"Queued conversation {conversation_id} for {processing_type} with priority {priority}")
+            return queue_id
+        except Exception as e:
+            # If conversation already queued (UNIQUE constraint), get the existing queue_id
+            logger.debug(f"Conversation {conversation_id} already in queue: {str(e)}")
+            existing = await self.execute_query(
+                "SELECT queue_id FROM memory_processing_queue WHERE conversation_id = ?",
+                (conversation_id,)
+            )
+            if existing:
+                return existing[0]['queue_id']
+            raise
+
+    async def get_processing_priority(self) -> dict:
+        """
+        Get next conversation to process based on priority and status.
+        
+        Returns:
+            Dictionary with queue_id, conversation_id, and metadata, or empty dict if none
+        """
+        rows = await self.execute_query(
+            """SELECT * FROM memory_processing_queue 
+               WHERE processing_status IN ('pending', 'processing') 
+               AND marked_processed = FALSE
+               ORDER BY processing_priority DESC, created_at ASC
+               LIMIT 1""",
+            ()
+        )
+        
+        if rows:
+            return dict(rows[0])
+        return {}
+
+    async def mark_processing_complete(self, queue_id: str, memory_id: str = None) -> bool:
+        """
+        Mark a conversation as processed.
+        
+        Args:
+            queue_id: UUID of queue entry
+            memory_id: Optional - memory ID that was created from this processing
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        try:
+            await self.execute_update(
+                """UPDATE memory_processing_queue 
+                   SET processing_status = 'completed', marked_processed = TRUE, updated_at = ?
+                   WHERE queue_id = ?""",
+                (timestamp, queue_id)
+            )
+            logger.debug(f"Marked queue {queue_id} as complete")
+            return True
+        except Exception as e:
+            logger.error(f"Error marking {queue_id} complete: {str(e)}")
+            return False
+
+    async def update_processing_status(self, queue_id: str, status: str, reason: str = None) -> bool:
+        """
+        Update processing status in queue.
+        
+        Args:
+            queue_id: UUID of queue entry
+            status: 'pending', 'processing', 'completed', 'skipped'
+            reason: Optional - reason for status change
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        try:
+            await self.execute_update(
+                """UPDATE memory_processing_queue 
+                   SET processing_status = ?, updated_at = ?
+                   WHERE queue_id = ?""",
+                (status, timestamp, queue_id)
+            )
+            logger.debug(f"Updated queue {queue_id} status to {status}" + (f": {reason}" if reason else ""))
+            return True
+        except Exception as e:
+            logger.error(f"Error updating {queue_id} status: {str(e)}")
+            return False
+
+    async def log_processing_attempt(self, conversation_id: str, processing_type: str,
+                                    status: str, memory_id: str = None, reason: str = None) -> str:
+        """
+        Log a processing attempt for audit trail.
+        
+        Args:
+            conversation_id: UUID of conversation processed
+            processing_type: Type of processing done
+            status: 'success', 'failed', 'skipped'
+            memory_id: Optional - memory ID that was created/modified
+            reason: Optional - explanation of outcome
+        
+        Returns:
+            log_id: UUID of the log entry
+        """
+        log_id = str(uuid.uuid4())
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        await self.execute_update(
+            """INSERT INTO memory_processing_log 
+               (log_id, conversation_id, memory_id, processing_type, status, reason, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (log_id, conversation_id, memory_id, processing_type, status, reason, timestamp)
+        )
+        
+        logger.info(f"Logged processing: conversation {conversation_id}, status {status}, memory {memory_id}")
+        return log_id
+
 
 class AIMemoryDatabase(DatabaseManager):
     """Manages AI-curated memories database"""
