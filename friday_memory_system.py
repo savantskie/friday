@@ -4475,52 +4475,263 @@ class FridayMemorySystem:
                 logger.error(f"❌ Failed to verify {db_path}: {e}")
 
     async def import_openwebui_chat_history(self, db_path=None):
-        """Import OpenWebUI chat/messages into Friday memory system with deduplication."""
+        """Import OpenWebUI chat/messages into Friday memory system with per-user, per-model isolation."""
         import sqlite3
-        from datetime import datetime
+        import json as json_lib
         
         # Set default path to the new OpenWebUI location if not provided
         if db_path is None:
             db_path = "/media/nate/Friday/OpenWebUI/data/webui.db"
         if not os.path.exists(db_path):
-            print(f"OpenWebUI database not found at {db_path}")
+            logger.error(f"OpenWebUI database not found at {db_path}")
             return
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM chat')
-        chats = {row[0]: row[1] for row in cursor.fetchall()}
-        cursor.execute('SELECT id, chat_id, role, content, created_at FROM message ORDER BY chat_id, created_at')
-        messages = cursor.fetchall()
-        conn.close()
-        imported_count = 0
-        for msg_id, chat_id, role, content, created_at in messages:
-            chat_name = chats.get(chat_id, f'Chat {chat_id}')
-            # Use chat_id as session_id for deduplication
-            session_id = str(chat_id)
-            metadata = {
-                'source': 'openwebui',
-                'chat_id': chat_id,
-                'chat_name': chat_name,
-                'role': role,
-                'created_at': created_at
+        
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Extract chat info including user_id and model
+            cursor.execute('SELECT id, user_id, title, chat FROM chat')
+            chats = {}
+            for chat_id, user_id, title, chat_json in cursor.fetchall():
+                try:
+                    chat_data = json_lib.loads(chat_json) if chat_json else {}
+                    # Extract primary model from chat
+                    models = chat_data.get('models', [])
+                    primary_model = models[0] if models else 'default'
+                    # Extract model name (e.g., "friday" from "openai/friday")
+                    model_name = primary_model.split('/')[-1] if '/' in primary_model else primary_model
+                    chats[chat_id] = {
+                        'user_id': user_id,
+                        'title': title,
+                        'model': model_name,
+                        'full_model': primary_model,
+                        'chat_data': chat_data
+                    }
+                except Exception as e:
+                    logger.warning(f"Error parsing chat {chat_id}: {e}")
+                    chats[chat_id] = {
+                        'user_id': user_id,
+                        'title': title,
+                        'model': 'default',
+                        'full_model': 'default',
+                        'chat_data': {}
+                    }
+            
+            # Get messages - note: message table doesn't have chat_id, need to reconstruct from chat JSON
+            imported_count = 0
+            skipped_count = 0
+            
+            for chat_id, chat_info in chats.items():
+                user_id = chat_info['user_id']
+                model_name = chat_info['model']
+                chat_data = chat_info['chat_data']
+                
+                # Extract conversation_id with user_id + model isolation
+                conversation_id = f"{user_id}_{model_name}"
+                
+                # Process messages from chat JSON
+                history = chat_data.get('history', {})
+                messages_dict = history.get('messages', {})
+                
+                for msg_id, msg_data in messages_dict.items():
+                    if not isinstance(msg_data, dict):
+                        continue
+                    
+                    role = msg_data.get('role', 'user')
+                    content = msg_data.get('content', '')
+                    timestamp = msg_data.get('timestamp', int(datetime.now(get_local_timezone()).timestamp()))
+                    msg_model = msg_data.get('model', model_name)
+                    
+                    if not content:
+                        skipped_count += 1
+                        continue
+                    
+                    # Build metadata with full user/model info
+                    metadata = {
+                        'source': 'openwebui_import',
+                        'chat_id': str(chat_id),
+                        'chat_title': chat_info['title'],
+                        'user_id': str(user_id),
+                        'model': model_name,
+                        'full_model': chat_info['full_model'],
+                        'role': role,
+                        'created_at': timestamp,
+                        'message_id_in_chat': str(msg_id)
+                    }
+                    
+                    # Deduplication: check for existing message with same content/role
+                    recent = await self.conversations_db.execute_query(
+                        """SELECT message_id FROM messages 
+                           WHERE conversation_id = ? AND role = ? AND content = ? 
+                           AND datetime(timestamp) > datetime('now', '-24 hour')""",
+                        (conversation_id, role, content)
+                    )
+                    
+                    if recent:
+                        skipped_count += 1
+                        continue  # Skip duplicate
+                    
+                    # Store message
+                    try:
+                        await self.conversations_db.execute_update(
+                            """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata)
+                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                            (str(msg_id), conversation_id, timestamp, role, content, 'openwebui', json.dumps(metadata))
+                        )
+                        imported_count += 1
+                    except Exception as e:
+                        logger.warning(f"Error importing message {msg_id}: {e}")
+                        skipped_count += 1
+            
+            conn.close()
+            logger.info(f"Imported {imported_count} OpenWebUI messages with per-user/per-model isolation (skipped {skipped_count})")
+            
+        except Exception as e:
+            logger.error(f"Error importing OpenWebUI chat history: {e}")
+            raise
+
+    async def verify_and_remediate_chat_isolation(self, webui_db_path=None):
+        """
+        Verify all imported chats have proper user_id and model isolation.
+        Retroactively fix any chats that are missing this information.
+        Returns stats on what was fixed.
+        """
+        import sqlite3
+        import json as json_lib
+        
+        if webui_db_path is None:
+            webui_db_path = "/media/nate/Friday/OpenWebUI/data/webui.db"
+        
+        if not os.path.exists(webui_db_path):
+            logger.error(f"OpenWebUI database not found at {webui_db_path}")
+            return {"status": "error", "message": "OpenWebUI database not found"}
+        
+        try:
+            # Build a lookup of chat_id -> (user_id, model)
+            conn = sqlite3.connect(webui_db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, user_id, chat FROM chat')
+            chat_lookup = {}
+            for chat_id, user_id, chat_json in cursor.fetchall():
+                try:
+                    chat_data = json_lib.loads(chat_json) if chat_json else {}
+                    models = chat_data.get('models', [])
+                    primary_model = models[0] if models else 'default'
+                    model_name = primary_model.split('/')[-1] if '/' in primary_model else primary_model
+                    chat_lookup[str(chat_id)] = {
+                        'user_id': str(user_id),
+                        'model': model_name
+                    }
+                except Exception as e:
+                    logger.warning(f"Error processing chat {chat_id} for verification: {e}")
+            conn.close()
+            
+            logger.info(f"Built lookup for {len(chat_lookup)} chats from OpenWebUI")
+            
+            # Query all messages from Friday Memory System
+            all_messages = await self.conversations_db.execute_query(
+                """SELECT message_id, conversation_id, role, content, source_type, metadata, timestamp 
+                   FROM messages WHERE source_type = 'openwebui' ORDER BY conversation_id"""
+            )
+            
+            stats = {
+                'total_messages': len(all_messages) if all_messages else 0,
+                'already_isolated': 0,
+                'missing_isolation': 0,
+                'remediations': 0,
+                'errors': 0,
+                'details': []
             }
-            # Deduplication: check for existing message in session with same content/role in last 24h
-            recent = await self.conversations_db.execute_query(
-                """SELECT message_id FROM messages WHERE conversation_id IN (
-                        SELECT conversation_id FROM conversations WHERE session_id = ?
-                    ) AND role = ? AND content = ? AND datetime(timestamp) > datetime('now', '-24 hour')""",
-                (session_id, role, content)
-            )
-            if recent:
-                continue  # Skip duplicate
-            # Store message
-            await self.conversations_db.execute_update(
-                """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (str(msg_id), str(chat_id), created_at, role, content, 'openwebui', json.dumps(metadata))
-            )
-            imported_count += 1
-        print(f"Imported {imported_count} OpenWebUI messages (deduplicated)")
+            
+            if not all_messages:
+                logger.info("No OpenWebUI messages found to verify")
+                return stats
+            
+            for msg in all_messages:
+                msg_id = msg.get('message_id')
+                current_conv_id = msg.get('conversation_id')
+                metadata_str = msg.get('metadata', '{}')
+                
+                try:
+                    metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                except:
+                    metadata = {}
+                
+                # Check if this message's conversation_id follows the isolation format
+                chat_id = metadata.get('chat_id')
+                
+                if not chat_id:
+                    stats['errors'] += 1
+                    stats['details'].append({
+                        'message_id': msg_id,
+                        'issue': 'No chat_id in metadata',
+                        'current_conv_id': current_conv_id
+                    })
+                    continue
+                
+                chat_id_str = str(chat_id)
+                
+                if chat_id_str not in chat_lookup:
+                    stats['errors'] += 1
+                    stats['details'].append({
+                        'message_id': msg_id,
+                        'issue': f'Chat {chat_id_str} not found in OpenWebUI',
+                        'current_conv_id': current_conv_id
+                    })
+                    continue
+                
+                # Get the correct user_id and model
+                chat_info = chat_lookup[chat_id_str]
+                user_id = chat_info['user_id']
+                model = chat_info['model']
+                correct_conv_id = f"{user_id}_{model}"
+                
+                # Check if already correctly isolated
+                if current_conv_id == correct_conv_id:
+                    stats['already_isolated'] += 1
+                    continue
+                
+                # Need to remediate
+                stats['missing_isolation'] += 1
+                
+                # Update the metadata with correct user_id and model
+                metadata['user_id'] = user_id
+                metadata['model'] = model
+                metadata['remediated_at'] = datetime.now(get_local_timezone()).isoformat()
+                metadata['previous_conversation_id'] = current_conv_id
+                
+                try:
+                    # Update the message with correct conversation_id and updated metadata
+                    await self.conversations_db.execute_update(
+                        """UPDATE messages SET conversation_id = ?, metadata = ? WHERE message_id = ?""",
+                        (correct_conv_id, json.dumps(metadata), msg_id)
+                    )
+                    stats['remediations'] += 1
+                    stats['details'].append({
+                        'message_id': msg_id,
+                        'previous_conv_id': current_conv_id,
+                        'new_conv_id': correct_conv_id,
+                        'user_id': user_id,
+                        'model': model,
+                        'status': 'remediated'
+                    })
+                except Exception as e:
+                    stats['errors'] += 1
+                    stats['details'].append({
+                        'message_id': msg_id,
+                        'issue': f'Update failed: {str(e)}',
+                        'current_conv_id': current_conv_id
+                    })
+            
+            logger.info(f"Chat isolation verification complete: {stats['already_isolated']} already isolated, "
+                       f"{stats['remediations']} remediated, {stats['errors']} errors")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error in verify_and_remediate_chat_isolation: {e}")
+            return {"status": "error", "message": str(e)}
 
     async def _start_monitoring(self):
         """Internal method to start the file monitor"""

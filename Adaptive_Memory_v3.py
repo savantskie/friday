@@ -1419,6 +1419,10 @@ Your output must be valid JSON only. No additional text.""",
         logger.debug(
             f"Inlet received body keys: {list(body.keys())} for user: {__user__.get('id', 'N/A') if __user__ else 'N/A'}"
         )
+        logger.warning(f"DEBUG Adaptive_Memory_v3: body.get('chat_id') = {body.get('chat_id')}")
+        logger.warning(f"DEBUG Adaptive_Memory_v3: body.get('conversation_id') = {body.get('conversation_id')}")
+        logger.warning(f"DEBUG Adaptive_Memory_v3: body.get('id') = {body.get('id')}")
+        logger.warning(f"DEBUG Adaptive_Memory_v3: Full body keys = {list(body.keys()) if body else []}")
 
         # Ensure user info is present
         if not __user__ or not __user__.get("id"):
@@ -1637,6 +1641,10 @@ Your output must be valid JSON only. No additional text.""",
 
         # Log function entry
         logger.debug("Outlet called - making deep copy of body dictionary")
+        
+        # Store model for use in memory operations (user_id + model = isolation key)
+        self._current_model = body.get('model', 'default')
+        logger.debug(f"Outlet: Set current_model to {self._current_model}")
 
         # DEFENSIVE: Make a deep copy of the body to avoid dictionary changed size during iteration
         # This was a source of many subtle bugs
@@ -3510,17 +3518,21 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         user_id = getattr(user, "id", None)
                         if user_id:
                             conversation_db = ConversationDatabase()
+                            # Use user_id + model for isolation (each character has separate memories per user)
+                            model = getattr(self, '_current_model', 'default')
+                            conversation_id = f"{user_id}_{model}"
                             await conversation_db.link_memory_to_conversation(
                                 memory_id=str(mem_id),
-                                conversation_id=f"openwebui_{user_id}",
+                                conversation_id=conversation_id,
                                 link_type="direct",
                                 metadata={
                                     "source": "adaptive_memory_v3",
+                                    "model": model,
                                     "tags": operation.tags,
                                     "memory_bank": operation.memory_bank or self.valves.default_memory_bank,
                                 }
                             )
-                            logger.debug(f"Linked memory {mem_id} to Friday Memory System")
+                            logger.debug(f"Linked memory {mem_id} to Friday Memory System with conversation_id={conversation_id}")
                     except Exception as e:
                         logger.warning(f"Failed to link memory to Friday (non-blocking): {e}")
 
@@ -3571,17 +3583,21 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             user_id = getattr(user, "id", None)
                             if user_id:
                                 conversation_db = ConversationDatabase()
+                                # Use user_id + model for isolation (each character has separate memories per user)
+                                model = getattr(self, '_current_model', 'default')
+                                conversation_id = f"{user_id}_{model}"
                                 await conversation_db.link_memory_to_conversation(
                                     memory_id=str(new_mem_id),
-                                    conversation_id=f"openwebui_{user_id}",
+                                    conversation_id=conversation_id,
                                     link_type="updated",
                                     metadata={
                                         "source": "adaptive_memory_v3",
+                                        "model": model,
                                         "previous_id": str(operation.id),
                                         "tags": operation.tags,
                                     }
                                 )
-                                logger.debug(f"Linked updated memory {new_mem_id} to Friday Memory System")
+                                logger.debug(f"Linked updated memory {new_mem_id} to Friday Memory System with conversation_id={conversation_id}")
                         except Exception as e:
                             logger.warning(f"Failed to link updated memory to Friday (non-blocking): {e}")
 
