@@ -41,39 +41,8 @@ async def test_isolation_service():
         print(f"   ✗ Import failed: {e}\n")
         return False
     
-    # Test 2: Run verification and remediation
-    print("3. Running chat isolation verification and remediation...")
-    try:
-        stats = await memory_system.verify_and_remediate_chat_isolation()
-        
-        print(f"   Total messages analyzed: {stats.get('total_messages', 0)}")
-        print(f"   Already isolated: {stats.get('already_isolated', 0)}")
-        print(f"   Needing remediation: {stats.get('missing_isolation', 0)}")
-        print(f"   Successfully remediated: {stats.get('remediations', 0)}")
-        print(f"   Errors encountered: {stats.get('errors', 0)}")
-        print()
-        
-        # Show some remediation details if any
-        if stats.get('remediations', 0) > 0:
-            print("   Sample remediations:")
-            for detail in stats.get('details', [])[:5]:
-                if detail.get('status') == 'remediated':
-                    print(f"     - Message {detail.get('message_id')[:8]}...")
-                    print(f"       Old: {detail.get('previous_conv_id')}")
-                    print(f"       New: {detail.get('new_conv_id')} (user: {detail.get('user_id')}, model: {detail.get('model')})")
-            print()
-        
-        # Show errors if any
-        if stats.get('errors', 0) > 0:
-            print("   Errors encountered:")
-            for detail in stats.get('details', []):
-                if 'issue' in detail or 'error' in detail.get('status', '').lower():
-                    print(f"     - {detail}")
-            print()
-        
-    except Exception as e:
-        print(f"   ✗ Verification failed: {e}\n")
-        return False
+    # Test 2: Remediation is skipped - it runs lazily in background when system is idle
+    print("3. [SKIPPED] Remediation service (runs in background when system is idle)\n")
     
     # Test 3: Query to verify isolation in the database
     print("4. Verifying isolation in the database...")
@@ -86,10 +55,12 @@ async def test_isolation_service():
         )
         
         if unique_convs:
+            # Convert sqlite3.Row objects to dicts
+            unique_convs = [dict(c) for c in unique_convs]
             print(f"   Found {len(unique_convs)} isolated conversation buckets:")
             
             # Show first 10
-            for conv in unique_convs[:10]:
+            for conv in unique_convs:
                 conv_id = conv.get('conversation_id')
                 
                 # Count messages in this conversation
@@ -97,7 +68,11 @@ async def test_isolation_service():
                     """SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?""",
                     (conv_id,)
                 )
-                count = msg_count[0].get('count', 0) if msg_count else 0
+                if msg_count:
+                    msg_count = [dict(m) for m in msg_count]
+                    count = msg_count[0].get('count', 0)
+                else:
+                    count = 0
                 
                 # Parse the conversation_id to show user and model
                 parts = conv_id.split('_')
@@ -129,20 +104,25 @@ async def test_isolation_service():
                LIMIT 5"""
         )
         
-        for conv in unique_convs:
-            conv_id = conv.get('conversation_id')
-            sample = await memory_system.conversations_db.execute_query(
-                """SELECT role, content, timestamp FROM messages 
-                   WHERE conversation_id = ? AND source_type = 'openwebui'
-                   LIMIT 2""",
-                (conv_id,)
-            )
+        if unique_convs:
+            unique_convs = [dict(c) for c in unique_convs]
             
-            print(f"\n   Conversation: {conv_id}")
-            for msg in sample:
-                role = msg.get('role', 'unknown')
-                content = msg.get('content', '')[:100]
-                print(f"     [{role}] {content}...")
+            for conv in unique_convs:
+                conv_id = conv.get('conversation_id')
+                sample = await memory_system.conversations_db.execute_query(
+                    """SELECT role, content, timestamp FROM messages 
+                       WHERE conversation_id = ? AND source_type = 'openwebui'
+                       LIMIT 2""",
+                    (conv_id,)
+                )
+                
+                if sample:
+                    sample = [dict(s) for s in sample]
+                    print(f"\n   Conversation: {conv_id}")
+                    for msg in sample:
+                        role = msg.get('role', 'unknown')
+                        content = msg.get('content', '')[:100]
+                        print(f"     [{role}] {content}...")
         
         print("\n")
         

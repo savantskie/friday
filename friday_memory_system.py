@@ -4475,9 +4475,14 @@ class FridayMemorySystem:
                 logger.error(f"❌ Failed to verify {db_path}: {e}")
 
     async def import_openwebui_chat_history(self, db_path=None):
-        """Import OpenWebUI chat/messages into Friday memory system with per-user, per-model isolation."""
+        """
+        Import NEW OpenWebUI messages into Friday memory system with per-user, per-model isolation.
+        Uses dedup tracking to only import messages we haven't seen before (by message hash).
+        Does NOT retroactively re-align old messages - that's handled by lazy remediation.
+        """
         import sqlite3
         import json as json_lib
+        import hashlib
         
         # Set default path to the new OpenWebUI location if not provided
         if db_path is None:
@@ -4518,7 +4523,15 @@ class FridayMemorySystem:
                         'chat_data': {}
                     }
             
-            # Get messages - note: message table doesn't have chat_id, need to reconstruct from chat JSON
+            # Build set of message hashes we've already imported (dedup tracking)
+            existing_hashes = set()
+            existing_msgs = await self.conversations_db.execute_query(
+                """SELECT json_extract(metadata, '$.openwebui_message_hash') as msg_hash 
+                   FROM messages WHERE source_type = 'openwebui' AND msg_hash IS NOT NULL"""
+            )
+            if existing_msgs:
+                existing_hashes = {dict(m)['msg_hash'] for m in existing_msgs if dict(m)['msg_hash']}
+            
             imported_count = 0
             skipped_count = 0
             
@@ -4541,13 +4554,23 @@ class FridayMemorySystem:
                     role = msg_data.get('role', 'user')
                     content = msg_data.get('content', '')
                     timestamp = msg_data.get('timestamp', int(datetime.now(get_local_timezone()).timestamp()))
-                    msg_model = msg_data.get('model', model_name)
                     
                     if not content:
                         skipped_count += 1
                         continue
                     
-                    # Build metadata with full user/model info
+                    # Create hash of this message: hash(chat_id + msg_id + content)
+                    # This uniquely identifies this message across all imports
+                    msg_hash = hashlib.sha256(
+                        f"{chat_id}:{msg_id}:{content}".encode()
+                    ).hexdigest()
+                    
+                    # Check if we've already imported this exact message
+                    if msg_hash in existing_hashes:
+                        skipped_count += 1
+                        continue
+                    
+                    # Build metadata with full user/model info + dedup hash
                     metadata = {
                         'source': 'openwebui_import',
                         'chat_id': str(chat_id),
@@ -4557,35 +4580,51 @@ class FridayMemorySystem:
                         'full_model': chat_info['full_model'],
                         'role': role,
                         'created_at': timestamp,
-                        'message_id_in_chat': str(msg_id)
+                        'message_id_in_chat': str(msg_id),
+                        'openwebui_message_hash': msg_hash
                     }
                     
-                    # Deduplication: check for existing message with same content/role
-                    recent = await self.conversations_db.execute_query(
-                        """SELECT message_id FROM messages 
-                           WHERE conversation_id = ? AND role = ? AND content = ? 
-                           AND datetime(timestamp) > datetime('now', '-24 hour')""",
-                        (conversation_id, role, content)
-                    )
+                    # Ensure session and conversation records exist (required by FOREIGN KEYs)
+                    try:
+                        # Create session if needed (use conversation_id as session_id for user+model isolation)
+                        existing_session = await self.conversations_db.execute_query(
+                            "SELECT session_id FROM sessions WHERE session_id = ?",
+                            (conversation_id,)
+                        )
+                        if not existing_session:
+                            await self.conversations_db.execute_update(
+                                "INSERT INTO sessions (session_id, start_timestamp, context) VALUES (?, ?, ?)",
+                                (conversation_id, timestamp, f"openwebui-import-{model_name}")
+                            )
+                        
+                        # Create conversation if needed
+                        existing_conv = await self.conversations_db.execute_query(
+                            "SELECT conversation_id FROM conversations WHERE conversation_id = ?",
+                            (conversation_id,)
+                        )
+                        if not existing_conv:
+                            await self.conversations_db.execute_update(
+                                "INSERT INTO conversations (conversation_id, session_id, start_timestamp) VALUES (?, ?, ?)",
+                                (conversation_id, conversation_id, timestamp)
+                            )
+                    except Exception as e:
+                        logger.warning(f"Error creating session/conversation for {conversation_id}: {e}")
                     
-                    if recent:
-                        skipped_count += 1
-                        continue  # Skip duplicate
-                    
-                    # Store message
+                    # Store message with unique message_id (using hash so no duplicates)
                     try:
                         await self.conversations_db.execute_update(
                             """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata)
                                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                            (str(msg_id), conversation_id, timestamp, role, content, 'openwebui', json.dumps(metadata))
+                            (msg_hash, conversation_id, timestamp, role, content, 'openwebui', json.dumps(metadata))
                         )
                         imported_count += 1
+                        existing_hashes.add(msg_hash)  # Add to tracking set
                     except Exception as e:
                         logger.warning(f"Error importing message {msg_id}: {e}")
                         skipped_count += 1
             
             conn.close()
-            logger.info(f"Imported {imported_count} OpenWebUI messages with per-user/per-model isolation (skipped {skipped_count})")
+            logger.info(f"OpenWebUI import: {imported_count} NEW messages imported, {skipped_count} already known")
             
         except Exception as e:
             logger.error(f"Error importing OpenWebUI chat history: {e}")
@@ -4634,6 +4673,10 @@ class FridayMemorySystem:
                 """SELECT message_id, conversation_id, role, content, source_type, metadata, timestamp 
                    FROM messages WHERE source_type = 'openwebui' ORDER BY conversation_id"""
             )
+            
+            # Convert sqlite3.Row objects to dicts
+            if all_messages:
+                all_messages = [dict(msg) for msg in all_messages]
             
             stats = {
                 'total_messages': len(all_messages) if all_messages else 0,
