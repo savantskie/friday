@@ -2357,3 +2357,182 @@ ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.
 2025-11-01T18:36:41.243764-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
 2025-11-01T18:42:41.327346-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
 2025-11-01T18:42:41.327396-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:15:14.593769-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:26:14.587081-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:26:14.587391-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:34:14.715812-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:34:14.718767-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:43:14.769031-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T21:50:14.709112-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T21:54:14.839457-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T21:54:14.840601-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T22:13:05.002198-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T22:33:22.131902-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T23:10:24.463965-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:10:24.463986-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:11:24.472036-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:11:24.472072-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:12:24.510161-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:12:24.510159-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T23:21:55.205923-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-01T23:51:24.840714-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-01T23:51:24.840966-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:07:24.948252-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:07:24.948253-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:11:24.961073-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:11:24.961077-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:20:24.942228-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:20:24.942237-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:50:25.039671-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T00:58:25.057778-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:06:25.093322-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:09:25.061045-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:09:25.062022-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:10:25.085241-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:10:25.086068-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:24:25.088125-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:24:25.088333-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:46:25.151909-05:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:10:25.191601-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:20:25.250723-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:29:25.247277-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:29:25.249323-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:38:25.289389-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:39:25.308057-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:44:25.286104-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:46:25.322165-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:49:25.335149-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:49:25.335505-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:53:25.355362-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:53:25.355567-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T01:57:25.354835-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T02:22:25.443404-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T02:33:25.471210-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T02:41:25.492831-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T02:57:25.526601-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T02:57:25.526634-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T03:05:25.548859-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T03:05:25.548889-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T03:08:25.558698-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T03:08:25.558726-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:17:25.758696-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:17:25.759767-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:41:25.831816-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:41:25.831816-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:51:25.821243-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:51:25.821281-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:55:25.830744-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T04:55:25.830800-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T05:23:25.899204-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T05:23:25.899271-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T05:26:25.887122-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T05:26:25.887749-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T05:52:25.952125-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:20:26.030524-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:20:26.030530-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:25:26.099000-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:25:26.099000-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:26:26.079560-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:26:26.081178-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:47:26.041036-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:47:26.041410-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:49:26.046520-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:49:26.046526-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:53:26.052865-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T06:53:26.053171-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:03:26.083046-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:03:26.083058-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:09:26.090397-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:09:26.090562-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:10:26.107406-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:10:26.107866-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:11:26.107090-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:15:26.100092-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:16:26.141531-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:16:26.141530-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:19:26.118039-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:19:26.118049-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:23:26.164705-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:23:26.164766-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:32:26.145418-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:32:26.145418-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:37:26.147642-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:41:26.159251-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:41:26.159703-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:54:26.238854-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:54:26.238914-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:59:26.227036-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T07:59:26.228154-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:00:26.257493-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:00:26.257948-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:04:26.276370-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:04:26.276384-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:05:26.260309-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:05:26.260453-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:06:26.265760-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:06:26.265760-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:08:26.281085-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:08:26.281112-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:13:26.296076-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:23:26.320815-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:24:26.446275-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:25:26.322183-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:25:26.322205-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+2025-11-02T08:29:26.306317-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/a518a5e3-40a2-458e-8a6b-4c119942b54f.json
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+ConversationDatabase using: /media/nate/Friday/Friday/memory_data/conversations.db
+2025-11-02T08:50:18.243072-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/9ef280fe-ddc0-43c0-a247-aab027961356.json
+2025-11-02T08:58:10.362356-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/9ef280fe-ddc0-43c0-a247-aab027961356.json
+2025-11-02T08:58:10.362797-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/9ef280fe-ddc0-43c0-a247-aab027961356.json
+2025-11-02T08:58:51.061019-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/9ef280fe-ddc0-43c0-a247-aab027961356.json
+2025-11-02T08:58:51.061095-06:00: Empty file detected: /home/nate/.config/Code/User/workspaceStorage/095e96d809d760f54179e4ea31ee5af8/chatSessions/9ef280fe-ddc0-43c0-a247-aab027961356.json

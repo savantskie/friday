@@ -8,6 +8,13 @@ while maintaining client-specific access controls.
 """
 
 import asyncio
+import logging
+
+# Configure logging first so we can use it immediately
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("Friday Memory MCP Server starting...")
 import json
 import logging
 import sqlite3
@@ -21,8 +28,6 @@ from datetime import datetime, timezone
 import time
 import warnings
 from pathlib import Path
-
-
 
 # Get the base directory dynamically - works on both Windows and Linux
 def get_base_path():
@@ -276,7 +281,7 @@ class FridayMemoryMCPServer:
             await asyncio.sleep(180)  # 3 minutes
             logger.info("⏳ Starting file monitoring and maintenance after 3 minutes...")
             try:
-                await self.memory_system.start_file_monitoring()
+                await self.memory_system._start_monitoring()
                 logger.info("✅ File monitoring started.")
             except Exception as e:
                 logger.error(f"❌ Error starting file monitoring: {e}")
@@ -511,10 +516,10 @@ class FridayMemoryMCPServer:
                 """)
                 
                 conn.commit()
-                logger.debug(f"Reminders database initialized at: {self.schedule_db_path}")
+                print(f"✅ Reminders database initialized at: {self.schedule_db_path}")
                 
         except Exception as e:
-            logger.error(f"Error initializing reminders database: {e}")
+            print(f"❌ Error initializing reminders database: {e}")
             raise
     
     def _register_handlers(self):
@@ -1101,7 +1106,7 @@ class FridayMemoryMCPServer:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (reminder_id, created_at, due_datetime, content, priority_level, 0, source_conversation_id, created_at))
                 conn.commit()
-                logger.debug(f"Reminder created with ID: {reminder_id}")
+                print(f"✅ Reminder created with ID: {reminder_id}")
                 asyncio.create_task(self._add_embedding_to_reminder(reminder_id, content))
                 return {
                     "status": "success",
@@ -1111,7 +1116,7 @@ class FridayMemoryMCPServer:
                     "priority_level": priority_level
                 }
         except Exception as e:
-            logger.error(f"Error creating reminder: {e}")
+            print(f"❌ Error creating reminder: {e}")
             return {
                 "status": "error",
                 "error": str(e)
@@ -1146,7 +1151,7 @@ class FridayMemoryMCPServer:
                     )
                     conn.commit()
         except Exception as e:
-            logger.warning(f"Could not add embedding to reminder {reminder_id}: {e}")
+            print(f"⚠️ Could not add embedding to reminder {reminder_id}: {e}")
            
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
@@ -1179,7 +1184,7 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.create_reminder(**arguments)
             # ...existing code for other tools...
             elif tool_name == "complete_reminder":
-                return await self.memory_system.complete_reminder(**arguments)
+                result = await self.memory_system.complete_reminder(**arguments)
             elif tool_name == "get_weather_open_meteo":
                 # Hard gate: ignore coords unless override=True
                 override = bool(arguments.get("override", False))
@@ -1223,19 +1228,19 @@ class FridayMemoryMCPServer:
                     severe_update=arguments.get("severe_update", False),
                 )
             elif tool_name == "reschedule_reminder":
-                return await self.memory_system.reschedule_reminder(**arguments)
+                result = await self.memory_system.reschedule_reminder(**arguments)
             elif tool_name == "get_active_reminders":
-                return await self.memory_system.get_active_reminders(**arguments)
+                result = await self.memory_system.get_active_reminders(**arguments)
             elif tool_name == "get_completed_reminders":
-                return await self.memory_system.get_completed_reminders(**arguments)
+                result = await self.memory_system.get_completed_reminders(**arguments)
             elif tool_name == "delete_reminder":
-                return await self.memory_system.delete_reminder(**arguments)
+                result = await self.memory_system.delete_reminder(**arguments)
             elif tool_name == "cancel_appointment":
-                return await self.memory_system.cancel_appointment(**arguments)
+                result = await self.memory_system.cancel_appointment(**arguments)
             elif tool_name == "complete_appointment":
-                return await self.memory_system.complete_appointment(**arguments)
+                result = await self.memory_system.complete_appointment(**arguments)
             elif tool_name == "get_upcoming_appointments":
-                return await self.memory_system.get_upcoming_appointments(**arguments)
+                result = await self.memory_system.get_upcoming_appointments(**arguments)
             elif tool_name == "search_memories":
                 result = await self.memory_system.search_memories(**arguments)
             elif tool_name == "get_reminders":
@@ -1446,27 +1451,6 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
         logger.warning(f"Failed to start HTTP server: {e}")
         return None
 
-async def _run_memory_system_with_redirected_output():
-    """Run memory system with stdout redirected to stderr for debugging output.
-    
-    This prevents the test/debug print statements from `fms.main()` from interfering
-    with MCP's JSONRPC communication on stdout, while still displaying all output.
-    """
-    import sys
-    import io
-    import friday_memory_system as fms
-    
-    old_stdout = sys.stdout
-    try:
-        # Redirect stdout to stderr so prints don't interfere with JSONRPC
-        sys.stdout = sys.stderr
-        # Force flush before and after redirect
-        sys.stderr.flush()
-        await fms.main()
-        sys.stderr.flush()
-    finally:
-        sys.stdout = old_stdout
-
 async def main():
     """Main entry point for the MCP server"""
     logger.info("Friday Memory MCP Server starting...")
@@ -1478,15 +1462,9 @@ async def main():
     mcp_server = FridayMemoryMCPServer()
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
-    
-    # Start MCP server first, THEN start background memory system tasks
-    # This ensures JSONRPC handshake completes before any prints occur
-    async def delayed_memory_start():
-        await asyncio.sleep(2)  # Wait 2 seconds for MCP handshake
-        await _run_memory_system_with_redirected_output()
-    
-    asyncio.create_task(delayed_memory_start())
-    logger.info("Memory system will start in background after MCP handshake.")
+    import friday_memory_system as fms
+    asyncio.create_task(fms.main())
+    logger.info("Memory system started in background.")
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions

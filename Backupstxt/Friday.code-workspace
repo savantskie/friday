@@ -1,0 +1,30 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../ollama_core"
+		},
+		{
+			"path": "../OpenWebUI/data"
+		}
+	],
+	"settings": {
+		"yaml.schemas": {
+			"c:\\Users\\Dad\\.vscode\\extensions\\continue.continue-1.0.19-win32-x64\\config-yaml-schema.json": [
+				".continue/**/*.yaml"
+			],
+			"c:\\Users\\Dad\\.vscode\\extensions\\continue.continue-1.1.61-win32-x64\\config-yaml-schema.json": [
+				".continue/**/*.yaml"
+			],
+			"c:\\Users\\Dad\\.vscode\\extensions\\continue.continue-1.0.17-win32-x64\\config-yaml-schema.json": [
+				".continue/**/*.yaml"
+			],
+			"c:/Users/Dad/.vscode/extensions/continue.continue-1.1.61-win32-x64/config-yaml-schema.json": "file:///c%3A/Users/Dad/.continue/config.yaml"
+		},
+		"powershell.cwd": "Friday",
+		"editor.scrollbar.horizontal": "visible",
+		"CodeGPT.apiKey": "Ollama"
+	}
+}

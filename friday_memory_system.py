@@ -2329,7 +2329,15 @@ class ConversationFileMonitor:
         self.last_mcp_check = 0  # Timestamp of last MCP server check
         self.last_processed_times = {}  # Track when files were last processed
         self.empty_files = set()  # Track files that are empty to avoid repetitive logging
+        self.blacklisted_files = set()  # Track files to permanently ignore (set manually when needed)
         self.min_process_interval = 5.0  # Minimum seconds between processing the same file to reduce CPU usage
+        self.max_file_size_mb = 50  # Maximum file size to process at once (in MB)
+        self.file_chunk_size = 1024 * 1024  # Process large files in 1MB chunks
+        
+        # File stability tracking - wait for files to stop being written before processing
+        self.file_stability_tracking = {}  # {file_path: {"size": bytes, "last_check": timestamp, "stable_count": int}}
+        self.stability_check_interval = 0.5  # How long to wait between size checks (seconds)
+        self.stability_threshold = 3  # How many consecutive stable checks before processing (1.5 seconds total)
         
         # Tool detection patterns
         self.tool_patterns = {
@@ -2938,12 +2946,91 @@ class ConversationFileMonitor:
         
         return False
     
+    async def _check_file_stability(self, file_path: str) -> bool:
+        """
+        Check if a file has stabilized (stopped being written to).
+        Returns True if file is stable and ready to process, False if still being written.
+        
+        Strategy:
+        - Track file size on each check
+        - If size hasn't changed for N consecutive checks, file is stable
+        - Add to wait_list on first detection of change
+        - Remove from wait_list when stable
+        """
+        try:
+            if not os.path.exists(file_path):
+                # File was deleted, remove from tracking
+                self.file_stability_tracking.pop(file_path, None)
+                return False
+            
+            current_size = os.path.getsize(file_path)
+            current_time = time.time()
+            
+            # First time seeing this file or it's been a while
+            if file_path not in self.file_stability_tracking:
+                self.file_stability_tracking[file_path] = {
+                    "size": current_size,
+                    "last_check": current_time,
+                    "stable_count": 0
+                }
+                logger.debug(f"Started tracking file stability for: {file_path} ({current_size} bytes)")
+                return False  # First check, not stable yet
+            
+            tracking_info = self.file_stability_tracking[file_path]
+            time_since_check = current_time - tracking_info["last_check"]
+            
+            # Too soon to check again, skip
+            if time_since_check < self.stability_check_interval:
+                return False
+            
+            # Check if file size changed
+            if current_size != tracking_info["size"]:
+                # File is being written to, reset counter
+                tracking_info["size"] = current_size
+                tracking_info["last_check"] = current_time
+                tracking_info["stable_count"] = 0
+                file_size_mb = current_size / (1024 * 1024)
+                logger.debug(f"File still growing: {file_path} ({file_size_mb:.2f}MB)")
+                return False
+            else:
+                # Size is stable, increment counter
+                tracking_info["stable_count"] += 1
+                tracking_info["last_check"] = current_time
+                
+                if tracking_info["stable_count"] >= self.stability_threshold:
+                    # File is stable!
+                    logger.info(f"File stabilized after {tracking_info['stable_count'] * self.stability_check_interval:.1f}s: {file_path} ({current_size / (1024 * 1024):.2f}MB)")
+                    return True
+                else:
+                    # Still waiting for more confirmations
+                    logger.debug(f"File size stable ({tracking_info['stable_count']}/{self.stability_threshold} checks): {file_path}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error checking file stability for {file_path}: {e}")
+            self.file_stability_tracking.pop(file_path, None)
+            return False
+    
     async def _process_file_change(self, file_path: str):
         """Process a changed conversation file"""
         try:
+            # Skip if file is blacklisted
+            if file_path in self.blacklisted_files:
+                return
+            
             # Skip if not a conversation file or doesn't exist
             if not self._is_conversation_file(file_path) or not os.path.exists(file_path):
                 return
+            
+            # Check if file is stable (not being written to) - CRITICAL FIRST CHECK
+            is_stable = await self._check_file_stability(file_path)
+            if not is_stable:
+                # File is still being written, don't process yet
+                logger.debug(f"Skipping {file_path} - file still being written to")
+                return
+            
+            # File is stable, remove from stability tracking
+            self.file_stability_tracking.pop(file_path, None)
                 
             # Check if we've processed this file recently
             current_time = time.time()
@@ -2953,6 +3040,16 @@ class ConversationFileMonitor:
             
             # Update last processed time before we start processing
             self.last_processed_times[file_path] = current_time
+            
+            # Check file size and warn if very large
+            try:
+                file_size_bytes = os.path.getsize(file_path)
+                file_size_mb = file_size_bytes / (1024 * 1024)
+                
+                if file_size_mb > self.max_file_size_mb:
+                    logger.warning(f"Large file detected: {file_path} ({file_size_mb:.2f}MB) - processing with progressive reads to prevent memory issues")
+            except Exception as e:
+                logger.error(f"Failed to check file size for {file_path}: {e}")
             
             # Calculate file hash and read content with better error handling
             try:
@@ -3033,6 +3130,73 @@ class ConversationFileMonitor:
         except Exception as e:
             logger.error(f"Error importing conversation from {file_path}: {e}")
     
+    async def _read_large_json_progressively(self, file_path: str, chunk_size_mb: int = 10):
+        """Read and parse large JSON files progressively to prevent memory exhaustion
+        
+        Args:
+            file_path: Path to the JSON file
+            chunk_size_mb: Size of chunks to read at a time (in MB)
+            
+        Returns:
+            Parsed JSON object or None if file is too corrupted
+        """
+        try:
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            
+            # For files larger than chunk_size, read and validate incrementally
+            if file_size_mb > chunk_size_mb:
+                logger.info(f"Reading large file progressively: {file_path} ({file_size_mb:.2f}MB)")
+                
+                # First, try to read entire file and parse it
+                # If it fails, we'll have already logged the issue
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    
+                    # Try to parse - if valid JSON, return it
+                    data = json.loads(content)
+                    logger.info(f"Successfully parsed large JSON file: {file_path}")
+                    return data
+                    
+                except json.JSONDecodeError as e:
+                    # Try to recover by finding the last complete JSON object
+                    logger.warning(f"JSON parsing failed for {file_path}, attempting recovery from partial JSON")
+                    
+                    # Find the last complete object by scanning backward
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    
+                    # Try to find last complete JSON array/object
+                    for end_pos in range(len(content) - 1, max(len(content) - 100000, 0), -1):
+                        try_content = content[:end_pos]
+                        
+                        # Try to complete the JSON structure
+                        if try_content.count('[') > try_content.count(']'):
+                            test_str = try_content + ']'
+                        elif try_content.count('{') > try_content.count('}'):
+                            test_str = try_content + '}'
+                        else:
+                            test_str = try_content
+                        
+                        try:
+                            data = json.loads(test_str)
+                            logger.info(f"Recovered JSON from {file_path} - recovered {end_pos}/{len(content)} bytes")
+                            return data
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    # If we couldn't recover, log and return None
+                    logger.error(f"Could not recover valid JSON from {file_path} - file may be corrupted")
+                    return None
+            else:
+                # Small file, read normally
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+                    
+        except Exception as e:
+            logger.error(f"Error reading large JSON file {file_path}: {e}")
+            return None
+
     async def _import_vscode_chat_session(self, file_path: str, content: str, mcp_running: bool = False):
         """Import a VS Code chat session file (Copilot format) with duplicate prevention"""
         try:
@@ -3041,57 +3205,67 @@ class ConversationFileMonitor:
                 logger.warning(f"Empty or whitespace-only VS Code chat session file: {file_path}")
                 return
             
-            try:
-                # Keep trying until we get valid JSON - monitor file writes
-                retry_delay = 0.5  # Start with 500ms
-                attempt = 0
-                
-                while True:
-                    attempt += 1
-                    try:
-                        data = json.loads(content)
-                        logger.debug(f"Successfully parsed JSON data after {attempt} attempts: {json.dumps(data, indent=2)[:500]}...")
-                        break
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"JSON parse failed on attempt {attempt} for {file_path}: {e}. File likely being written...")
-                        
-                        # Wait for file to stabilize - check if size is changing
+            # For very large files, use progressive reader
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if file_size_mb > 30:  # > 30MB, use progressive reader
+                logger.info(f"Large VS Code chat file detected ({file_size_mb:.2f}MB), using progressive reader")
+                data = await self._read_large_json_progressively(file_path)
+                if not data:
+                    logger.error(f"Failed to read large VS Code chat file: {file_path}")
+                    return
+            else:
+                # Regular path for smaller files
+                try:
+                    # Keep trying until we get valid JSON - monitor file writes
+                    retry_delay = 0.5  # Start with 500ms
+                    attempt = 0
+                    
+                    while True:
+                        attempt += 1
                         try:
-                            initial_size = os.path.getsize(file_path)
-                            await asyncio.sleep(retry_delay)
-                            new_size = os.path.getsize(file_path)
+                            data = json.loads(content)
+                            logger.debug(f"Successfully parsed JSON data after {attempt} attempts: {json.dumps(data, indent=2)[:500]}...")
+                            break
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"JSON parse failed on attempt {attempt} for {file_path}: {e}. File likely being written...")
                             
-                            if initial_size == new_size:
-                                # File size stable, re-read and try again
-                                with open(file_path, 'r', encoding='utf-8') as f:
-                                    content = f.read()
-                            else:
-                                # File still growing, wait longer
-                                logger.info(f"File {file_path} still growing ({initial_size} -> {new_size} bytes), waiting...")
+                            # Wait for file to stabilize - check if size is changing
+                            try:
+                                initial_size = os.path.getsize(file_path)
                                 await asyncio.sleep(retry_delay)
-                                with open(file_path, 'r', encoding='utf-8') as f:
-                                    content = f.read()
-                        except Exception as file_error:
-                            logger.error(f"Error monitoring file {file_path}: {file_error}")
-                            await asyncio.sleep(retry_delay)
+                                new_size = os.path.getsize(file_path)
+                                
+                                if initial_size == new_size:
+                                    # File size stable, re-read and try again
+                                    with open(file_path, 'r', encoding='utf-8') as f:
+                                        content = f.read()
+                                else:
+                                    # File still growing, wait longer
+                                    logger.info(f"File {file_path} still growing ({initial_size} -> {new_size} bytes), waiting...")
+                                    await asyncio.sleep(retry_delay)
+                                    with open(file_path, 'r', encoding='utf-8') as f:
+                                        content = f.read()
+                            except Exception as file_error:
+                                logger.error(f"Error monitoring file {file_path}: {file_error}")
+                                await asyncio.sleep(retry_delay)
+                                
+                            # After 10 attempts, increase delay but keep trying
+                            if attempt > 10 and attempt % 10 == 0:
+                                retry_delay = min(retry_delay * 1.5, 30)  # Cap at 30 seconds
+                                logger.info(f"After {attempt} attempts, increasing retry delay to {retry_delay}s for {file_path}")
                             
-                        # After 10 attempts, increase delay but keep trying
-                        if attempt > 10 and attempt % 10 == 0:
-                            retry_delay = min(retry_delay * 1.5, 30)  # Cap at 30 seconds
-                            logger.info(f"After {attempt} attempts, increasing retry delay to {retry_delay}s for {file_path}")
-                        
-                        # Never give up, but log progress
-                        if attempt % 50 == 0:
-                            logger.info(f"Still trying to parse {file_path} after {attempt} attempts. File size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'unknown'} bytes")
-            except json.JSONDecodeError as e:
-                # Log the problematic content for debugging
-                logger.error(f"Invalid JSON in VS Code chat session {file_path}. Content preview: {content[:100]}...")
-                logger.debug(f"Full content that caused JSON error: {content}")
-                raise
-            except Exception as e:
-                logger.error(f"Unexpected error parsing VS Code chat session: {str(e)}")
-                logger.debug(f"Content that caused error: {content[:500]}...")
-                raise
+                            # Never give up, but log progress
+                            if attempt % 50 == 0:
+                                logger.info(f"Still trying to parse {file_path} after {attempt} attempts. File size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'unknown'} bytes")
+                except json.JSONDecodeError as e:
+                    # Log the problematic content for debugging
+                    logger.error(f"Invalid JSON in VS Code chat session {file_path}. Content preview: {content[:100]}...")
+                    logger.debug(f"Full content that caused JSON error: {content}")
+                    raise
+                except Exception as e:
+                    logger.error(f"Unexpected error parsing VS Code chat session: {str(e)}")
+                    logger.debug(f"Content that caused error: {content[:500]}...")
+                    raise
             
             # Create a consistent session ID based on the file path and initial metadata
             file_session_id = hashlib.md5(f"vscode:{file_path}".encode()).hexdigest()
@@ -6479,27 +6653,27 @@ async def main():
     
     memory = FridayMemorySystem(enable_file_monitoring=True)
     
-    print("=== Testing Friday Memory System with File Monitoring ===\n")
+    logger.warning("=== Testing Friday Memory System with File Monitoring ===\n")
     
     # First test basic database operations
-    print("1. Testing basic storage operations...")
+    logger.warning("1. Testing basic storage operations...")
     
     # Test storing conversations manually
-    print("\n2. Storing initial conversations...")
+    logger.warning("\n2. Storing initial conversations...")
     conv1 = await memory.store_conversation(
         content="I prefer detailed technical explanations when discussing programming concepts",
         role="user"
     )
-    print(f"Stored conversation: {conv1['message_id']}")
+    logger.warning(f"Stored conversation: {conv1['message_id']}")
     
     conv2 = await memory.store_conversation(
         content="Could you explain how semantic search works with embeddings?",
         role="user"
     )
-    print(f"Stored conversation: {conv2['message_id']}")
+    logger.warning(f"Stored conversation: {conv2['message_id']}")
     
     # Test creating memories
-    print("\n3. Creating curated memories...")
+    logger.warning("\n3. Creating curated memories...")
     memory1 = await memory.create_memory(
         content="User enjoys deep technical discussions about AI and machine learning",
         memory_type="preference",
@@ -6507,7 +6681,7 @@ async def main():
         tags=["user_preference", "technical", "ai"],
         source_conversation_id=conv1["conversation_id"]
     )
-    print(f"Created memory: {memory1['memory_id']}")
+    logger.warning(f"Created memory: {memory1['memory_id']}")
     
     memory2 = await memory.create_memory(
         content="User is building a persistent memory system for AI assistant with file monitoring",
@@ -6515,33 +6689,33 @@ async def main():
         importance_level=9,
         tags=["project", "memory_system", "ai_assistant", "file_monitoring"]
     )
-    print(f"Created memory: {memory2['memory_id']}")
+    logger.warning(f"Created memory: {memory2['memory_id']}")
     
     # Test appointments and reminders
-    print("\n4. Creating schedule items...")
+    logger.warning("\n4. Creating schedule items...")
     appointment = await memory.create_appointment(
         title="Review AI memory system implementation",
         scheduled_datetime="2025-08-03T10:00:00Z",
         description="Go through the semantic search functionality and test file monitoring"
     )
-    print(f"Created appointment: {appointment}")
+    logger.warning(f"Created appointment: {appointment}")
     
     reminder = await memory.create_reminder(
         content="Test the MCP server integration with LM Studio and file monitoring",
         due_datetime="2025-08-03T14:00:00Z",
         priority_level=8
     )
-    print(f"Created reminder: {reminder}")
+    logger.warning(f"Created reminder: {reminder}")
     
     # Test VS Code project tracking
-    print("\n5. Testing VS Code project features...")
+    logger.warning("\n5. Testing VS Code project features...")
     session = await memory.save_development_session(
         workspace_path=str(get_base_path()),
         active_files=["friday_memory_system.py", "friday_memory_mcp_server.py"],
         git_branch="main",
         session_summary="Implementing file monitoring and semantic search for memory system"
     )
-    print(f"Saved development session: {session['session_id']}")
+    logger.warning(f"Saved development session: {session['session_id']}")
     
     insight = await memory.store_project_insight(
         content="Added file monitoring system to automatically capture conversations from LM Studio and VS Code chat files",
@@ -6549,64 +6723,64 @@ async def main():
         related_files=["friday_memory_system.py", "friday_memory_mcp_server.py"],
         importance_level=9
     )
-    print(f"Stored project insight: {insight['insight_id']}")
+    logger.warning(f"Stored project insight: {insight['insight_id']}")
     
     # Wait a moment for embeddings to be generated (in real use, this happens in background)
-    print("\n6. Waiting for embeddings to be generated...")
+    logger.warning("\n6. Waiting for embeddings to be generated...")
     await asyncio.sleep(2)
     
     # Test semantic search
-    print("\n7. Testing semantic search...")
+    logger.warning("\n7. Testing semantic search...")
     
     # Search for user preferences
     search1 = await memory.search_memories("user likes technical details", limit=3)
-    print(f"Search 'user likes technical details': Found {search1['count']} results")
+    logger.warning(f"Search 'user likes technical details': Found {search1['count']} results")
     for result in search1['results']:
-        print(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
+        logger.warning(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
     
     # Search for project-related content
     search2 = await memory.search_memories("memory system project file monitoring", limit=3)
-    print(f"\nSearch 'memory system project file monitoring': Found {search2['count']} results")
+    logger.warning(f"\nSearch 'memory system project file monitoring': Found {search2['count']} results")
     for result in search2['results']:
-        print(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
+        logger.warning(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
     
     # Search project history
     project_search = await memory.search_project_history("file monitoring architecture decisions")
-    print(f"\nProject search 'file monitoring architecture': Found {project_search['count']} results")
+    logger.warning(f"\nProject search 'file monitoring architecture': Found {project_search['count']} results")
     for result in project_search['results']:
-        print(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
+        logger.warning(f"  - {result['type']}: {result.get('similarity_score', 'N/A'):.3f} similarity")
     
     # Test project continuity
     continuity = await memory.get_project_continuity(str(get_base_path()))
-    print(f"\nProject continuity data: {len(continuity['continuity_data']['recent_sessions'])} sessions, "
+    logger.warning(f"\nProject continuity data: {len(continuity['continuity_data']['recent_sessions'])} sessions, "
           f"{len(continuity['continuity_data']['important_insights'])} important insights")
     
-    print("\n8. Starting file monitoring...")
+    logger.warning("\n8. Starting file monitoring...")
     # Now that all other systems are initialized and tested, start file monitoring
-    await memory.start_file_monitoring()
+    await memory._start_monitoring()
     
-    print("   File monitoring is now starting...")
-    print("   The system will automatically detect and import conversations from:")
-    print("   - VS Code chat sessions")
-    print("   - LM Studio conversations")
-    print("   - Ollama conversations")
-    print("   - OpenWebUI Conversations")
+    logger.warning("   File monitoring is now starting...")
+    logger.warning("   The system will automatically detect and import conversations from:")
+    logger.warning("   - VS Code chat sessions")
+    logger.warning("   - LM Studio conversations")
+    logger.warning("   - Ollama conversations")
+    logger.warning("   - OpenWebUI Conversations")
     
-    print("\n9. Cleaning up test data...")
+    logger.warning("\n9. Cleaning up test data...")
     
     # Delete the test reminder we created
     try:
         cleanup_result = await memory.delete_reminder(reminder['reminder_id'])
-        print(f"   Deleted test reminder: {cleanup_result['message']}")
+        logger.warning(f"   Deleted test reminder: {cleanup_result['message']}")
     except Exception as e:
-        print(f"   Failed to delete test reminder: {e}")
+        logger.warning(f"   Failed to delete test reminder: {e}")
     
     # Cancel the test appointment we created  
     try:
         cleanup_result = await memory.cancel_appointment(appointment['appointment_id'])
-        print(f"   Cancelled test appointment: {cleanup_result['message']}")
+        logger.warning(f"   Cancelled test appointment: {cleanup_result['message']}")
     except Exception as e:
-        print(f"   Failed to cancel test appointment: {e}")
+        logger.warning(f"   Failed to cancel test appointment: {e}")
     
     # Delete the test memories we created
     try:
@@ -6619,14 +6793,14 @@ async def main():
             "DELETE FROM curated_memories WHERE memory_id = ?", 
             (memory2['memory_id'],)
         )
-        print(f"   Deleted test memories")
+        logger.warning(f"   Deleted test memories")
     except Exception as e:
-        print(f"   Failed to delete test memories: {e}")
+        logger.warning(f"   Failed to delete test memories: {e}")
     
-    print("   Test data cleanup complete!")
+    logger.warning("   Test data cleanup complete!")
     
-    print("\n=== Memory System Test Complete ===")
-    print("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")
+    logger.warning("\n=== Memory System Test Complete ===")
+    logger.warning("Note: System is fully initialized and file monitoring is now active. Press Ctrl+C to stop.")
     
     try:
         # Keep the program running to demonstrate file monitoring
@@ -6634,9 +6808,9 @@ async def main():
             await asyncio.sleep(10)
             # You could add periodic status updates here
     except KeyboardInterrupt:
-        print("\nStopping file monitoring...")
+        logger.warning("\nStopping file monitoring...")
         await memory.stop_file_monitoring()
-        print("File monitoring stopped. Goodbye!")
+        logger.warning("File monitoring stopped. Goodbye!")
 
 
 if __name__ == "__main__":
@@ -6649,28 +6823,28 @@ if __name__ == "__main__":
         # Initialize the memory system with file monitoring enabled
         memory_system = FridayMemorySystem(enable_file_monitoring=True)
         
-        print("🧠 Friday Memory System - Test with File Monitoring")
-        print("=" * 60)
+        logger.warning("🧠 Friday Memory System - Test with File Monitoring")
+        logger.warning("=" * 60)
         
         # Start file monitoring
-        print("\n📁 Starting file monitoring...")
-        await memory_system.start_file_monitoring()
+        logger.warning("\n📁 Starting file monitoring...")
+        await memory_system._start_monitoring()
         
-        print("\n📂 Monitoring these directories:")
+        logger.warning("\n📂 Monitoring these directories:")
         if memory_system.file_monitor:
             all_dirs = memory_system.file_monitor.watch_directories + memory_system.file_monitor.default_directories
             for directory in all_dirs:
-                print(f"  • {directory}")
+                logger.warning(f"  • {directory}")
         
         # Test basic memory operations
-        print("\n💭 Testing basic memory operations...")
+        logger.warning("\n💭 Testing basic memory operations...")
         
         # Store a conversation
         result = await memory_system.store_conversation(
             content="Hello, we are testing the Friday memory system with file monitoring!",
             role="user"
         )
-        print(f"✅ Stored conversation: {result['message_id']}")
+        logger.warning(f"✅ Stored conversation: {result['message_id']}")
         
         # Create an AI memory
         memory_result = await memory_system.create_memory(
@@ -6679,7 +6853,7 @@ if __name__ == "__main__":
             importance_level=7,
             tags=["test", "file_monitoring", "conversation_capture"]
         )
-        print(f"✅ Created AI memory: {memory_result['memory_id']}")
+        logger.warning(f"✅ Created AI memory: {memory_result['memory_id']}")
         
         # Create a reminder
         reminder_result = await memory_system.create_reminder(
@@ -6687,31 +6861,31 @@ if __name__ == "__main__":
             due_datetime="2025-08-03T12:00:00Z",
             priority_level=8
         )
-        print(f"✅ Created reminder: {reminder_result['reminder_id']}")
+        logger.warning(f"✅ Created reminder: {reminder_result['reminder_id']}")
         
         # Get recent context
         context = await memory_system.get_recent_context(limit=3)
-        print(f"\n📜 Recent context ({context['count']} messages):")
+        logger.warning(f"\n📜 Recent context ({context['count']} messages):")
         for msg in context['messages']:
-            print(f"  • [{msg['role']}] {msg['content'][:50]}...")
+            logger.warning(f"  • [{msg['role']}] {msg['content'][:50]}...")
         
-        print(f"\n🔍 File monitoring status:")
-        print(f"  • Monitoring enabled: {memory_system.file_monitor is not None}")
+        logger.warning(f"\n🔍 File monitoring status:")
+        logger.warning(f"  • Monitoring enabled: {memory_system.file_monitor is not None}")
         if memory_system.file_monitor:
-            print(f"  • Active observers: {len(memory_system.file_monitor.observers)}")
-            print(f"  • Processed files: {len(memory_system.file_monitor.processed_files)}")
+            logger.warning(f"  • Active observers: {len(memory_system.file_monitor.observers)}")
+            logger.warning(f"  • Processed files: {len(memory_system.file_monitor.processed_files)}")
         
-        print(f"\n💡 To test file monitoring:")
-        print(f"  1. Have a conversation in VS Code Copilot Chat")
-        print(f"  2. The conversation should be automatically captured")
-        print(f"  3. Check the logs for import messages")
+        logger.warning(f"\n💡 To test file monitoring:")
+        logger.warning(f"  1. Have a conversation in VS Code Copilot Chat")
+        logger.warning(f"  2. The conversation should be automatically captured")
+        logger.warning(f"  3. Check the logs for import messages")
         
         # Keep monitoring for a bit to catch any existing files
-        print(f"\n⏳ Monitoring for 10 seconds to catch any existing conversations...")
+        logger.warning(f"\n⏳ Monitoring for 10 seconds to catch any existing conversations...")
         await asyncio.sleep(10)
         
         # Stop file monitoring
-        print(f"\n🛑 Stopping file monitoring...")
+        logger.warning(f"\n🛑 Stopping file monitoring...")
         await memory_system.stop_file_monitoring()
         
-        print(f"\n✅ Test completed!")
+        logger.warning(f"\n✅ Test completed!")
