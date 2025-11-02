@@ -60,7 +60,6 @@ def datetime_to_local_isoformat(dt: datetime) -> str:
     return dt.astimezone(get_local_timezone()).isoformat()
 import hashlib
 from utils import parse_timestamp
-from database_maintenance import DatabaseMaintenance
 
 # Configure logging with minimal output
 logging.basicConfig(level=logging.WARNING)
@@ -4297,23 +4296,9 @@ class FridayMemorySystem:
         self.mcp_db = MCPToolCallDatabase(str(memory_data_path / "mcp_tool_calls.db"))
         self.workspace_path = Path(self.workspace_path) if isinstance(self.workspace_path, str) else self.workspace_path
         self.data_dir = Path(self.workspace_path) / "memory_data"
-        self.memory_data_path = self.data_dir  # Alias for compatibility with multi-DB discovery
         self.data_dir.mkdir(parents=True, exist_ok=True)
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
-        
-        # Initialize database maintenance manager (handles rotation, discovery, etc.)
-        self.db_maintenance = DatabaseMaintenance(self, memory_data_path=str(memory_data_path))
-        
-        # Registry for active database files per type
-        # This tracks which DB file to write to (rotates when limit reached)
-        self.active_db_files = {
-            "conversations": str(memory_data_path / "conversations.db"),
-            "ai_memories": str(memory_data_path / "ai_memories.db"),
-            "schedule": str(memory_data_path / "schedule.db"),
-            "mcp_tool_calls": str(memory_data_path / "mcp_tool_calls.db"),
-            "vscode_project": str(memory_data_path / "vscode_project.db")
-        }
         
         # Initialize file monitoring (but do NOT start yet)
         self.file_monitor = None
@@ -5773,206 +5758,98 @@ class FridayMemorySystem:
         }
     
     async def _search_conversations(self, query_embedding: List[float], limit: int) -> List[Dict]:
-        """Search conversation messages using semantic similarity across ALL conversation databases"""
+        """Search conversation messages using semantic similarity"""
         
-        # Discover all conversation databases (current + sharded)
-        conv_db_paths = await self._discover_sharded_databases("conversations")
+        # Get all messages with embeddings
+        query = """
+            SELECT message_id, conversation_id, timestamp, role, content, metadata, embedding
+            FROM messages 
+            WHERE embedding IS NOT NULL
+            ORDER BY timestamp DESC
+            LIMIT 1000
+        """
         
-        if not conv_db_paths:
-            logger.warning("No conversation databases found")
-            return []
+        rows = await self.conversations_db.execute_query(query)
+        results = []
         
-        logger.debug(f"Searching across {len(conv_db_paths)} conversation database(s)")
-        
-        all_results = []
-        seen_message_ids = set()  # Deduplication across databases
-        
-        # Query each conversation database in parallel
-        tasks = []
-        for db_path in conv_db_paths:
-            task = self._search_single_conversation_db(db_path, query_embedding)
-            tasks.append(task)
-        
-        db_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Merge results from all databases
-        for result in db_results:
-            if isinstance(result, Exception):
-                logger.error(f"Error searching conversation DB: {result}")
-                continue
-            
-            for msg_result in result:
-                msg_id = msg_result["data"]["message_id"]
-                if msg_id not in seen_message_ids:
-                    all_results.append(msg_result)
-                    seen_message_ids.add(msg_id)
+        for row in rows:
+            if row["embedding"]:
+                # Convert binary embedding back to float array
+                stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
+                similarity = self._calculate_cosine_similarity(query_embedding, stored_embedding)
+                
+                if similarity > 0.3:  # Threshold for relevance
+                    result = {
+                        "type": "conversation",
+                        "similarity_score": similarity,
+                        "data": {
+                            "message_id": row["message_id"],
+                            "conversation_id": row["conversation_id"],
+                            "timestamp": row["timestamp"],
+                            "role": row["role"],
+                            "content": row["content"],
+                            "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                        }
+                    }
+                    results.append(result)
         
         # Sort by similarity and return top results
-        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        return all_results[:limit]
-    
-    async def _search_single_conversation_db(self, db_path: str, query_embedding: List[float]) -> List[Dict]:
-        """Search a single conversation database"""
-        
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            query = """
-                SELECT message_id, conversation_id, timestamp, role, content, metadata, embedding
-                FROM messages 
-                WHERE embedding IS NOT NULL
-                ORDER BY timestamp DESC
-                LIMIT 1000
-            """
-            
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            conn.close()
-            
-            results = []
-            for row in rows:
-                if row["embedding"]:
-                    try:
-                        # Convert binary embedding back to float array
-                        stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
-                        similarity = self._calculate_cosine_similarity(query_embedding, stored_embedding)
-                        
-                        if similarity > 0.3:  # Threshold for relevance
-                            result = {
-                                "type": "conversation",
-                                "similarity_score": similarity,
-                                "data": {
-                                    "message_id": row["message_id"],
-                                    "conversation_id": row["conversation_id"],
-                                    "timestamp": row["timestamp"],
-                                    "role": row["role"],
-                                    "content": row["content"],
-                                    "metadata": json.loads(row["metadata"]) if row["metadata"] else None
-                                }
-                            }
-                            results.append(result)
-                    except Exception as e:
-                        logger.error(f"Error processing row from {Path(db_path).name}: {e}")
-                        continue
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error searching conversation DB {db_path}: {e}")
-            return []
+        results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return results[:limit]
     
     async def _search_ai_memories(self, query_embedding: List[float], limit: int,
                                 min_importance: int = None, max_importance: int = None,
                                 memory_type: str = None) -> List[Dict]:
-        """Search AI curated memories using semantic similarity with importance filtering across ALL memory databases"""
+        """Search AI curated memories using semantic similarity with importance filtering"""
         
-        # Discover all AI memory databases (current + sharded)
-        memory_db_paths = await self._discover_sharded_databases("ai_memories")
+        # Build SQL query with optional filters
+        sql = "SELECT memory_id, timestamp_created, timestamp_updated, source_conversation_id, memory_type, content, importance_level, tags, embedding FROM curated_memories WHERE embedding IS NOT NULL"
+        params = []
         
-        if not memory_db_paths:
-            logger.warning("No AI memory databases found")
-            return []
-        
-        logger.debug(f"Searching across {len(memory_db_paths)} AI memory database(s)")
-        
-        all_results = []
-        seen_memory_ids = set()  # Deduplication across databases
-        
-        # Query each memory database in parallel
-        tasks = []
-        for db_path in memory_db_paths:
-            task = self._search_single_ai_memory_db(
-                db_path, query_embedding, min_importance, max_importance, memory_type
-            )
-            tasks.append(task)
-        
-        db_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Merge results from all databases
-        for result in db_results:
-            if isinstance(result, Exception):
-                logger.error(f"Error searching AI memory DB: {result}")
-                continue
+        if min_importance is not None:
+            sql += " AND importance_level >= ?"
+            params.append(min_importance)
             
-            for mem_result in result:
-                mem_id = mem_result["data"]["memory_id"]
-                if mem_id not in seen_memory_ids:
-                    all_results.append(mem_result)
-                    seen_memory_ids.add(mem_id)
+        if max_importance is not None:
+            sql += " AND importance_level <= ?"
+            params.append(max_importance)
+            
+        if memory_type is not None:
+            sql += " AND memory_type = ?"
+            params.append(memory_type)
+        
+        rows = await self.ai_memory_db.execute_query(sql, params)
+        results = []
+        
+        for row in rows:
+            if row["embedding"]:
+                stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
+                similarity = self._calculate_cosine_similarity(query_embedding, stored_embedding)
+                
+                if similarity > 0.3:  # Threshold for relevance
+                    result = {
+                        "type": "ai_memory",
+                        "similarity_score": similarity,
+                        "data": {
+                            "memory_id": row["memory_id"],
+                            "timestamp_created": row["timestamp_created"],
+                            "timestamp_updated": row["timestamp_updated"],
+                            "source_conversation_id": row["source_conversation_id"],
+                            "memory_type": row["memory_type"],
+                            "content": row["content"],
+                            "importance_level": row["importance_level"],
+                            "tags": json.loads(row["tags"]) if row["tags"] else None
+                        }
+                    }
+                    results.append(result)
         
         # Boost results based on importance level
-        for result in all_results:
+        for result in results:
             importance_boost = result["data"]["importance_level"] / 10.0 * 0.1
             result["similarity_score"] += importance_boost
         
-        # Sort by similarity and return top results
-        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        return all_results[:limit]
-    
-    async def _search_single_ai_memory_db(self, db_path: str, query_embedding: List[float],
-                                        min_importance: int = None, max_importance: int = None,
-                                        memory_type: str = None) -> List[Dict]:
-        """Search a single AI memory database"""
-        
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Build SQL query with optional filters
-            sql = "SELECT memory_id, timestamp_created, timestamp_updated, source_conversation_id, memory_type, content, importance_level, tags, embedding FROM curated_memories WHERE embedding IS NOT NULL"
-            params = []
-            
-            if min_importance is not None:
-                sql += " AND importance_level >= ?"
-                params.append(min_importance)
-                
-            if max_importance is not None:
-                sql += " AND importance_level <= ?"
-                params.append(max_importance)
-                
-            if memory_type is not None:
-                sql += " AND memory_type = ?"
-                params.append(memory_type)
-            
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-            conn.close()
-            
-            results = []
-            for row in rows:
-                if row["embedding"]:
-                    try:
-                        stored_embedding = np.frombuffer(row["embedding"], dtype=np.float32).tolist()
-                        similarity = self._calculate_cosine_similarity(query_embedding, stored_embedding)
-                        
-                        if similarity > 0.3:  # Threshold for relevance
-                            result = {
-                                "type": "ai_memory",
-                                "similarity_score": similarity,
-                                "data": {
-                                    "memory_id": row["memory_id"],
-                                    "timestamp_created": row["timestamp_created"],
-                                    "timestamp_updated": row["timestamp_updated"],
-                                    "source_conversation_id": row["source_conversation_id"],
-                                    "memory_type": row["memory_type"],
-                                    "content": row["content"],
-                                    "importance_level": row["importance_level"],
-                                    "tags": json.loads(row["tags"]) if row["tags"] else None
-                                }
-                            }
-                            results.append(result)
-                    except Exception as e:
-                        logger.error(f"Error processing row from {Path(db_path).name}: {e}")
-                        continue
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error searching AI memory DB {db_path}: {e}")
-            return []
+        results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return results[:limit]
     
     async def _search_schedule(self, query_embedding: List[float], limit: int) -> List[Dict]:
         """Search appointments and reminders using semantic similarity"""
@@ -6043,53 +5920,6 @@ class FridayMemorySystem:
         
         results.sort(key=lambda x: x["similarity_score"], reverse=True)
         return results[:limit]
-    
-    async def _discover_sharded_databases(self, db_type: str) -> List[str]:
-        """
-        Discover all database files for a given type (current + all sharded versions).
-        
-        For "conversations": finds conversations.db, conversations_2025-08.db, conversations_2025-09.db, etc
-        For "ai_memories": finds ai_memories.db, ai_memories_202508.db, etc
-        For others: finds their current and sharded versions
-        
-        Returns: List of full paths to all matching database files, sorted by recency
-        """
-        try:
-            db_paths = []
-            memory_data_path = Path(self.memory_data_path)
-            
-            # Pattern matching based on db_type
-            if db_type == "conversations":
-                patterns = [
-                    f"{db_type}.db",
-                    f"{db_type}_*.db"  # conversations_2025-08.db, conversations_2025-08_20251102.db
-                ]
-            else:
-                patterns = [
-                    f"{db_type}.db",
-                    f"{db_type}_*.db"  # ai_memories_202508.db, mcp_tool_calls_202511.db, etc
-                ]
-            
-            # Scan for matching files
-            for pattern in patterns:
-                matching_files = list(memory_data_path.glob(pattern))
-                for file_path in matching_files:
-                    if file_path.is_file() and file_path.stat().st_size > 0:
-                        db_paths.append(str(file_path))
-            
-            if not db_paths:
-                logger.debug(f"No databases found for type {db_type}")
-                return []
-            
-            # Sort by modification time (newest first) for multi-DB queries
-            db_paths.sort(key=lambda x: Path(x).stat().st_mtime, reverse=True)
-            
-            logger.debug(f"Discovered {len(db_paths)} database(s) for {db_type}: {[Path(p).name for p in db_paths]}")
-            return db_paths
-            
-        except Exception as e:
-            logger.error(f"Error discovering sharded databases for {db_type}: {e}")
-            return []
     
     def _calculate_cosine_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Calculate cosine similarity between two embeddings"""
@@ -6213,52 +6043,6 @@ class FridayMemorySystem:
             "search_type": "text_based",
             "note": "Used text-based search (embeddings unavailable)"
         }
-    
-    # Helper methods for embedding management
-    async def _check_and_handle_db_rotation(self, db_type: str) -> None:
-        """
-        Check if a database needs rotation, and if so, update the active DB registry.
-        
-        Called before writes to ensure we're always writing to the current active DB.
-        
-        Args:
-            db_type: Type of database (e.g., "conversations", "mcp_tool_calls")
-        """
-        try:
-            # Check if rotation is needed and perform it if necessary
-            rotation_result = await self.db_maintenance.check_and_rotate_if_needed(db_type)
-            
-            # If rotation happened, update our active DB registry
-            if rotation_result["status"] == "rotated":
-                new_db_path = rotation_result["new_db_path"]
-                self.active_db_files[db_type] = new_db_path
-                logger.warning(f"✅ Updated active DB for {db_type}: {Path(new_db_path).name}")
-                
-            elif rotation_result["status"] == "error":
-                logger.error(f"⚠️  Error checking rotation for {db_type}: {rotation_result['error']}")
-                # Continue anyway - don't let rotation issues block normal operations
-                
-        except Exception as e:
-            logger.error(f"Error in database rotation check: {e}")
-            # Continue with current DB - don't block writes on rotation errors
-    
-    async def get_active_db_path(self, db_type: str) -> str:
-        """
-        Get the currently active database path for a given type.
-        
-        Performs rotation check first to ensure we return the most current DB.
-        
-        Args:
-            db_type: Type of database
-        
-        Returns:
-            Path to the active database file
-        """
-        # Check and rotate if needed
-        await self._check_and_handle_db_rotation(db_type)
-        
-        # Return current active DB
-        return self.active_db_files.get(db_type, "")
     
     # Helper methods for embedding management
     async def _add_embedding_to_message(self, message_id: str, content: str):
