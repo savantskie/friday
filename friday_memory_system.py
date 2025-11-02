@@ -58,8 +58,6 @@ def datetime_to_local_isoformat(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=get_local_timezone())
     return dt.astimezone(get_local_timezone()).isoformat()
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 import hashlib
 from utils import parse_timestamp
 
@@ -4082,7 +4080,7 @@ class FridayMemorySystem:
     async def background_main(self):
         # Start maintenance loop, file monitoring, etc.
         await self.run_database_maintenance()
-        await self.start_file_monitoring()
+        await self._start_monitoring()
         # ...other background tasks as needed...
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get recent appointments from the schedule database"""
@@ -4786,14 +4784,6 @@ class FridayMemorySystem:
                 logger.error(f"Error starting file monitoring: {e}")
         self.ensure_all_memory_databases_ready()
         
-    async def start_file_monitoring(self):
-        """Start monitoring conversation files (manual start if needed)"""
-        # Only clear the file processing cache to allow reprocessing while maintaining timestamps
-        if self.file_monitor:
-            self.file_monitor.processed_files.clear()
-            logger.info("Cleared processed files cache for fresh start")
-        await self._start_monitoring()
-    
     async def stop_file_monitoring(self):
         """Stop monitoring conversation files"""
         if self.file_monitor:
