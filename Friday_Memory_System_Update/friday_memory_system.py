@@ -4255,8 +4255,26 @@ class FridayMemorySystem:
     async def background_main(self):
         # Start maintenance loop, file monitoring, etc.
         await self.run_database_maintenance()
+        # Start periodic maintenance in background (every 24 hours)
+        asyncio.create_task(self._periodic_maintenance_loop())
         await self._start_monitoring()
         # ...other background tasks as needed...
+    
+    async def _periodic_maintenance_loop(self):
+        """Run database maintenance periodically every 24 hours"""
+        while True:
+            try:
+                # Wait 24 hours before running maintenance again
+                await asyncio.sleep(86400)  # 86400 seconds = 24 hours
+                logger.info("⏰ Running periodic database maintenance...")
+                await self.run_database_maintenance()
+            except asyncio.CancelledError:
+                logger.info("Periodic maintenance loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in periodic maintenance loop: {e}")
+                # Continue the loop even if maintenance fails
+    
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
         """Get recent appointments from the schedule database"""
         result = await self.schedule_db.get_appointments(limit, days_ahead)
@@ -6971,11 +6989,12 @@ async def main():
     logger.warning(f"\nProject continuity data: {len(continuity['continuity_data']['recent_sessions'])} sessions, "
           f"{len(continuity['continuity_data']['important_insights'])} important insights")
     
-    logger.warning("\n8. Starting file monitoring...")
-    # Now that all other systems are initialized and tested, start file monitoring
-    await memory._start_monitoring()
+    logger.warning("\n8. Running background initialization (maintenance + file monitoring)...")
+    # Now that all other systems are initialized and tested, start background operations
+    # This will run database maintenance first, then start file monitoring
+    await memory.background_main()
     
-    logger.warning("   File monitoring is now starting...")
+    logger.warning("   Background initialization complete - maintenance ran and file monitoring is now starting...")
     logger.warning("   The system will automatically detect and import conversations from:")
     logger.warning("   - VS Code chat sessions")
     logger.warning("   - LM Studio conversations")

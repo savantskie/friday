@@ -312,6 +312,43 @@ class DatabaseMaintenance:
             logger.error(f"Error creating new database with schema: {e}")
             raise
     
+    async def _ensure_archive_tables(self, archive_db_path: str, db_type: str):
+        """Ensure archive database has all required tables, especially linking tables.
+        
+        This is a safety check to guarantee that archive databases have the complete schema
+        including any linking tables that might not exist if the main DB didn't have them yet.
+        """
+        try:
+            # Import database classes to get their table definitions
+            from friday_memory_system import (
+                ConversationDatabase, AIMemoryDatabase, ScheduleDatabase,
+                MCPToolCallDatabase, VSCodeProjectDatabase
+            )
+            
+            # Map db_type to database class
+            db_classes = {
+                "conversations": ConversationDatabase,
+                "ai_memories": AIMemoryDatabase,
+                "schedule": ScheduleDatabase,
+                "mcp_tool_calls": MCPToolCallDatabase,
+                "vscode_project": VSCodeProjectDatabase
+            }
+            
+            if db_type not in db_classes:
+                logger.debug(f"Unknown db_type {db_type}, skipping table ensure check")
+                return
+            
+            # Create a temporary instance to trigger initialize_tables
+            # This ensures all tables including linking tables are created
+            db_class = db_classes[db_type]
+            temp_instance = db_class(archive_db_path)
+            
+            logger.debug(f"Ensured all required tables exist in archive: {Path(archive_db_path).name}")
+            
+        except Exception as e:
+            logger.debug(f"Note: Could not ensure all archive tables for {db_type}: {e}")
+            # Don't raise - this is just a safety check, data is already there
+    
     async def check_and_rotate_if_needed(self, db_type: str) -> Dict[str, any]:
         """
         Check if a database needs rotation, and if so, create the new one.
@@ -767,6 +804,9 @@ class DatabaseMaintenance:
                         # Insert records, preserving conversation-memory links
                         await self._insert_records_batch(str(archive_path), db_type, group_records)
                         
+                        # Safety check: ensure archive has all required tables (especially linking tables)
+                        await self._ensure_archive_tables(str(archive_path), db_type)
+                        
                         migrated_count += len(group_records)
                         archive_files_created.append(str(archive_path))
                         logger.info(f"    ✓ Migrated to {archive_filename}")
@@ -780,20 +820,32 @@ class DatabaseMaintenance:
                 
                 source_conn.close()
                 
-                # Step 5: Clear/remake original main folder database with empty schema
-                logger.info(f"  Resetting main folder database...")
+                # Step 5: Clear all data from main folder database (keep the file and schema intact)
+                logger.info(f"  Clearing main folder database...")
                 
                 try:
-                    # Delete the original main folder database
-                    Path(db_path).unlink()
-                    logger.info(f"    ✓ Removed {Path(db_path).name}")
+                    # Open the main database and delete all records from all tables
+                    main_conn = sqlite3.connect(db_path)
+                    main_cursor = main_conn.cursor()
                     
-                    # Create new empty database with same schema
-                    await self._create_new_db_with_schema(Path(db_path), str(list(archives_folder.glob(f"{db_type}_*.db"))[0]) if list(archives_folder.glob(f"{db_type}_*.db")) else str(archives_folder / f"{db_type}_backup.db"), db_type)
-                    logger.info(f"    ✓ Created fresh {Path(db_path).name} with correct schema")
+                    # Get all table names (excluding sqlite internal tables)
+                    main_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+                    tables = main_cursor.fetchall()
+                    
+                    # Clear all tables
+                    for (table_name,) in tables:
+                        try:
+                            main_cursor.execute(f"DELETE FROM {table_name}")
+                            logger.debug(f"    Cleared table: {table_name}")
+                        except Exception as e:
+                            logger.debug(f"    Could not clear {table_name}: {e}")
+                    
+                    main_conn.commit()
+                    main_conn.close()
+                    logger.info(f"    ✓ Cleared all tables in {Path(db_path).name}")
                     
                 except Exception as e:
-                    error_msg = f"Error resetting main database: {e}"
+                    error_msg = f"Error clearing main database: {e}"
                     logger.error(f"    ❌ {error_msg}")
                     if "errors" not in results[db_type]:
                         results[db_type]["errors"] = []
@@ -933,6 +985,10 @@ class DatabaseMaintenance:
             # 0. Check and rotate databases (as a safety net)
             logger.info("🔄 Checking all databases for rotation needs...")
             results["rotation_results"] = await self.check_and_rotate_all_databases()
+            
+            # 0.5 Archive rotation to sharded structure (month-based grouping)
+            logger.info("📦 Performing archive rotation to sharded structure...")
+            results["archive_rotation"] = await self.archive_rotate_to_sharded_structure()
             
             # 1. Apply any needed schema upgrades
             logger.info("🔄 Checking and applying schema upgrades...")
