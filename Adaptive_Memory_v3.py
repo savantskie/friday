@@ -586,11 +586,10 @@ Analyze the following related memories and provide a concise summary.""",
 
 **STRICT RULES:**
 +1.  **JSON ARRAY ONLY:** Output STARTS with `[` and ENDS with `]`. Nothing else.
-+2.  **USER INFO ONLY:** Discard general knowledge, trivia, AI commands, or questions directed at the AI *unless* they reveal user interest (e.g., "Tell me about Rome" -> save "User is interested in Rome").
-+3.  **DIRECT PREFERENCES ARE PRIORITY:** Extract all "I love/like/enjoy..." statements.
-+4.  **SEPARATE ITEMS:** Each distinct piece of info is a separate JSON object in the array.
-+5.  **ALLOWED TAGS ONLY:** Use ONLY `[\"identity\", \"behavior\", \"preference\", \"goal\", \"relationship\", \"possession\"]`.
-+6.  **MEMORY BANK REQUIRED:** Every memory must include a \"memory_bank\" field with one of the valid bank names.
++2.  **DIRECT PREFERENCES ARE PRIORITY:** Extract all "I love/like/enjoy..." statements.
++3.  **SEPARATE ITEMS:** Each distinct piece of info is a separate JSON object in the array.
++4.  **ALLOWED TAGS ONLY:** Use ONLY `[\"identity\", \"behavior\", \"preference\", \"goal\", \"relationship\", \"possession\"]`.
++5.  **MEMORY BANK REQUIRED:** Every memory must include a \"memory_bank\" field with one of the valid bank names.
 
 **FAILURE EXAMPLES (DO NOT PRODUCE OUTPUT LIKE THIS):**
 +- `{\"assistant\": \"Okay, here is the JSON: [...]"}` <-- INVALID (extra text)
@@ -652,7 +651,6 @@ Your output must be valid JSON only. No additional text.""",
         memory_merge_prompt: str = Field(
             default="""You are a memory consolidation assistant. When given sets of memories, you merge similar or related memories while preserving all important information.
 
-IMPORTANT: **Do NOT merge general knowledge, trivia, or unrelated facts.** Only merge user-specific, persistent information.
 
 Rules for merging:
 1. If two memories contradict, keep the newer information, but note the more recent memory as authoritative

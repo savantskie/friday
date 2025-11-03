@@ -471,16 +471,18 @@ class DatabaseMaintenance:
             
             # 1. Connect to source DB and get row count
             source_conn = sqlite3.connect(source_db_path)
+            source_conn.row_factory = sqlite3.Row  # Get rows as dict-like objects
             source_cursor = source_conn.execute(f"SELECT COUNT(*) FROM {self._get_main_table(db_type)}")
             total_rows = source_cursor.fetchone()[0]
             result["verification"]["source_count"] = total_rows
             logger.info(f"  Found {total_rows} records to migrate")
             
-            # 2. Get all records with timestamps
+            # 2. Get all records with timestamps (using Row factory for named access)
             timestamp_col = self._get_timestamp_column(db_type)
-            records = source_cursor.execute(
+            source_cursor = source_conn.execute(
                 f"SELECT * FROM {self._get_main_table(db_type)} ORDER BY {timestamp_col} ASC"
-            ).fetchall()
+            )
+            records = source_cursor.fetchall()
             source_conn.close()
             
             # 3. Group records by target database
@@ -591,21 +593,23 @@ class DatabaseMaintenance:
         
         for record in records:
             try:
-                # Record is a tuple; timestamp is typically at index 2 or 3
-                # For most tables: (id, ..., timestamp, ...) 
-                # We'll try to find it by looking for ISO format strings
-                timestamp_str = None
-                
-                # Try to find timestamp in the record (ISO format like 2025-08-05T...)
-                for field in record:
-                    if isinstance(field, str) and "T" in str(field) and "-" in str(field):
-                        timestamp_str = str(field)
-                        break
-                
-                if not timestamp_str:
-                    # If we can't find timestamp, use current date as fallback
+                # Records are Row objects (dict-like), so we can access by column name
+                try:
+                    # Get timestamp by column name (safe access)
+                    timestamp_col = self._get_timestamp_column(db_type)
+                    timestamp_str = record[timestamp_col]
+                    
+                    # Handle None/NULL timestamps by using current date
+                    if not timestamp_str:
+                        from datetime import datetime
+                        timestamp_str = datetime.now().isoformat()
+                    
+                except (KeyError, TypeError):
+                    # If timestamp column doesn't exist or record is not dict-like,
+                    # fall back to current datetime
                     from datetime import datetime
                     timestamp_str = datetime.now().isoformat()
+                    logger.warning(f"Could not extract timestamp for {db_type}, using current date")
                 
                 # Extract date from ISO format (2025-08-05T01:52:37.366998+00:00)
                 date_part = timestamp_str.split("T")[0]  # 2025-08-05
@@ -631,21 +635,40 @@ class DatabaseMaintenance:
         
         return groups
     
-    async def _insert_records_batch(self, target_db_path: str, db_type: str, records: List[Tuple], batch_size: int = 1000):
-        """Insert records into target database in batches to avoid memory issues"""
+    async def _insert_records_batch(self, target_db_path: str, db_type: str, records: List, batch_size: int = 1000):
+        """Insert records into target database in batches to avoid memory issues
+        
+        Records can be Row objects (from source with row_factory) or tuples.
+        We convert Row objects to tuples for insertion.
+        """
         try:
             conn = sqlite3.connect(target_db_path)
             cursor = conn.cursor()
             
             main_table = self._get_main_table(db_type)
             
+            # Convert Row objects to tuples if needed
+            record_tuples = []
+            for record in records:
+                if isinstance(record, sqlite3.Row):
+                    # Convert Row to tuple (preserves column order)
+                    record_tuples.append(tuple(record))
+                else:
+                    # Already a tuple
+                    record_tuples.append(record)
+            
             # Get column count from first record to build INSERT statement
-            num_cols = len(records[0])
+            if not record_tuples:
+                logger.warning(f"No records to insert into {target_db_path}")
+                conn.close()
+                return
+            
+            num_cols = len(record_tuples[0])
             placeholders = ", ".join(["?" for _ in range(num_cols)])
             
             # Process in batches
-            for i in range(0, len(records), batch_size):
-                batch = records[i:i+batch_size]
+            for i in range(0, len(record_tuples), batch_size):
+                batch = record_tuples[i:i+batch_size]
                 try:
                     cursor.executemany(
                         f"INSERT INTO {main_table} VALUES ({placeholders})",
@@ -658,11 +681,210 @@ class DatabaseMaintenance:
                     raise
             
             conn.close()
-            logger.debug(f"Inserted {len(records)} records into {Path(target_db_path).name}")
+            logger.debug(f"Inserted {len(record_tuples)} records into {Path(target_db_path).name}")
             
         except Exception as e:
             logger.error(f"Error inserting records: {e}")
             raise
+    
+    async def archive_rotate_to_sharded_structure(self) -> Dict[str, Dict]:
+        """
+        Archive rotation: Move data from main folder to sharded archive structure.
+        
+        When month changes or file hits 3GB limit:
+        1. Read all data from main folder DBs (cache in memory)
+        2. Group by date (month) or conversation_id
+        3. Create archive files with correct table structure
+        4. Migrate data preserving conversation-memory links
+        5. Clear/remake original main folder databases with empty schema
+        
+        For data without timestamps: grouped into pre_timestamp_data file.
+        
+        Returns:
+            Dict mapping db_type to rotation result
+        """
+        logger.warning("🚀 Starting archive rotation to sharded structure")
+        
+        results = {}
+        archives_folder = self.memory_data_path / "archives"
+        archives_folder.mkdir(exist_ok=True)
+        
+        # Define which databases to rotate and their paths
+        db_rotation_map = {
+            "conversations": str(self.memory_data_path / "conversations.db"),
+            "ai_memories": str(self.memory_data_path / "ai_memories.db"),
+            "schedule": str(self.memory_data_path / "schedule.db"),
+            "mcp_tool_calls": str(self.memory_data_path / "mcp_tool_calls.db"),
+            "vscode_project": str(self.memory_data_path / "vscode_project.db")
+        }
+        
+        for db_type, db_path in db_rotation_map.items():
+            if not Path(db_path).exists():
+                logger.info(f"  ℹ️  {db_type} database not found, skipping")
+                continue
+            
+            try:
+                logger.warning(f"\n📊 Rotating {db_type}...")
+                
+                # Step 1: Read all data from main folder DB (cache in memory)
+                source_conn = sqlite3.connect(db_path)
+                source_conn.row_factory = sqlite3.Row
+                main_table = self._get_main_table(db_type)
+                
+                source_cursor = source_conn.execute(f"SELECT * FROM {main_table}")
+                all_records = source_cursor.fetchall()
+                total_records = len(all_records)
+                
+                if total_records == 0:
+                    logger.info(f"  ℹ️  No records in {db_type}, skipping")
+                    source_conn.close()
+                    continue
+                
+                logger.info(f"  Cached {total_records} records from {db_type}")
+                
+                # Step 2: Group records by date or pre-timestamp
+                timestamp_col = self._get_timestamp_column(db_type)
+                grouped_records = self._group_records_for_archiving(db_type, all_records, timestamp_col)
+                
+                logger.info(f"  Grouped into {len(grouped_records)} archive groups")
+                
+                # Step 3 & 4: Create archive files and migrate data
+                migrated_count = 0
+                archive_files_created = []
+                
+                for group_key, group_records in grouped_records.items():
+                    try:
+                        # Create archive filename based on group key
+                        # group_key format: "2025-08" (date) or "pre_timestamp_data" or "conversation_id"
+                        archive_filename = f"{db_type}_{group_key}.db"
+                        archive_path = archives_folder / archive_filename
+                        
+                        logger.info(f"    Creating {archive_filename} ({len(group_records)} records)")
+                        
+                        # Create new archive DB with schema
+                        await self._create_new_db_with_schema(archive_path, db_path, db_type)
+                        
+                        # Insert records, preserving conversation-memory links
+                        await self._insert_records_batch(str(archive_path), db_type, group_records)
+                        
+                        migrated_count += len(group_records)
+                        archive_files_created.append(str(archive_path))
+                        logger.info(f"    ✓ Migrated to {archive_filename}")
+                        
+                    except Exception as e:
+                        error_msg = f"Error creating archive {group_key}: {e}"
+                        logger.error(f"    ❌ {error_msg}")
+                        if "errors" not in results[db_type]:
+                            results[db_type]["errors"] = []
+                        results[db_type]["errors"].append(error_msg)
+                
+                source_conn.close()
+                
+                # Step 5: Clear/remake original main folder database with empty schema
+                logger.info(f"  Resetting main folder database...")
+                
+                try:
+                    # Delete the original main folder database
+                    Path(db_path).unlink()
+                    logger.info(f"    ✓ Removed {Path(db_path).name}")
+                    
+                    # Create new empty database with same schema
+                    await self._create_new_db_with_schema(Path(db_path), str(list(archives_folder.glob(f"{db_type}_*.db"))[0]) if list(archives_folder.glob(f"{db_type}_*.db")) else str(archives_folder / f"{db_type}_backup.db"), db_type)
+                    logger.info(f"    ✓ Created fresh {Path(db_path).name} with correct schema")
+                    
+                except Exception as e:
+                    error_msg = f"Error resetting main database: {e}"
+                    logger.error(f"    ❌ {error_msg}")
+                    if "errors" not in results[db_type]:
+                        results[db_type]["errors"] = []
+                    results[db_type]["errors"].append(error_msg)
+                
+                # Store results
+                results[db_type] = {
+                    "status": "success",
+                    "db_type": db_type,
+                    "records_rotated": migrated_count,
+                    "archive_files_created": archive_files_created,
+                    "total_records": total_records,
+                    "match": migrated_count == total_records,
+                    "errors": results.get(db_type, {}).get("errors", [])
+                }
+                
+                if results[db_type]["match"]:
+                    logger.warning(f"  ✅ Rotation successful: {migrated_count} records archived")
+                else:
+                    logger.error(f"  ⚠️  Rotation incomplete: Expected {total_records}, got {migrated_count}")
+                    results[db_type]["status"] = "partial"
+                
+            except Exception as e:
+                logger.error(f"❌ Rotation failed for {db_type}: {e}")
+                results[db_type] = {
+                    "status": "error",
+                    "db_type": db_type,
+                    "error": str(e),
+                    "errors": [str(e)]
+                }
+        
+        logger.warning(f"\n✅ Archive rotation complete")
+        return results
+    
+    def _group_records_for_archiving(self, db_type: str, records: List, timestamp_col: str) -> Dict[str, List]:
+        """
+        Group records for archiving based on timestamp or conversation_id.
+        
+        - Records WITH timestamps: grouped by date (YYYY-MM for conversations, YYYYMM for others)
+        - Records WITHOUT timestamps: all grouped into "pre_timestamp_data" file
+        
+        Returns:
+            Dict mapping group_key to list of records
+        """
+        groups = {}
+        pre_timestamp_group = []
+        
+        for record in records:
+            try:
+                # Try to get timestamp by column name
+                timestamp_str = None
+                try:
+                    timestamp_str = record[timestamp_col]
+                except (KeyError, TypeError):
+                    pass
+                
+                # If no timestamp or NULL, put in pre_timestamp_data
+                if not timestamp_str:
+                    pre_timestamp_group.append(record)
+                    continue
+                
+                # Extract date from ISO format (2025-08-05T01:52:37.366998+00:00)
+                try:
+                    date_part = timestamp_str.split("T")[0]  # 2025-08-05
+                    year_month = date_part[:7]  # 2025-08
+                except:
+                    pre_timestamp_group.append(record)
+                    continue
+                
+                # Determine group key based on db_type
+                if db_type == "conversations":
+                    # Monthly files: conversations_YYYY-MM
+                    group_key = year_month  # 2025-08
+                else:
+                    # Date-based: type_YYYYMM
+                    group_key = year_month.replace("-", "")  # 202508
+                
+                if group_key not in groups:
+                    groups[group_key] = []
+                groups[group_key].append(record)
+                
+            except Exception as e:
+                logger.error(f"Error grouping record for archiving: {e}")
+                pre_timestamp_group.append(record)
+        
+        # Add pre-timestamp data if any exists
+        if pre_timestamp_group:
+            groups["pre_timestamp_data"] = pre_timestamp_group
+            logger.info(f"  Found {len(pre_timestamp_group)} records without timestamps → pre_timestamp_data")
+        
+        return groups
     
     async def migrate_all_large_databases(self) -> Dict[str, Dict]:
         """
