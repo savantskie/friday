@@ -675,20 +675,30 @@ class AIMemoryDatabase(DatabaseManager):
     def initialize_tables(self):
         """Create tables if they don't exist, and migrate schema if columns are missing"""
         with self.get_connection() as conn:
-            # --- MIGRATION LOGIC FOR CURATED_MEMORIES TABLE ---
             expected_columns = [
                 'memory_id', 'timestamp_created', 'timestamp_updated', 'source_conversation_id',
                 'source_message_ids', 'memory_type', 'content', 'importance_level', 'tags',
-                'embedding', 'created_at'
+                'embedding', 'user_id', 'model_id', 'created_at'
             ]
+
+            # --- Check and migrate existing table ---
             cur = conn.execute("PRAGMA table_info(curated_memories)")
             current_columns = [row[1] for row in cur.fetchall()]
+
+            # Add missing columns if needed
+            if "user_id" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN user_id TEXT")
+            if "model_id" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
+
+            # Detect incomplete schema (older versions)
             needs_migration = False
             if current_columns:
                 for col in expected_columns:
                     if col not in current_columns:
                         needs_migration = True
                         break
+
             if needs_migration:
                 logger.warning("Migrating curated_memories table to new schema!")
                 old_rows = conn.execute("SELECT * FROM curated_memories").fetchall()
@@ -705,6 +715,8 @@ class AIMemoryDatabase(DatabaseManager):
                         importance_level INTEGER DEFAULT 5,
                         tags TEXT,
                         embedding BLOB,
+                        user_id TEXT,
+                        model_id TEXT DEFAULT 'Friday',
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -712,7 +724,7 @@ class AIMemoryDatabase(DatabaseManager):
                     row_dict = dict(row)
                     for col in expected_columns:
                         if col not in row_dict:
-                            if col == 'timestamp_created' or col == 'timestamp_updated' or col == 'created_at':
+                            if col in ('timestamp_created', 'timestamp_updated', 'created_at'):
                                 row_dict[col] = datetime.now().isoformat()
                             elif col == 'importance_level':
                                 row_dict[col] = 5
@@ -724,6 +736,7 @@ class AIMemoryDatabase(DatabaseManager):
                     )
                 logger.warning(f"Restored {len(old_rows)} curated memories after migration.")
             else:
+                # Ensure table exists if missing entirely
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS curated_memories (
                         memory_id TEXT PRIMARY KEY,
@@ -736,14 +749,32 @@ class AIMemoryDatabase(DatabaseManager):
                         importance_level INTEGER DEFAULT 5,
                         tags TEXT,
                         embedding BLOB,
+                        user_id TEXT,
+                        model_id TEXT DEFAULT 'Friday',
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+            # Add index for faster lookups
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_curated_memories_user_model
+                ON curated_memories (user_id, model_id)
+            """)
+
             conn.commit()
+
     
-    async def create_memory(self, content: str, memory_type: str = None, 
-                          importance_level: int = 5, tags: List[str] = None,
-                          source_conversation_id: str = None) -> str:
+    async def create_memory(
+        self,
+        content: str,
+        memory_type: str = None,
+        importance_level: int = 5,
+        tags: List[str] = None,
+        source_conversation_id: str = None,
+        user_id: str = "",
+        model_id: str = "",
+    ) -> str:
+
         """Create a new curated memory"""
         
         memory_id = str(uuid.uuid4())
@@ -751,13 +782,23 @@ class AIMemoryDatabase(DatabaseManager):
         
         await self.execute_update(
             """INSERT INTO curated_memories 
-               (memory_id, timestamp_created, timestamp_updated, source_conversation_id, 
-                memory_type, content, importance_level, tags) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (memory_id, timestamp, timestamp, source_conversation_id, 
-             memory_type, content, importance_level, 
-             json.dumps(tags) if tags else None)
+            (memory_id, timestamp_created, timestamp_updated, source_conversation_id,
+                memory_type, content, importance_level, tags, user_id, model_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                memory_id,
+                timestamp,
+                timestamp,
+                source_conversation_id,
+                memory_type,
+                content,
+                importance_level,
+                json.dumps(tags) if tags else None,
+                user_id,
+                model_id,
+            ),
         )
+
         
         return memory_id
     
@@ -881,6 +922,7 @@ class ScheduleDatabase(DatabaseManager):
                     if col not in current_columns:
                         needs_migration = True
                         break
+            
             if needs_migration:
                 logger.warning("Migrating appointments table to new schema!")
                 old_rows = conn.execute("SELECT * FROM appointments").fetchall()
@@ -5178,10 +5220,22 @@ class FridayMemorySystem:
             "session_id": result["session_id"]
         }
     
-    async def get_recent_context(self, limit: int = 5, session_id: str = None, days_back: int = 7) -> Dict:
+    async def get_recent_context(
+        self,
+        limit: int = 5,
+        session_id: str | None = None,
+        days_back: int = 7,
+        user_id: str | None = None,
+        model_id: str | None = None,
+    ) -> Dict:
+
+
         """Get recent conversation context from the last N days - returns clean text content, not embeddings"""
         
-        messages = await self.conversations_db.get_recent_messages(limit, session_id, days_back)
+        messages = await self.conversations_db.get_recent_messages(
+            limit, session_id, days_back, user_id=user_id, model_id=model_id
+        )
+
         
         # Clean the messages to remove embeddings and provide only useful context
         clean_messages = []
@@ -5615,10 +5669,14 @@ class FridayMemorySystem:
             "continuity_data": continuity_data
         }
     
-    # Search operations
-    async def search_memories(self, query: str = None, limit: int = 10, database_filter: str = "all",
-                            min_importance: int = None, max_importance: int = None,
-                            memory_type: str = None, memory_id: str = None) -> Dict:
+        # Search operations
+    async def search_memories(
+        self, query: str = None, limit: int = 10, database_filter: str = "all",
+        min_importance: int = None, max_importance: int = None,
+        memory_type: str = None, memory_id: str = None,
+        user_id: Optional[str] = None, model_id: Optional[str] = None
+    ) -> Dict:
+
         """Search memories across databases using semantic similarity with importance filtering, or direct ID lookup"""
         
         # If memory_id is provided, do direct ID lookup instead of semantic search
@@ -5644,18 +5702,26 @@ class FridayMemorySystem:
         
         # Search conversations
         if database_filter in ["all", "conversations"]:
-            conversation_results = await self._search_conversations(query_embedding, limit * 2)
+            conversation_results = await self._search_conversations(
+                query_embedding, limit * 2, user_id=user_id, model_id=model_id
+            )
             all_results.extend(conversation_results)
-        
-        # Search AI memories with importance filtering
+
+        # Search AI memories
         if database_filter in ["all", "ai_memories"]:
-            memory_results = await self._search_ai_memories(query_embedding, limit * 2, min_importance, max_importance, memory_type)
+            memory_results = await self._search_ai_memories(
+                query_embedding, limit * 2, min_importance, max_importance, memory_type,
+                user_id=user_id, model_id=model_id
+            )
             all_results.extend(memory_results)
-        
-        # Search schedule items
+
+        # Search schedule
         if database_filter in ["all", "schedule"]:
-            schedule_results = await self._search_schedule(query_embedding, limit)
+            schedule_results = await self._search_schedule(
+                query_embedding, limit, user_id=user_id, model_id=model_id
+            )
             all_results.extend(schedule_results)
+
         
         # Sort all results by similarity score and return top results
         all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
@@ -5881,9 +5947,17 @@ class FridayMemorySystem:
             logger.error(f"Error searching conversation DB {db_path}: {e}")
             return []
     
-    async def _search_ai_memories(self, query_embedding: List[float], limit: int,
-                                min_importance: int = None, max_importance: int = None,
-                                memory_type: str = None) -> List[Dict]:
+    async def _search_ai_memories(
+        self,
+        query_embedding: List[float],
+        limit: int,
+        min_importance: int = None,
+        max_importance: int = None,
+        memory_type: str = None,
+        user_id: str | None = None,
+        model_id: str | None = None,
+    ) -> List[Dict]:
+
         """Search AI curated memories using semantic similarity with importance filtering across ALL memory databases"""
         
         # Discover all AI memory databases (current + sharded)
@@ -5902,10 +5976,16 @@ class FridayMemorySystem:
         tasks = []
         for db_path in memory_db_paths:
             task = self._search_single_ai_memory_db(
-                db_path, query_embedding, min_importance, max_importance, memory_type
+                db_path,
+                query_embedding,
+                min_importance,
+                max_importance,
+                memory_type,
+                user_id=user_id,
+                model_id=model_id,
             )
             tasks.append(task)
-        
+
         db_results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Merge results from all databases
@@ -5913,12 +5993,19 @@ class FridayMemorySystem:
             if isinstance(result, Exception):
                 logger.error(f"Error searching AI memory DB: {result}")
                 continue
-            
+
             for mem_result in result:
                 mem_id = mem_result["data"]["memory_id"]
-                if mem_id not in seen_memory_ids:
+                mem_user = mem_result["data"].get("user_id")
+                mem_model = mem_result["data"].get("model_id")
+
+                # composite key: avoids cross-user or cross-model deduplication
+                composite_key = f"{mem_user or 'GLOBAL'}::{mem_model or 'GLOBAL'}::{mem_id}"
+
+                if composite_key not in seen_memory_ids:
                     all_results.append(mem_result)
-                    seen_memory_ids.add(mem_id)
+                    seen_memory_ids.add(composite_key)
+
         
         # Boost results based on importance level
         for result in all_results:
@@ -5931,7 +6018,8 @@ class FridayMemorySystem:
     
     async def _search_single_ai_memory_db(self, db_path: str, query_embedding: List[float],
                                         min_importance: int = None, max_importance: int = None,
-                                        memory_type: str = None) -> List[Dict]:
+                                        memory_type: str = None,
+                                        user_id: str | None = None, model_id: str | None = None) -> List[Dict]:
         """Search a single AI memory database"""
         
         try:
@@ -5940,8 +6028,17 @@ class FridayMemorySystem:
             cursor = conn.cursor()
             
             # Build SQL query with optional filters
-            sql = "SELECT memory_id, timestamp_created, timestamp_updated, source_conversation_id, memory_type, content, importance_level, tags, embedding FROM curated_memories WHERE embedding IS NOT NULL"
+            sql = "SELECT memory_id, timestamp_created, timestamp_updated, source_conversation_id, memory_type, user_id, model_id, content, importance_level, tags, embedding FROM curated_memories WHERE embedding IS NOT NULL"
             params = []
+
+            # Only add filters if user/model provided
+            if user_id:
+                sql += " AND (user_id = ? OR user_id IS NULL)"
+                params.append(user_id)
+
+            if model_id:
+                sql += " AND model_id = ?"
+                params.append(model_id)
             
             if min_importance is not None:
                 sql += " AND importance_level >= ?"
@@ -5978,7 +6075,9 @@ class FridayMemorySystem:
                                     "memory_type": row["memory_type"],
                                     "content": row["content"],
                                     "importance_level": row["importance_level"],
-                                    "tags": json.loads(row["tags"]) if row["tags"] else None
+                                    "tags": json.loads(row["tags"]) if row["tags"] else None,
+                                    "user_id": row["user_id"],
+                                    "model_id": row["model_id"]
                                 }
                             }
                             results.append(result)
@@ -5991,6 +6090,7 @@ class FridayMemorySystem:
         except Exception as e:
             logger.error(f"Error searching AI memory DB {db_path}: {e}")
             return []
+
     
     async def _search_schedule(self, query_embedding: List[float], limit: int) -> List[Dict]:
         """Search appointments and reminders using semantic similarity"""

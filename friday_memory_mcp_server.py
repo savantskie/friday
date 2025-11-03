@@ -1156,64 +1156,112 @@ class FridayMemoryMCPServer:
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
-            
         import time
-        
-        # Start timing and get client info
+
+        # ---------------------------------------------------------------------
+        # Context Setup
+        # ---------------------------------------------------------------------
+        user_id = (
+            self.client_context.get("user_id")
+            or arguments.get("user_id")
+        )
+        model_id = (
+            self.client_context.get("model_id")
+            or arguments.get("model_id")
+            or os.getenv("FRIDAY_DEFAULT_MODEL", "Friday")
+        )
+
+        arguments["user_id"] = user_id
+        arguments["model_id"] = model_id
+
         start_time = time.perf_counter()
         client_id = self.client_context.get("current_client", "unknown")
-        
+
         try:
-            # Route to appropriate handler
-            if tool_name == "search_memories":
+            # -----------------------------------------------------------------
+            # Memory & Context Tools
+            # -----------------------------------------------------------------
+            if tool_name in ("search_memories", "tool_search_memories_post"):
                 result = await self.memory_system.search_memories(**arguments)
+
+            elif tool_name in ("create_memory", "tool_create_memory_post"):
+                result = await self.memory_system.create_memory(**arguments)
+
+            elif tool_name in ("update_memory", "tool_update_memory_post"):
+                result = await self.memory_system.update_memory(**arguments)
+
+            elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
+                result = await self.memory_system.get_recent_context(**arguments)
+
             elif tool_name == "store_conversation":
                 result = await self.memory_system.store_conversation(**arguments)
-            if tool_name == "create_appointment":
-                result = await self.memory_system.create_appointment(**arguments)
+
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
                 result = {"status": "success", "reflection_id": reflection_id}
 
+            elif tool_name == "get_ai_insights":
+                result = await self.memory_system.get_ai_insights(**arguments)
+
+            elif tool_name == "get_character_context":
+                result = await self.memory_system.get_character_context(**arguments)
+
+            # -----------------------------------------------------------------
+            # Reminder & Appointment Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "create_appointment":
+                result = await self.memory_system.create_appointment(**arguments)
+            elif tool_name == "cancel_appointment":
+                result = await self.memory_system.cancel_appointment(**arguments)
+            elif tool_name == "complete_appointment":
+                result = await self.memory_system.complete_appointment(**arguments)
             elif tool_name == "get_appointments":
-                result = await self.memory_system.get_appointments(
-                    limit=arguments.get("limit", 5),
-                    days_ahead=arguments.get("days_ahead", 30)
-                )
+                result = await self.memory_system.get_appointments(**arguments)
+            elif tool_name == "get_upcoming_appointments":
+                result = await self.memory_system.get_upcoming_appointments(**arguments)
             elif tool_name == "create_reminder":
                 result = await self.memory_system.create_reminder(**arguments)
-            # ...existing code for other tools...
+            elif tool_name == "reschedule_reminder":
+                result = await self.memory_system.reschedule_reminder(**arguments)
             elif tool_name == "complete_reminder":
                 result = await self.memory_system.complete_reminder(**arguments)
+            elif tool_name == "get_active_reminders":
+                result = await self.memory_system.get_active_reminders(**arguments)
+            elif tool_name == "get_completed_reminders":
+                result = await self.memory_system.get_completed_reminders(**arguments)
+            elif tool_name == "delete_reminder":
+                result = await self.memory_system.delete_reminder(**arguments)
+            elif tool_name == "get_reminders":
+                result = await self.get_reminders(**arguments)
+
+            # -----------------------------------------------------------------
+            # Weather Tools (keep the override guard exactly as before)
+            # -----------------------------------------------------------------
             elif tool_name == "get_weather_open_meteo":
-                # Hard gate: ignore coords unless override=True
                 override = bool(arguments.get("override", False))
-                
-                # Convert empty strings to None for proper handling
-                latitude = arguments.get("latitude")
-                if latitude == "":
-                    latitude = None
-                longitude = arguments.get("longitude")
-                if longitude == "":
-                    longitude = None
-                timezone_str = arguments.get("timezone_str")
-                if timezone_str == "":
-                    timezone_str = None
-                
+                latitude = arguments.get("latitude") or None
+                longitude = arguments.get("longitude") or None
+                timezone_str = arguments.get("timezone_str") or None
+
+                # Sanitize empty strings
+                if latitude == "": latitude = None
+                if longitude == "": longitude = None
+                if timezone_str == "": timezone_str = None
+
                 if not override:
-                    # strip any coordinates or tz Friday tried to send
                     attempted_lat = latitude
                     attempted_lon = longitude
                     attempted_tz = timezone_str
-                    latitude = None
-                    longitude = None
-                    timezone_str = None
-                    # optional: log the attempt so you can see when she tries
+                    latitude = longitude = timezone_str = None
+
                     try:
                         log_path = BASE_PATH / "logs" / "friday.log"
                         log_path.parent.mkdir(exist_ok=True)
                         with open(log_path, "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[weather] blocked coords (override=False) lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n")
+                            _lf.write(
+                                f"[weather] blocked coords (override=False) "
+                                f"lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n"
+                            )
                     except Exception:
                         pass
 
@@ -1227,34 +1275,10 @@ class FridayMemoryMCPServer:
                     return_changes_only=arguments.get("return_changes_only", False),
                     severe_update=arguments.get("severe_update", False),
                 )
-            elif tool_name == "reschedule_reminder":
-                result = await self.memory_system.reschedule_reminder(**arguments)
-            elif tool_name == "get_active_reminders":
-                result = await self.memory_system.get_active_reminders(**arguments)
-            elif tool_name == "get_completed_reminders":
-                result = await self.memory_system.get_completed_reminders(**arguments)
-            elif tool_name == "delete_reminder":
-                result = await self.memory_system.delete_reminder(**arguments)
-            elif tool_name == "cancel_appointment":
-                result = await self.memory_system.cancel_appointment(**arguments)
-            elif tool_name == "complete_appointment":
-                result = await self.memory_system.complete_appointment(**arguments)
-            elif tool_name == "get_upcoming_appointments":
-                result = await self.memory_system.get_upcoming_appointments(**arguments)
-            elif tool_name == "search_memories":
-                result = await self.memory_system.search_memories(**arguments)
-            elif tool_name == "get_reminders":
-                result = await self.get_reminders(**arguments)
-            elif tool_name == "get_current_time":
-                result = await self.get_current_time_tool()    
-            elif tool_name == "store_conversation":
-                result = await self.memory_system.store_conversation(**arguments)
-            elif tool_name == "create_memory":
-                result = await self.memory_system.create_memory(**arguments)
-            elif tool_name == "update_memory":
-                result = await self.memory_system.update_memory(**arguments)
-            elif tool_name == "get_recent_context":
-                result = await self.memory_system.get_recent_context(**arguments)
+
+            # -----------------------------------------------------------------
+            # Project / System Tools
+            # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
                 result = await self.memory_system.get_system_health()
             elif tool_name == "save_development_session":
@@ -1271,85 +1295,75 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.get_tool_usage_summary(**arguments)
             elif tool_name == "reflect_on_tool_usage":
                 result = await self.memory_system.reflect_on_tool_usage(**arguments)
-            elif tool_name == "get_ai_insights":
-                result = await self.memory_system.get_ai_insights(**arguments)
-            elif tool_name == "get_character_context":
-                result = await self.memory_system.get_character_context(**arguments)
             elif tool_name == "store_roleplay_memory":
                 result = await self.memory_system.store_roleplay_memory(**arguments)
             elif tool_name == "search_roleplay_history":
                 result = await self.memory_system.search_roleplay_history(**arguments)
+
+            # -----------------------------------------------------------------
+            # Utility Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "get_current_time":
+                result = await self.get_current_time_tool()
+
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
 
-            # Calculate execution time and log successful call
+            # -----------------------------------------------------------------
+            # Logging & Response Formatting
+            # -----------------------------------------------------------------
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000
-            
-            # Log tool call for AI self-reflection (async, don't wait)
+
             try:
-                asyncio.create_task(self.memory_system.log_tool_call(
-                    client_id=client_id,
-                    tool_name=tool_name,
-                    parameters=arguments,
-                    execution_time_ms=execution_time_ms,
-                    status="success",
-                    result=result
-                ))
+                asyncio.create_task(
+                    self.memory_system.log_tool_call(
+                        client_id=client_id,
+                        tool_name=tool_name,
+                        parameters=arguments,
+                        execution_time_ms=execution_time_ms,
+                        status="success",
+                        result=result,
+                    )
+                )
             except Exception as log_error:
                 logger.warning(f"Could not log tool call: {log_error}")
-            
-            # Format the result as a proper TextContent object
-            if isinstance(result, (dict, list)):
-                result_text = json.dumps(result, indent=2, default=str)
-            else:
-                result_text = str(result)
-            
-            text_content = {
-                "type": "text",
-                "text": result_text,
-                "highlights": None,
-                "meta": None
-            }
-            
+
+            # Normalize result to text
+            result_text = json.dumps(result, indent=2, default=str) if isinstance(result, (dict, list)) else str(result)
+
             return {
-                "content": [text_content],
+                "content": [{"type": "text", "text": result_text}],
                 "success": True,
-                "structuredContent": None,
                 "isError": False,
-                "meta": None
             }
-            
+
+        # ---------------------------------------------------------------------
+        # Error Handling
+        # ---------------------------------------------------------------------
         except Exception as e:
-            # Calculate execution time and log failed call
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000
-            
-            # Log tool call failure for AI self-reflection (async, don't wait)
+
             try:
-                asyncio.create_task(self.memory_system.log_tool_call(
-                    client_id=client_id,
-                    tool_name=tool_name,
-                    parameters=arguments,
-                    execution_time_ms=execution_time_ms,
-                    status="error",
-                    error_message=str(e)
-                ))
+                asyncio.create_task(
+                    self.memory_system.log_tool_call(
+                        client_id=client_id,
+                        tool_name=tool_name,
+                        parameters=arguments,
+                        execution_time_ms=execution_time_ms,
+                        status="error",
+                        error_message=str(e),
+                    )
+                )
             except Exception as log_error:
                 logger.warning(f"Could not log tool call failure: {log_error}")
-            
+
             logger.error(f"Error executing tool {tool_name}: {e}")
             return {
-                "content": [{
-                    "type": "text",
-                    "text": f"Error: {str(e)}",
-                    "highlights": None,
-                    "meta": None
-                }],
+                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
                 "success": False,
-                "structuredContent": None,
                 "isError": True,
-                "meta": None
             }
     
     def _start_automatic_maintenance(self):
