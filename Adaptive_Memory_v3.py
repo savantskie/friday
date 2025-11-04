@@ -132,7 +132,7 @@ Adaptive Memory enables **dynamic, evolving, personalized memory** for LLMs in O
 import json
 import copy  # Add deepcopy import
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Union, Set
 import logging
 import re
@@ -282,6 +282,14 @@ class Filter:
             default=True,
             description="Enable or disable the background model discovery task"
         )
+        enable_memory_promotion_task: bool = Field(
+            default=True,
+            description="Enable or disable the background memory promotion task (90-day promotion from short-term to long-term)"
+        )
+        memory_promotion_interval: int = Field(
+            default=86400,  # 24 hours
+            description="Interval in seconds between memory promotion runs (90-day transfer from OpenWebUI to Friday)"
+        )
         model_discovery_interval: int = Field(
             default=7200,  # 2 hours performance setting
             description="Interval in seconds between model discovery runs"
@@ -371,12 +379,6 @@ Analyze the following related memories and provide a concise summary.""",
         blacklist_topics: Optional[str] = Field(
             default=None,  # Default to None instead of empty string or default list
             description="Optional: Comma-separated list of topics to ignore during memory extraction",
-        )
-
-        # Enable trivia filtering
-        filter_trivia: bool = Field(
-            default=True,
-            description="Enable filtering of trivia/general knowledge memories after extraction",
         )
 
         # Whitelist keywords (comma-separated substrings) - NOW OPTIONAL
@@ -854,13 +856,13 @@ Your output must be valid JSON only. No additional text.""",
             self._error_log_task.add_done_callback(self._background_tasks.discard)
             logger.debug("Started error logging background task")
 
-        if self.valves.enable_summarization_task:
-            self._summarization_task = asyncio.create_task(
-                self._summarize_old_memories_loop()
+        if self.valves.enable_memory_promotion_task:
+            self._memory_promotion_task = asyncio.create_task(
+                self._promote_old_memories_loop()
             )
-            self._background_tasks.add(self._summarization_task)
-            self._summarization_task.add_done_callback(self._background_tasks.discard)
-            logger.debug("Started memory summarization background task")
+            self._background_tasks.add(self._memory_promotion_task)
+            self._memory_promotion_task.add_done_callback(self._background_tasks.discard)
+            logger.debug("Started memory promotion background task")
 
         # Model discovery results
         self.available_ollama_models = []
@@ -1473,7 +1475,6 @@ Your output must be valid JSON only. No additional text.""",
         if self._embedding_feature_guard_active:
             logger.warning("Embedding feature guard active. Skipping embedding-dependent memory operations.")
 
-
         # --- Process Incoming Message ---
         final_message = None
         # 1) Explicit stream=False (non-streaming completion requests)
@@ -2075,10 +2076,9 @@ Your output must be valid JSON only. No additional text.""",
                 min_length = self.valves.min_memory_length
                 blacklist = self.valves.blacklist_topics
                 whitelist = self.valves.whitelist_keywords
-                filter_trivia = self.valves.filter_trivia
 
                 logger.debug(
-                    f"Using filters: min_length={min_length}, blacklist={blacklist}, whitelist={whitelist}, filter_trivia={filter_trivia}"
+                    f"Using filters: min_length={min_length}, blacklist={blacklist}, whitelist={whitelist}"
                 )
 
                 # Known meta-request phrases
@@ -2147,40 +2147,6 @@ Your output must be valid JSON only. No additional text.""",
                                     break
 
                         if is_blacklisted:
-                            continue
-
-                    # Check trivia patterns (if enabled)
-                    if filter_trivia:
-                        is_trivia = False
-                        for pattern in trivia_patterns:
-                            if re.search(pattern, content.lower()):
-                                logger.debug(
-                                    f"Trivia pattern '{pattern}' matched: {content}"
-                                )
-                                is_trivia = True
-                                break
-
-                        if is_trivia:
-                            # COMMENTED OUT: Secondary LLM classification to confirm if it's meta/trivia
-                            # This was disabled due to Issue #9: Overly Aggressive Post-Extraction Filtering
-                            """
-                            try:
-                                memory_classification_prompt = "Classify if this statement is META (about the conversation or a request to the AI) or FACT (actual information about the user). Respond with exactly ONE word - either META or FACT:\n\n"
-                                classification = await self.query_llm_with_retry(memory_classification_prompt, content)
-                                classification = classification.strip().upper()
-
-                                logger.debug(f"LLM classification for potential trivia: '{classification}'")
-
-                                # If it's actually a fact about the user despite matching trivia patterns, keep it
-                                if "FACT" in classification:
-                                    is_trivia = False
-                                    logger.debug(f"LLM classified as FACT, keeping despite trivia pattern: {content}")
-                            except Exception as e:
-                                logger.warning(f"Error during memory classification (keeping memory): {e}")
-                                is_trivia = False  # On error, don't filter
-                            """
-
-                        if is_trivia:
                             continue
 
                     # Memory passed all filters

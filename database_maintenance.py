@@ -50,9 +50,9 @@ class DatabaseMaintenance:
                 "preserve_important": True  # Keep high-importance items
             },
             "curated_memories": {
-                "max_age_days": 365,  # Keep memories for 1 year
-                "max_count": 5000,   # Keep max 5k memories
-                "preserve_important": True
+                "max_age_days": None,  # No age limit - keep all memories indefinitely
+                "max_count": None,     # No count limit - keep all memories
+                "preserve_important": True  # Keep all memories (no pruning)
             },
             "schedule": {
                 "max_age_days": 30,  # Keep old appointments/reminders for 1 month
@@ -1101,33 +1101,25 @@ class DatabaseMaintenance:
         }
     
     async def _cleanup_ai_memories(self) -> Dict:
-        """Clean up old AI memory data (more conservative)"""
+        """Clean up old AI memory data (disabled for long-term storage - no pruning)"""
         policy = self.retention_policies["curated_memories"]
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
         
         before_count = len(await self.memory_system.ai_memory_db.execute_query(
             "SELECT memory_id FROM curated_memories", ()
         ))
         
-        # Only delete low-importance, old memories
-        deleted = await self.memory_system.ai_memory_db.execute_update(
-            """DELETE FROM curated_memories 
-               WHERE created_at < ? 
-               AND importance_level < 5 
-               AND memory_type NOT IN ('safety', 'critical', 'preference')""",
-            (cutoff_date.isoformat(),)
-        )
+        # Long-term storage: No pruning - keep all memories indefinitely
+        # Only log the count, don't delete anything
         
-        after_count = len(await self.memory_system.ai_memory_db.execute_query(
-            "SELECT memory_id FROM curated_memories", ()
-        ))
+        after_count = before_count  # No changes made
         
         return {
             "policy_applied": policy,
-            "cutoff_date": cutoff_date.isoformat(),
+            "cutoff_date": "No cutoff (indefinite retention)",
             "memories_before": before_count,
             "memories_after": after_count,
-            "memories_deleted": before_count - after_count
+            "memories_deleted": 0,  # No pruning in long-term storage
+            "note": "Long-term curated memories are preserved indefinitely with no pruning"
         }
     
     async def _cleanup_schedule(self) -> Dict:
