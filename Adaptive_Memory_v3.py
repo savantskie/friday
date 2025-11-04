@@ -762,7 +762,40 @@ Your output must be valid JSON only. No additional text.""",
         )
         # ------ End Memory Bank Configuration ------
 
-        # ------ Begin Error Handling & Guarding Configuration (single authoritative block) ------
+        # ------ Begin Conversation Summarization Configuration ------
+        enable_conversation_summarization: bool = Field(
+            default=True,
+            description="Enable automatic conversation summarization when conversation reaches threshold"
+        )
+        conversation_summarization_threshold: int = Field(
+            default=50,
+            description="Number of messages in conversation before triggering summarization"
+        )
+        conversation_summarization_interval: int = Field(
+            default=25,
+            description="Summarize every N additional messages after initial threshold (0 = only once)"
+        )
+        conversation_summarization_prompt: str = Field(
+            default="""You are a conversation summarizer. Your task is to create a concise summary of the recent conversation that captures the key points, decisions, and context that would be valuable for future reference.
+
+Given a conversation history, create a single paragraph summary that:
+1. Captures the main topics discussed
+2. Notes any important decisions or agreements
+3. Preserves key facts, preferences, or information revealed
+4. Maintains the conversational context
+5. Removes redundant or trivial exchanges
+
+Focus on information that would be valuable for the AI assistant to remember for future interactions with this user.
+
+Your summary should be factual, concise, and written in a natural style suitable for an AI assistant's memory. Aim for 100-200 words that effectively condense the conversation's essence.
+
+Example:
+Conversation involves user asking about memory systems, discussing implementation details, and deciding on configuration options. Key points include preference for automatic summarization, agreement on message thresholds, and discussion of integration approaches.
+
+Analyze the following conversation and provide a concise summary.""",
+            description="System prompt for summarizing conversations"
+        )
+        # ------ End Conversation Summarization Configuration ------
         enable_error_counter_guard: bool = Field(
             default=True,
             description="Enable guard to temporarily disable LLM/embedding features if specific error rates spike."
@@ -936,142 +969,133 @@ Your output must be valid JSON only. No additional text.""",
         delta = now_utc - created_at
         return delta.total_seconds() / (24 * 3600)
 
-    async def _find_memory_clusters(self, memories: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-        """Find clusters of related memories based on configured strategy."""
-        clusters = []
-        processed_ids = set()
-        strategy = self.valves.summarization_strategy
-        threshold = self.valves.summarization_similarity_threshold
-        min_age_days = self.valves.summarization_min_memory_age_days
+    async def _check_and_summarize_conversation(
+        self, body: Dict[str, Any], user_id: str, event_emitter: Optional[Callable[[Any], Awaitable[None]]] = None
+    ) -> None:
+        """Check if conversation needs summarization and perform it if necessary"""
+        try:
+            messages = body.get("messages", [])
+            if not messages:
+                return
 
-        # --- Filter by Age First ---
-        eligible_memories = []
-        for mem in memories:
-            age = await self._calculate_memory_age_days(mem)
-            if age >= min_age_days:
-                eligible_memories.append(mem)
+            # Count total messages in conversation
+            total_messages = len(messages)
+            
+            # Get conversation ID for tracking
+            conversation_id = body.get("chat_id") or body.get("conversation_id") or "default"
+            
+            # Create tracking key for this conversation
+            tracking_key = f"conversation_summary_{user_id}_{conversation_id}"
+            
+            # Get last summarized count for this conversation
+            last_summarized_count = getattr(self, '_conversation_summary_tracking', {}).get(tracking_key, 0)
+            
+            # Check if summarization should be triggered
+            threshold = self.valves.conversation_summarization_threshold
+            interval = self.valves.conversation_summarization_interval
+            
+            should_summarize = False
+            if last_summarized_count == 0 and total_messages >= threshold:
+                # First summarization at threshold
+                should_summarize = True
+            elif last_summarized_count > 0 and interval > 0 and (total_messages - last_summarized_count) >= interval:
+                # Subsequent summarizations at interval
+                should_summarize = True
+            
+            if not should_summarize:
+                return
+            
+            logger.info(f"Triggering conversation summarization for user {user_id}, conversation {conversation_id}: {total_messages} messages (last summarized: {last_summarized_count})")
+            
+            # Extract recent messages for summarization
+            if last_summarized_count == 0:
+                # First time: summarize from beginning up to threshold
+                messages_to_summarize = messages[:threshold]
             else:
-                processed_ids.add(mem.get("id")) # Mark young memories as processed
-        
-        logger.debug(f"Summarization: Found {len(eligible_memories)} memories older than {min_age_days} days.")
-
-        if not eligible_memories:
-            return []
-
-        # --- Embedding Clustering --- (Only if strategy is 'embeddings' or 'hybrid')
-        embedding_clusters = []
-        if strategy in ["embeddings", "hybrid"] and self.embedding_model:
-            logger.debug(f"Clustering eligible memories using embeddings (threshold: {threshold})...")
-            # Ensure all eligible memories have embeddings
-            for mem in eligible_memories:
-                mem_id = mem.get("id")
-                if mem_id not in self.memory_embeddings:
-                    try:
-                        mem_text = mem.get("memory", "")
-                        if mem_text:
-                            mem_emb = self.embedding_model.encode(mem_text, normalize_embeddings=True)
-                            self.memory_embeddings[mem_id] = mem_emb
-                        else:
-                             # Mark as None if no text to prevent repeated attempts
-                             self.memory_embeddings[mem_id] = None
-                    except Exception as e:
-                        logger.warning(f"Failed to generate embedding for memory {mem_id} during clustering: {e}")
-                        self.memory_embeddings[mem_id] = None # Mark as failed
+                # Subsequent: summarize from last summary point to now
+                messages_to_summarize = messages[last_summarized_count:]
             
-            # Simple greedy clustering based on similarity
-            temp_eligible = eligible_memories[:] # Work with a copy
-            while temp_eligible:
-                current_mem = temp_eligible.pop(0)
-                current_id = current_mem.get("id")
-                if current_id in processed_ids:
-                    continue
+            if not messages_to_summarize:
+                logger.warning("No messages to summarize")
+                return
+            
+            # Format messages for LLM
+            conversation_text = ""
+            for msg in messages_to_summarize:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if content:  # Only include messages with content
+                    conversation_text += f"{role.upper()}: {content}\n\n"
+            
+            if not conversation_text.strip():
+                logger.warning("No conversation content to summarize")
+                return
+            
+            # Create summarization prompt
+            system_prompt = self.valves.conversation_summarization_prompt
+            user_prompt = f"Conversation to summarize:\n\n{conversation_text}\n\nPlease provide a concise summary of this conversation segment."
+            
+            # Call LLM for summarization
+            summary = await self.query_llm_with_retry(system_prompt, user_prompt)
+            
+            if not summary or summary.startswith("Error:"):
+                logger.error(f"Failed to generate conversation summary: {summary}")
+                return
+            
+            # Clean up summary
+            summary = summary.strip()
+            if not summary:
+                logger.warning("Empty summary generated")
+                return
+            
+            # Store summary in Friday Memory System
+            try:
+                # Create memory operation for the summary
+                summary_content = f"[Conversation Summary] {summary}"
+                summary_metadata = {
+                    "source": "conversation_summarization",
+                    "conversation_id": conversation_id,
+                    "message_count": len(messages_to_summarize),
+                    "total_messages": total_messages,
+                    "summary_type": "conversation_segment"
+                }
                 
-                current_emb = self.memory_embeddings.get(current_id)
-                if current_emb is None:
-                    processed_ids.add(current_id)
-                    continue # Skip if no embedding
+                # Use the Friday Memory System API to store the summary
+                from datetime import datetime, timezone
+                summary_metadata["timestamp"] = datetime.now(timezone.utc).isoformat()
+                
+                # Store via Friday Memory System
+                await add_memory(
+                    user_id=user_id,
+                    form_data=AddMemoryForm(
+                        content=summary_content,
+                        metadata=summary_metadata
+                    )
+                )
+                
+                logger.info(f"Successfully stored conversation summary for user {user_id}")
+                
+                # Update tracking
+                if not hasattr(self, '_conversation_summary_tracking'):
+                    self._conversation_summary_tracking = {}
+                self._conversation_summary_tracking[tracking_key] = total_messages
+                
+                # Emit status if enabled
+                if event_emitter:
+                    await self._safe_emit(
+                        event_emitter,
+                        {
+                            "type": "info",
+                            "content": f"📝 Conversation summarized ({len(messages_to_summarize)} messages → {len(summary)} chars)"
+                        }
+                    )
                     
-                cluster = [current_mem]
-                processed_ids.add(current_id)
+            except Exception as e:
+                logger.error(f"Failed to store conversation summary: {e}")
                 
-                remaining_after_pop = []
-                for other_mem in temp_eligible:
-                    other_id = other_mem.get("id")
-                    if other_id in processed_ids:
-                        continue
-                        
-                    other_emb = self.memory_embeddings.get(other_id)
-                    if other_emb is None:
-                         remaining_after_pop.append(other_mem)
-                         continue # Skip if no embedding
-                         
-                    # Calculate similarity
-                    try:
-                        similarity = float(np.dot(current_emb, other_emb))
-                        if similarity >= threshold:
-                            cluster.append(other_mem)
-                            processed_ids.add(other_id)
-                        else:
-                           remaining_after_pop.append(other_mem) # Keep for next iteration
-                    except Exception as e:
-                       logger.warning(f"Error comparing embeddings for {current_id} and {other_id}: {e}")
-                       remaining_after_pop.append(other_mem)
-                
-                temp_eligible = remaining_after_pop # Update list for next outer loop iteration
-                
-                if len(cluster) >= self.valves.summarization_min_cluster_size:
-                    embedding_clusters.append(cluster)
-                    logger.debug(f"Found embedding cluster of size {len(cluster)} starting with ID {current_id}")
-            logger.debug(f"Identified {len(embedding_clusters)} potential clusters via embeddings.")
-            # If strategy is only embeddings, return now
-            if strategy == "embeddings":
-                 return embedding_clusters
-        
-        # --- Tag Clustering --- (Only if strategy is 'tags' or 'hybrid')
-        tag_clusters = []
-        if strategy in ["tags", "hybrid"]:
-            logger.debug(f"Clustering eligible memories using tags...")
-            from collections import defaultdict
-            tag_map = defaultdict(list)
-            
-            # Group memories by tag
-            for mem in eligible_memories:
-                mem_id = mem.get("id")
-                # Skip if already clustered by embeddings in hybrid mode
-                if strategy == "hybrid" and mem_id in processed_ids:
-                     continue
-                     
-                content = mem.get("memory", "")
-                tags_match = re.match(r"\[Tags: (.*?)\]", content)
-                if tags_match:
-                    tags = [tag.strip() for tag in tags_match.group(1).split(",")]
-                    for tag in tags:
-                        tag_map[tag].append(mem)
-            
-            # Create clusters from tag groups
-            cluster_candidates = list(tag_map.values())
-            for candidate in cluster_candidates:
-                # Filter out already processed IDs (important for hybrid)
-                current_cluster = [mem for mem in candidate if mem.get("id") not in processed_ids]
-                if len(current_cluster) >= self.valves.summarization_min_cluster_size:
-                    tag_clusters.append(current_cluster)
-                    # Mark these IDs as processed for hybrid mode
-                    for mem in current_cluster:
-                        processed_ids.add(mem.get("id"))
-                    logger.debug(f"Found tag cluster of size {len(current_cluster)} based on tags: {[t for t,mems in tag_map.items() if candidate[0] in mems]}")
-            logger.debug(f"Identified {len(tag_clusters)} potential clusters via tags.")
-            if strategy == "tags":
-                 return tag_clusters
-        
-        # --- Hybrid Strategy: Combine and return --- 
-        if strategy == "hybrid":
-             # Simply concatenate the lists of clusters found by each method
-             logger.debug(f"Combining {len(embedding_clusters)} embedding clusters and {len(tag_clusters)} tag clusters for hybrid strategy.")
-             all_clusters = embedding_clusters + tag_clusters
-             return all_clusters
-        
-        # Should not be reached if strategy is valid, but return empty list as fallback
-        return []
+        except Exception as e:
+            logger.error(f"Error in conversation summarization check: {e}")
+            # Don't raise exception to avoid breaking the main flow
 
     async def _summarize_old_memories_loop(self):
         """Periodically summarize old memories into concise summaries"""
@@ -1600,6 +1624,14 @@ Your output must be valid JSON only. No additional text.""",
                  body["prompt"] = "Note command received." # Placeholder
                  body["bypass_prompt_processing"] = True
                  return body
+
+        # --- Conversation Summarization Tracking ---
+        if self.valves.enable_conversation_summarization and body.get("messages"):
+            try:
+                await self._check_and_summarize_conversation(body, user_id, event_emitter=__event_emitter__)
+            except Exception as e:
+                logger.error(f"Error in conversation summarization tracking: {e}")
+                # Don't fail the request due to summarization errors
 
         # --- Memory Injection --- #
         if self.valves.show_memories and not self._embedding_feature_guard_active: # Guard embedding-dependent retrieval
