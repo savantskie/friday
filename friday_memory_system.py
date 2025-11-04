@@ -5703,7 +5703,7 @@ class FridayMemorySystem:
         # Search conversations
         if database_filter in ["all", "conversations"]:
             conversation_results = await self._search_conversations(
-                query_embedding, limit * 2, user_id=user_id, model_id=model_id
+                query_embedding, limit * 2
             )
             all_results.extend(conversation_results)
 
@@ -5718,7 +5718,7 @@ class FridayMemorySystem:
         # Search schedule
         if database_filter in ["all", "schedule"]:
             schedule_results = await self._search_schedule(
-                query_embedding, limit, user_id=user_id, model_id=model_id
+                query_embedding, limit
             )
             all_results.extend(schedule_results)
 
