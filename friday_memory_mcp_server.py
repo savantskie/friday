@@ -20,6 +20,7 @@ import logging
 import sqlite3
 import threading
 import requests
+import aiohttp
 from zoneinfo import ZoneInfo
 import os
 import numpy as np
@@ -419,6 +420,177 @@ class FridayMemoryMCPServer:
         return {"success": True, "data": fresh, "updated": False}
 
 
+    async def brave_web_search(self, query: str, count: int = 10, country: str = "US", language: str = "en") -> Dict:
+        """Perform a general web search using Brave Search API"""
+        logger.info(f"Brave web search called with query: {query}")
+        try:
+            # Get Brave API key from environment or file
+            api_key = os.getenv("BRAVE_API_KEY")
+            if not api_key:
+                # Try to load from file
+                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
+                if key_file.exists():
+                    try:
+                        with open(key_file, "r") as f:
+                            content = f.read().strip()
+                            # Parse "Brave_API_Key=\"key\""
+                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
+                                api_key = content[len('Brave_API_Key="'):-1]
+                    except Exception as e:
+                        logger.warning(f"Failed to read Brave API key from file: {e}")
+            
+            logger.info(f"BRAVE_API_KEY present: {bool(api_key)}")
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
+                }
+
+            # Limit count to reasonable bounds
+            count = min(max(count, 1), 20)
+
+            async with aiohttp.ClientSession() as session:
+                url = "https://api.search.brave.com/res/v1/web/search"
+                params = {
+                    "q": query,
+                    "count": count,
+                    "country": country,
+                    "search_lang": language
+                }
+                headers = {
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": api_key
+                }
+
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results = []
+
+                        # Process web results
+                        if "web" in data and "results" in data["web"]:
+                            for result in data["web"]["results"][:count]:
+                                results.append({
+                                    "title": result.get("title", ""),
+                                    "url": result.get("url", ""),
+                                    "description": result.get("description", ""),
+                                    "type": "web"
+                                })
+
+                        return {
+                            "success": True,
+                            "query": query,
+                            "results": results,
+                            "count": len(results)
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "success": False,
+                            "error": f"Brave API error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to perform web search: {str(e)}"
+            }
+
+    async def brave_local_search(self, query: str, location: str = None, count: int = 10, radius: int = 5000) -> Dict:
+        """Search for local businesses and places using Brave Search API"""
+        try:
+            # Get Brave API key from environment or file
+            api_key = os.getenv("BRAVE_API_KEY")
+            if not api_key:
+                # Try to load from file
+                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
+                if key_file.exists():
+                    try:
+                        with open(key_file, "r") as f:
+                            content = f.read().strip()
+                            # Parse "Brave_API_Key=\"key\""
+                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
+                                api_key = content[len('Brave_API_Key="'):-1]
+                    except Exception as e:
+                        logger.warning(f"Failed to read Brave API key from file: {e}")
+            
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
+                }
+
+            # Limit count to reasonable bounds
+            count = min(max(count, 1), 20)
+
+            # Build location-aware query for web search since local search endpoint may not be available
+            search_query = query
+            if location:
+                search_query = f"{query} near {location}"
+
+            async with aiohttp.ClientSession() as session:
+                url = "https://api.search.brave.com/res/v1/web/search"
+                params = {
+                    "q": search_query,
+                    "count": count,
+                    "country": "US",
+                    "search_lang": "en"
+                }
+                headers = {
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": api_key
+                }
+
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results = []
+
+                        # Process web results that are likely local businesses/places
+                        if "web" in data and "results" in data["web"]:
+                            for result in data["web"]["results"][:count]:
+                                # Try to identify local business results
+                                title = result.get("title", "")
+                                description = result.get("description", "")
+                                url = result.get("url", "")
+
+                                # Extract potential business info from title and description
+                                results.append({
+                                    "name": title.split(" - ")[0] if " - " in title else title,  # Try to extract business name
+                                    "address": "",  # Web search doesn't provide structured address data
+                                    "phone": "",    # Web search doesn't provide phone data
+                                    "rating": None, # Web search doesn't provide ratings
+                                    "price_range": "",
+                                    "type": "local_search_result",
+                                    "url": url,
+                                    "distance": None,
+                                    "description": description
+                                })
+
+                        return {
+                            "success": True,
+                            "query": query,
+                            "location": location,
+                            "results": results,
+                            "count": len(results),
+                            "note": "Local search results are based on web search with location context"
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "success": False,
+                            "error": f"Brave Local API error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to perform local search: {str(e)}"
+            }
+
+
 
 
     async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
@@ -599,6 +771,34 @@ class FridayMemoryMCPServer:
                 }
             ),
             Tool(
+                name="brave_web_search",
+                description="General web search using the Brave search engine",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
+                        "country": {"type": "string", "description": "Country code (e.g., 'US', 'CA')", "default": "US"},
+                        "language": {"type": "string", "description": "Language code (e.g., 'en', 'es')", "default": "en"}
+                    },
+                    "required": ["query"]
+                }
+            ),
+            Tool(
+                name="brave_local_search",
+                description="Search for local businesses and places",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (e.g., 'pizza near me')"},
+                        "location": {"type": "string", "description": "Location to search around (e.g., 'New York, NY' or coordinates)"},
+                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
+                        "radius": {"type": "integer", "description": "Search radius in meters", "default": 5000}
+                    },
+                    "required": ["query"]
+                }
+            ),
+            Tool(
                 name="get_completed_reminders",
                 description="Get recently completed reminders",
                 inputSchema={
@@ -709,7 +909,9 @@ class FridayMemoryMCPServer:
                         "memory_type": {"type": "string", "description": "Type of memory"},
                         "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Memory tags"},
-                        "source_conversation_id": {"type": "string", "description": "Source conversation ID"}
+                        "source_conversation_id": {"type": "string", "description": "Source conversation ID"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["content"]
                 }
@@ -740,7 +942,9 @@ class FridayMemoryMCPServer:
                         "location": {"type": "string", "description": "Location"},
                         "recurrence_pattern": {"type": "string", "description": "Recurrence pattern: 'daily', 'weekly', 'monthly', 'yearly'", "enum": ["daily", "weekly", "monthly", "yearly"]},
                         "recurrence_count": {"type": "integer", "description": "Number of appointments to create (including first), e.g., 12 for 12 weeks", "minimum": 1},
-                        "recurrence_end_date": {"type": "string", "description": "End date for recurrences (ISO format), alternative to recurrence_count"}
+                        "recurrence_end_date": {"type": "string", "description": "End date for recurrences (ISO format), alternative to recurrence_count"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["title", "scheduled_datetime"]
                 }
@@ -768,7 +972,9 @@ class FridayMemoryMCPServer:
                         "recurrence_end_date": {
                             "type": "string",
                             "description": "Optional: ISO format datetime to stop recurring reminders"
-                        }
+                        },
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["content", "due_datetime"]
                 }
@@ -835,7 +1041,8 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of insights", "default": 5},
-                        "insight_type": {"type": "string", "description": "Type of insight to filter"}
+                        "insight_type": {"type": "string", "description": "Type of insight to filter"},
+                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"}
                     }
                 }
             )
@@ -1171,34 +1378,51 @@ class FridayMemoryMCPServer:
             or os.getenv("FRIDAY_DEFAULT_MODEL", "Friday")
         )
 
-        arguments["user_id"] = user_id
-        arguments["model_id"] = model_id
+        # Store context for logging but don't modify arguments yet
+        client_id = self.client_context.get("current_client", "unknown")
 
         start_time = time.perf_counter()
-        client_id = self.client_context.get("current_client", "unknown")
 
         try:
             # -----------------------------------------------------------------
             # Memory & Context Tools
             # -----------------------------------------------------------------
             if tool_name in ("search_memories", "tool_search_memories_post"):
-                result = await self.memory_system.search_memories(**arguments)
+                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id
+                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.search_memories(**filtered_args)
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
-                result = await self.memory_system.create_memory(**arguments)
+                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, user_id, model_id
+                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.create_memory(**filtered_args)
 
             elif tool_name in ("update_memory", "tool_update_memory_post"):
-                result = await self.memory_system.update_memory(**arguments)
+                # update_memory accepts: memory_id, content, importance_level, tags
+                allowed_args = {"memory_id", "content", "importance_level", "tags"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.update_memory(**filtered_args)
 
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
-                result = await self.memory_system.get_recent_context(**arguments)
+                # get_recent_context accepts: limit, session_id, days_back
+                allowed_args = {"limit", "session_id", "days_back"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_recent_context(**filtered_args)
 
             elif tool_name == "store_conversation":
-                result = await self.memory_system.store_conversation(**arguments)
+                # store_conversation accepts: content, role, session_id, metadata
+                allowed_args = {"content", "role", "session_id", "metadata"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.store_conversation(**filtered_args)
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 try:
-                    reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
+                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days
+                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days"}
+                    filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**filtered_args)
                     result = {"status": "success", "reflection_id": reflection_id}
                 except TypeError as e:
                     if "unexpected keyword argument 'user_id'" in str(e):
@@ -1212,39 +1436,91 @@ class FridayMemoryMCPServer:
 
             elif tool_name == "get_ai_insights":
                 try:
-                    result = await self.memory_system.get_ai_insights(**arguments)
+                    # get_ai_insights accepts: limit, insight_type, query
+                    allowed_args = {"limit", "insight_type", "query"}
+                    filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    query = arguments.get("query", "").lower()
+                    result = await self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"})
+                    
+                    # Filter results if query is provided
+                    if query and "reflections" in result:
+                        filtered_reflections = []
+                        for reflection in result["reflections"]:
+                            content = reflection.get("content", "").lower()
+                            insights = reflection.get("insights", [])
+                            if query in content or any(query in insight.lower() for insight in insights):
+                                filtered_reflections.append(reflection)
+                        result["reflections"] = filtered_reflections
+                        result["count"] = len(filtered_reflections)
+                        
                 except Exception as e:
                     logger.error(f"Error getting AI insights: {e}")
                     result = {"status": "error", "message": f"Failed to get AI insights: {str(e)}", "reflections": [], "count": 0}
 
             elif tool_name == "get_character_context":
-                result = await self.memory_system.get_character_context(**arguments)
+                # get_character_context accepts: character_name, context_type, limit
+                allowed_args = {"character_name", "context_type", "limit"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_character_context(**filtered_args)
 
             # -----------------------------------------------------------------
             # Reminder & Appointment Tools
             # -----------------------------------------------------------------
             elif tool_name == "create_appointment":
-                result = await self.memory_system.create_appointment(**arguments)
+                # create_appointment accepts: title, description, scheduled_datetime, location, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
+                allowed_args = {"title", "description", "scheduled_datetime", "location", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.create_appointment(**filtered_args)
             elif tool_name == "cancel_appointment":
-                result = await self.memory_system.cancel_appointment(**arguments)
+                # cancel_appointment accepts: appointment_id
+                allowed_args = {"appointment_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.cancel_appointment(**filtered_args)
             elif tool_name == "complete_appointment":
-                result = await self.memory_system.complete_appointment(**arguments)
+                # complete_appointment accepts: appointment_id
+                allowed_args = {"appointment_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.complete_appointment(**filtered_args)
             elif tool_name == "get_appointments":
-                result = await self.memory_system.get_appointments(**arguments)
+                # get_appointments accepts: limit, days_ahead
+                allowed_args = {"limit", "days_ahead"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_appointments(**filtered_args)
             elif tool_name == "get_upcoming_appointments":
-                result = await self.memory_system.get_upcoming_appointments(**arguments)
+                # get_upcoming_appointments accepts: limit, days_ahead
+                allowed_args = {"limit", "days_ahead"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_upcoming_appointments(**filtered_args)
             elif tool_name == "create_reminder":
-                result = await self.memory_system.create_reminder(**arguments)
+                # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
+                allowed_args = {"content", "due_datetime", "priority_level", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.create_reminder(**filtered_args)
             elif tool_name == "reschedule_reminder":
-                result = await self.memory_system.reschedule_reminder(**arguments)
+                # reschedule_reminder accepts: reminder_id, new_due_datetime
+                allowed_args = {"reminder_id", "new_due_datetime"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.reschedule_reminder(**filtered_args)
             elif tool_name == "complete_reminder":
-                result = await self.memory_system.complete_reminder(**arguments)
+                # complete_reminder accepts: reminder_id
+                allowed_args = {"reminder_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.complete_reminder(**filtered_args)
             elif tool_name == "get_active_reminders":
-                result = await self.memory_system.get_active_reminders(**arguments)
+                # get_active_reminders accepts: limit, days_ahead
+                allowed_args = {"limit", "days_ahead"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_active_reminders(**filtered_args)
             elif tool_name == "get_completed_reminders":
-                result = await self.memory_system.get_completed_reminders(**arguments)
+                # get_completed_reminders accepts: days
+                allowed_args = {"days"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_completed_reminders(**filtered_args)
             elif tool_name == "delete_reminder":
-                result = await self.memory_system.delete_reminder(**arguments)
+                # delete_reminder accepts: reminder_id
+                allowed_args = {"reminder_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.delete_reminder(**filtered_args)
             elif tool_name == "get_reminders":
                 result = await self.get_reminders(**arguments)
 
@@ -1291,28 +1567,70 @@ class FridayMemoryMCPServer:
                 )
 
             # -----------------------------------------------------------------
+            # Brave Search Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "brave_web_search":
+                # brave_web_search accepts: query, count, country, language
+                allowed_args = {"query", "count", "country", "language"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.brave_web_search(**filtered_args)
+
+            elif tool_name == "brave_local_search":
+                # brave_local_search accepts: query, location, count, radius
+                allowed_args = {"query", "location", "count", "radius"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.brave_local_search(**filtered_args)
+
+            # -----------------------------------------------------------------
             # Project / System Tools
             # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
                 result = await self.memory_system.get_system_health()
             elif tool_name == "save_development_session":
-                result = await self.memory_system.save_development_session(**arguments)
+                # save_development_session accepts: workspace_path, active_files, git_branch, session_summary
+                allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.save_development_session(**filtered_args)
             elif tool_name == "store_project_insight":
-                result = await self.memory_system.store_project_insight(**arguments)
+                # store_project_insight accepts: insight_type, content, related_files, importance_level
+                allowed_args = {"insight_type", "content", "related_files", "importance_level"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.store_project_insight(**filtered_args)
             elif tool_name == "search_project_history":
-                result = await self.memory_system.search_project_history(**arguments)
+                # search_project_history accepts: query, limit
+                allowed_args = {"query", "limit"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.search_project_history(**filtered_args)
             elif tool_name == "link_code_context":
-                result = await self.memory_system.link_code_context(**arguments)
+                # link_code_context accepts: file_path, function_name, description, conversation_id
+                allowed_args = {"file_path", "function_name", "description", "conversation_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.link_code_context(**filtered_args)
             elif tool_name == "get_project_continuity":
-                result = await self.memory_system.get_project_continuity(**arguments)
+                # get_project_continuity accepts: workspace_path, limit
+                allowed_args = {"workspace_path", "limit"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_project_continuity(**filtered_args)
             elif tool_name == "get_tool_usage_summary":
-                result = await self.memory_system.get_tool_usage_summary(**arguments)
+                # get_tool_usage_summary accepts: days, client_id
+                allowed_args = {"days", "client_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.get_tool_usage_summary(**filtered_args)
             elif tool_name == "reflect_on_tool_usage":
-                result = await self.memory_system.reflect_on_tool_usage(**arguments)
+                # reflect_on_tool_usage accepts: days, client_id
+                allowed_args = {"days", "client_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.reflect_on_tool_usage(**filtered_args)
             elif tool_name == "store_roleplay_memory":
-                result = await self.memory_system.store_roleplay_memory(**arguments)
+                # store_roleplay_memory accepts: character_name, event_description, importance_level, tags
+                allowed_args = {"character_name", "event_description", "importance_level", "tags"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.store_roleplay_memory(**filtered_args)
             elif tool_name == "search_roleplay_history":
-                result = await self.memory_system.search_roleplay_history(**arguments)
+                # search_roleplay_history accepts: query, character_name, limit
+                allowed_args = {"query", "character_name", "limit"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.memory_system.search_roleplay_history(**filtered_args)
 
             # -----------------------------------------------------------------
             # Utility Tools
@@ -1487,12 +1805,8 @@ async def main():
     logging.getLogger("mcp").setLevel(logging.DEBUG)
     logging.getLogger("mcp.server").setLevel(logging.DEBUG)
     
-    mcp_server = FridayMemoryMCPServer()
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
-    import friday_memory_system as fms
-    asyncio.create_task(fms.main())
-    logger.info("Memory system started in background.")
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
@@ -1512,7 +1826,6 @@ async def main():
 
     except Exception:
         logger.exception("Server error")
-        await mcp_server.cleanup()
         await srv.cleanup()
 
 

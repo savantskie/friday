@@ -912,7 +912,8 @@ class ScheduleDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR APPOINTMENTS TABLE ---
             appointments_expected = [
                 'appointment_id', 'timestamp_created', 'scheduled_datetime', 'title', 'description',
-                'location', 'cancelled_at', 'completed_at', 'source_conversation_id', 'embedding', 'created_at', "status"
+                'location', 'cancelled_at', 'completed_at', 'source_conversation_id', 'embedding', 'created_at', "status",
+                'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(appointments)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -940,7 +941,9 @@ class ScheduleDatabase(DatabaseManager):
                         completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT,
+                        model_id TEXT
                     )
                 """)
                 for row in old_rows:
@@ -974,14 +977,17 @@ class ScheduleDatabase(DatabaseManager):
                         completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT,
+                        model_id TEXT
                     )
                 """)
 
             # --- MIGRATION LOGIC FOR REMINDERS TABLE ---
             reminders_expected = [
                 'reminder_id', 'timestamp_created', 'due_datetime', 'content', 'priority_level',
-                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'embedding', 'created_at'
+                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'embedding', 'created_at',
+                'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(reminders)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1007,7 +1013,9 @@ class ScheduleDatabase(DatabaseManager):
                         completed_at TEXT,
                         source_conversation_id TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT,
+                        model_id TEXT
                     )
                 """)
                 for row in old_rows:
@@ -1042,7 +1050,9 @@ class ScheduleDatabase(DatabaseManager):
                         completed INTEGER DEFAULT 0,
                         source_conversation_id TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT,
+                        model_id TEXT
                     )
                 """)
             conn.commit()
@@ -1052,7 +1062,8 @@ class ScheduleDatabase(DatabaseManager):
                                source_conversation_id: str = None,
                                recurrence_pattern: str = None,
                                recurrence_count: int = None,
-                               recurrence_end_date: str = None) -> Union[str, List[str]]:
+                               recurrence_end_date: str = None, user_id: str = None,
+                               model_id: str = None) -> Union[str, List[str]]:
         """Create a new appointment, optionally recurring
         
         Args:
@@ -1064,6 +1075,8 @@ class ScheduleDatabase(DatabaseManager):
             recurrence_pattern: Optional recurrence pattern ('weekly', 'monthly', 'daily')
             recurrence_count: Optional number of recurrences (including first appointment)
             recurrence_end_date: Optional end date for recurrences (ISO format)
+            user_id: Optional user ID for user separation
+            model_id: Optional model ID for model separation
             
         Returns:
             Single appointment_id if no recurrence, list of appointment_ids if recurring
@@ -1077,9 +1090,9 @@ class ScheduleDatabase(DatabaseManager):
         
         await self.execute_update(
             """INSERT INTO appointments 
-               (appointment_id, timestamp_created, scheduled_datetime, title, description, location, source_conversation_id) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (appointment_id, timestamp, scheduled_datetime, title, description, location, source_conversation_id)
+               (appointment_id, timestamp_created, scheduled_datetime, title, description, location, source_conversation_id, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (appointment_id, timestamp, scheduled_datetime, title, description, location, source_conversation_id, user_id, model_id)
         )
         
         appointment_ids = [appointment_id]
@@ -1129,9 +1142,9 @@ class ScheduleDatabase(DatabaseManager):
                     
                     await self.execute_update(
                         """INSERT INTO appointments 
-                           (appointment_id, timestamp_created, scheduled_datetime, title, description, location, source_conversation_id) 
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (recurring_id, timestamp, recurring_datetime, title, description, location, source_conversation_id)
+                           (appointment_id, timestamp_created, scheduled_datetime, title, description, location, source_conversation_id, user_id, model_id) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (recurring_id, timestamp, recurring_datetime, title, description, location, source_conversation_id, user_id, model_id)
                     )
                     
                     appointment_ids.append(recurring_id)
@@ -1148,7 +1161,8 @@ class ScheduleDatabase(DatabaseManager):
     async def create_reminder(self, content: str, due_datetime: str, 
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
-                            recurrence_end_date: str = None) -> Union[str, List[str]]:
+                            recurrence_end_date: str = None, user_id: str = None,
+                            model_id: str = None) -> Union[str, List[str]]:
         """Create a new reminder or multiple recurring reminders"""
         
         # If no recurrence pattern, create a single reminder
@@ -1158,9 +1172,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id) 
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id, user_id, model_id)
             )
             
             return reminder_id
@@ -1220,9 +1234,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id) 
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id, user_id, model_id)
             )
             
             reminder_ids.append(reminder_id)
@@ -5261,11 +5275,13 @@ class FridayMemorySystem:
     # AI Memory operations
     async def create_memory(self, content: str, memory_type: str = None,
                           importance_level: int = 5, tags: List[str] = None,
-                          source_conversation_id: str = None) -> Dict:
+                          source_conversation_id: str = None, user_id: str = None,
+                          model_id: str = None) -> Dict:
         """Create a curated memory"""
         
         memory_id = await self.ai_memory_db.create_memory(
-            content, memory_type, importance_level, tags, source_conversation_id
+            content, memory_type, importance_level, tags, source_conversation_id,
+            user_id=user_id, model_id=model_id
         )
         
         # Generate and store embedding asynchronously
@@ -5297,12 +5313,14 @@ class FridayMemorySystem:
                                source_conversation_id: str = None,
                                recurrence_pattern: str = None,
                                recurrence_count: int = None,
-                               recurrence_end_date: str = None) -> Dict:
+                               recurrence_end_date: str = None, user_id: str = None,
+                               model_id: str = None) -> Dict:
         """Create an appointment, optionally recurring"""
         
         appointment_result = await self.schedule_db.create_appointment(
             title, scheduled_datetime, description, location, source_conversation_id,
-            recurrence_pattern, recurrence_count, recurrence_end_date
+            recurrence_pattern, recurrence_count, recurrence_end_date,
+            user_id=user_id, model_id=model_id
         )
         
         # Handle the result based on whether it's a single ID or list of IDs
@@ -5329,12 +5347,14 @@ class FridayMemorySystem:
     async def create_reminder(self, content: str, due_datetime: str,
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
-                            recurrence_end_date: str = None) -> Dict:
+                            recurrence_end_date: str = None, user_id: str = None,
+                            model_id: str = None) -> Dict:
         """Create a reminder or multiple recurring reminders"""
         
         reminder_result = await self.schedule_db.create_reminder(
             content, due_datetime, priority_level, source_conversation_id,
-            recurrence_pattern, recurrence_count, recurrence_end_date
+            recurrence_pattern, recurrence_count, recurrence_end_date,
+            user_id=user_id, model_id=model_id
         )
         
         # Handle embedding generation for single or multiple reminders
