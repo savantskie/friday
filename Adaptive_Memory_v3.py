@@ -1,6 +1,6 @@
 """
-Adaptive Memory v3.0 - Advanced Memory System for OpenWebUI
-Author: AG
+Friday Short Term Memory v0.0.3 - Advanced Memory System for OpenWebUI
+Author: Nate
 
 ---
 
@@ -1222,6 +1222,136 @@ Analyze the following conversation and provide a concise summary.""",
             "minute": self.current_date.minute,
             "iso_time": self.current_date.strftime("%H:%M:%S"),
         }
+
+    async def _promote_old_memories_loop(self):
+        """Periodically promote old memories from OpenWebUI to Friday Memory System"""
+        try:
+            while True:
+                # Use configurable interval with small random jitter to prevent thundering herd
+                jitter = random.uniform(0.9, 1.1)  # ±10% randomization
+                interval = self.valves.memory_promotion_interval * jitter
+                await asyncio.sleep(interval)
+                logger.info("Starting periodic memory promotion run...")
+
+                try:
+                    # Get all users from OpenWebUI
+                    
+                    # Get all users (assuming we can iterate through all users)
+                    all_users = Users.get_all_users()
+                    if not all_users:
+                        logger.warning("No users found for memory promotion.")
+                        continue
+                    
+                    promoted_count = 0
+                    total_users_processed = 0
+                    
+                    for user in all_users:
+                        user_id = str(user.id)
+                        total_users_processed += 1
+                        
+                        try:
+                            # Get all memories for this user from OpenWebUI
+                            user_memories = await self._get_formatted_memories(user_id)
+                            if not user_memories:
+                                logger.debug(f"No memories found for user {user_id}")
+                                continue
+                            
+                            # Find memories older than 90 days
+                            cutoff_date = datetime.now(timezone.utc) - timedelta(days=90)
+                            old_memories = []
+                            
+                            for mem in user_memories:
+                                created_at = mem.get("created_at")
+                                if created_at:
+                                    # Handle different datetime formats
+                                    if isinstance(created_at, str):
+                                        try:
+                                            created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                        except ValueError:
+                                            logger.warning(f"Could not parse created_at date for memory {mem.get('id')}: {created_at}")
+                                            continue
+                                    
+                                    if created_at < cutoff_date:
+                                        old_memories.append(mem)
+                            
+                            if not old_memories:
+                                logger.debug(f"No memories older than 90 days found for user {user_id}")
+                                continue
+                            
+                            logger.info(f"Found {len(old_memories)} memories older than 90 days for user {user_id}")
+                            
+                            # Store each old memory in Friday Memory System
+                            for mem in old_memories:
+                                try:
+                                    # Create memory content with metadata
+                                    memory_content = mem.get("memory", "")
+                                    if not memory_content:
+                                        continue
+                                    
+                                    # Add promotion metadata
+                                    metadata = {
+                                        "source": "openwebui_promotion",
+                                        "original_id": mem.get("id"),
+                                        "promoted_at": datetime.now(timezone.utc).isoformat(),
+                                        "created_at": mem.get("created_at").isoformat() if mem.get("created_at") else None,
+                                        "updated_at": mem.get("updated_at").isoformat() if mem.get("updated_at") else None,
+                                    }
+                                    
+                                    # Use Friday Memory System tools to store
+                                    if FRIDAY_MEMORY_SYSTEM_AVAILABLE:
+                                        try:
+                                            from friday_memory_system import FridayMemorySystem
+                                            memory_system = FridayMemorySystem()
+                                            result = await memory_system.create_memory(
+                                                content=memory_content,
+                                                importance_level=5,  # Default importance
+                                                memory_type="archived",
+                                                source_conversation_id=f"openwebui_user_{user_id}",
+                                                tags=["promoted", "archived"]
+                                            )
+                                            logger.debug(f"Successfully stored memory in Friday Memory System: {result.get('memory_id')}")
+                                        except Exception as mem_sys_error:
+                                            logger.error(f"Error storing memory in Friday Memory System: {mem_sys_error}")
+                                    else:
+                                        logger.warning("Friday Memory System not available for memory promotion")
+                                    
+                                    promoted_count += 1
+                                    logger.debug(f"Successfully promoted memory {mem.get('id')} for user {user_id}")
+                                    
+                                except Exception as mem_error:
+                                    logger.error(f"Error promoting individual memory {mem.get('id')} for user {user_id}: {mem_error}")
+                                    continue
+                            
+                            # Optionally clean up promoted memories from OpenWebUI
+                            if self.valves.clean_promoted_memories:
+                                deleted_count = 0
+                                for mem in old_memories:
+                                    try:
+                                        delete_op = MemoryOperation(operation="DELETE", id=mem["id"])
+                                        await self._execute_memory_operation(delete_op, user)
+                                        deleted_count += 1
+                                    except Exception as del_error:
+                                        logger.warning(f"Error deleting promoted memory {mem.get('id')} from OpenWebUI: {del_error}")
+                                
+                                if deleted_count > 0:
+                                    logger.info(f"Cleaned up {deleted_count} promoted memories from OpenWebUI for user {user_id}")
+                        
+                        except Exception as user_error:
+                            logger.error(f"Error processing memory promotion for user {user_id}: {user_error}")
+                            continue
+                    
+                    if promoted_count > 0:
+                        logger.info(f"Successfully promoted {promoted_count} memories across {total_users_processed} users")
+                    else:
+                        logger.info(f"No memories were promoted in this run across {total_users_processed} users")
+                        
+                except Exception as e:
+                    logger.error(f"Error in memory promotion loop: {e}\n{traceback.format_exc()}")
+                    # Continue loop even if one run fails
+        except asyncio.CancelledError:
+            logger.info("Memory promotion task cancelled.")
+        except Exception as e:
+            logger.error(f"Fatal error in memory promotion task loop: {e}\n{traceback.format_exc()}")
 
     async def _log_error_counters_loop(self):
         """Periodically log error counters"""

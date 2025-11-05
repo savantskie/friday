@@ -1197,11 +1197,25 @@ class FridayMemoryMCPServer:
                 result = await self.memory_system.store_conversation(**arguments)
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
-                reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
-                result = {"status": "success", "reflection_id": reflection_id}
+                try:
+                    reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
+                    result = {"status": "success", "reflection_id": reflection_id}
+                except TypeError as e:
+                    if "unexpected keyword argument 'user_id'" in str(e):
+                        logger.warning(f"store_ai_reflection tool temporarily disabled due to user/model separation work in progress: {e}")
+                        result = {"status": "temporarily_disabled", "message": "AI reflection storage is temporarily disabled while implementing user/model separation. This will be restored tomorrow."}
+                    else:
+                        raise  # Re-raise other TypeErrors
+                except Exception as e:
+                    logger.error(f"Error storing AI reflection: {e}")
+                    result = {"status": "error", "message": f"Failed to store AI reflection: {str(e)}"}
 
             elif tool_name == "get_ai_insights":
-                result = await self.memory_system.get_ai_insights(**arguments)
+                try:
+                    result = await self.memory_system.get_ai_insights(**arguments)
+                except Exception as e:
+                    logger.error(f"Error getting AI insights: {e}")
+                    result = {"status": "error", "message": f"Failed to get AI insights: {str(e)}", "reflections": [], "count": 0}
 
             elif tool_name == "get_character_context":
                 result = await self.memory_system.get_character_context(**arguments)
