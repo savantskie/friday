@@ -10,16 +10,6 @@ fridayonline.bounceme.net {
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
     }
 
-    @bad_api_key {
-        path /mcpo*
-        not header X-API-Key "{env.MCPO_API_KEY}"
-    }
-    
-    respond @bad_api_key 403 {
-        body "[🔥 BLOCKED] Unauthorized access attempt to /mcpo — missing or wrong API key."
-    }
-
-
     # Route ordering: specific paths first, then default OWUI
     route {
         # ---------- MCPo (tools) over same-origin HTTPS ----------

@@ -423,6 +423,15 @@ class FridayMemoryMCPServer:
     async def brave_web_search(self, query: str, count: int = 10, country: str = "US", language: str = "en") -> Dict:
         """Perform a general web search using Brave Search API"""
         logger.info(f"Brave web search called with query: {query}")
+        # Also write a simple append-only log for quick debugging (separate from python logging)
+        try:
+            log_dir = BASE_PATH / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "brave_search.log", "a", encoding="utf-8") as _lf:
+                _lf.write(f"{datetime.now().isoformat()} - brave_web_search called - query={query!r}, count={count}, country={country}, language={language}\n")
+        except Exception:
+            # best-effort logging; do not fail the search if logging can't write
+            pass
         try:
             # Get Brave API key from environment or file
             api_key = os.getenv("BRAVE_API_KEY")
@@ -1364,6 +1373,20 @@ class FridayMemoryMCPServer:
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
         import time
+
+        # ---------------------------------------------------------------------
+        # LOG ALL INCOMING TOOL CALLS (for debugging)
+        # ---------------------------------------------------------------------
+        try:
+            log_dir = BASE_PATH / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "tool_calls.log", "a", encoding="utf-8") as _lf:
+                import json
+                _lf.write(f"{datetime.now().isoformat()} - Tool called: {tool_name}\n")
+                _lf.write(f"  Arguments: {json.dumps(arguments, indent=2)}\n")
+                _lf.write("-" * 80 + "\n")
+        except Exception:
+            pass  # best-effort logging
 
         # ---------------------------------------------------------------------
         # Context Setup
