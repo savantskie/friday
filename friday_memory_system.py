@@ -4005,9 +4005,9 @@ class EmbeddingService:
         
         logger.info("🔧 Intelligent Embedding Service Configuration")
         primary_provider = self.primary_config.get('provider', 'lm_studio')
-        primary_model = self.primary_config.get('model', 'text-embedding-qwen3-embedding-0.6b')
+        primary_model = self.primary_config.get('model', 'text-embedding-nomic-embed-text-v1.5')
         fallback_provider = self.fallback_config.get('provider', 'ollama')
-        fallback_model = self.fallback_config.get('model', 'nomic-embed-text')
+        fallback_model = self.fallback_config.get('model', 'nomic-embed-text:latest')
         
         logger.info(f"✅ Primary: {primary_provider} ({primary_model})")
         logger.info(f"⚡ Fallback: {fallback_provider} ({fallback_model})")
@@ -4077,7 +4077,7 @@ class EmbeddingService:
                     "1. Edit this file to configure your preferred embedding providers",
                     "2. Configure 'primary' for your main embedding service",
                     "3. Configure 'fallback' for backup when primary fails",
-                    "4. For Ollama: Make sure model is pulled (ollama pull nomic-embed-text)",
+                    "4. For Ollama: Make sure model is pulled (ollama pull nomic-embed-text:latest)",
                     "5. For LM Studio: Load an embedding model and update base_url if needed",
                     "6. For OpenAI: Add your API key",
                     "7. Restart Friday to apply changes"

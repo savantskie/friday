@@ -142,6 +142,9 @@ import difflib
 from difflib import SequenceMatcher
 import random
 import time
+import sqlite3
+import os
+import pickle
 
 # Embedding model imports
 from sentence_transformers import SentenceTransformer
@@ -192,6 +195,23 @@ class JsonFormatter(logging.Formatter):
 formatter = JsonFormatter()
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+# Add FileHandler for persistent logging to workspace
+try:
+    import os
+    log_dir = "/media/nate/Friday/Friday/logs"
+    os.makedirs(log_dir, exist_ok=True)
+    
+    file_handler = logging.FileHandler(
+        os.path.join(log_dir, "adaptive_memory_embedding.log"),
+        encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.info("FileHandler initialized - logging to /media/nate/Friday/Friday/logs/adaptive_memory_embedding.log")
+except Exception as e:
+    logger.error(f"Failed to create file logger: {e}")
+
 logger.propagate = False # Prevent duplicate logs if root logger has handlers
 # Do not override root logger level; respect GLOBAL_LOG_LEVEL or root config
 
@@ -218,6 +238,110 @@ class MemoryOperation(BaseModel):
     memory_bank: Optional[str] = None  # NEW – bank assignment
 
 
+class EmbeddingCache:
+    """Persistent SQLite-based embedding cache for memory embeddings"""
+    
+    def __init__(self, db_path: str = "/media/nate/Friday/Friday/data/memory_embeddings.db"):
+        self.db_path = db_path
+        self.conn = None
+        self._init_db()
+    
+    def _init_db(self):
+        """Initialize SQLite database for embeddings"""
+        try:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memory_embeddings (
+                    memory_id TEXT PRIMARY KEY,
+                    memory_text TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.conn.commit()
+            logger.info(f"✓ Embedding cache database initialized at {self.db_path}")
+        except Exception as e:
+            logger.error(f"❌ Error initializing embedding cache database: {e}")
+            self.conn = None
+    
+    def get(self, memory_id: str) -> Optional[np.ndarray]:
+        """Retrieve embedding from cache"""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT embedding FROM memory_embeddings WHERE memory_id = ?", (memory_id,))
+            row = cursor.fetchone()
+            if row:
+                embedding = pickle.loads(row[0])
+                logger.debug(f"✓ Retrieved cached embedding for memory {memory_id}")
+                return embedding
+            return None
+        except Exception as e:
+            logger.warning(f"Error retrieving embedding from cache for {memory_id}: {e}")
+            return None
+    
+    def put(self, memory_id: str, memory_text: str, embedding: np.ndarray):
+        """Store embedding in cache"""
+        if not self.conn:
+            return
+        try:
+            cursor = self.conn.cursor()
+            embedding_blob = pickle.dumps(embedding)
+            cursor.execute("""
+                INSERT OR REPLACE INTO memory_embeddings (memory_id, memory_text, embedding, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """, (memory_id, memory_text, embedding_blob))
+            self.conn.commit()
+            logger.debug(f"✓ Stored embedding for memory {memory_id} to persistent cache")
+        except Exception as e:
+            logger.warning(f"Error storing embedding in cache for {memory_id}: {e}")
+    
+    def delete(self, memory_id: str):
+        """Delete embedding from cache"""
+        if not self.conn:
+            return
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM memory_embeddings WHERE memory_id = ?", (memory_id,))
+            self.conn.commit()
+            logger.debug(f"✓ Deleted embedding from cache for memory {memory_id}")
+        except Exception as e:
+            logger.warning(f"Error deleting embedding from cache for {memory_id}: {e}")
+    
+    def clear(self):
+        """Clear all embeddings from cache"""
+        if not self.conn:
+            return
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM memory_embeddings")
+            self.conn.commit()
+            logger.info("✓ Cleared all embeddings from cache")
+        except Exception as e:
+            logger.warning(f"Error clearing embedding cache: {e}")
+    
+    def get_all_memory_ids(self) -> List[str]:
+        """Get all memory IDs in cache"""
+        if not self.conn:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT memory_id FROM memory_embeddings")
+            return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(f"Error retrieving memory IDs from cache: {e}")
+            return []
+    
+    def close(self):
+        """Close database connection"""
+        if self.conn:
+            self.conn.close()
+
+
 class Filter:
     # Class-level singleton attributes to avoid missing attribute errors
     _embedding_model = None
@@ -228,11 +352,20 @@ class Filter:
     def embedding_model(self):
         if self._embedding_model is None:
             try:
+                logger.info("🔄 Embedding model is None, attempting to load SentenceTransformer(all-MiniLM-L6-v2)...")
                 from sentence_transformers import SentenceTransformer
 
+                logger.debug("✓ SentenceTransformer import successful, instantiating model...")
                 self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-            except Exception:
+                logger.info("✓✓ Successfully loaded and cached embedding model (all-MiniLM-L6-v2)")
+            except ImportError as e:
+                logger.error(f"❌ ImportError: Failed to import SentenceTransformer: {e}")
                 self._embedding_model = None
+            except Exception as e:
+                logger.error(f"❌ Exception loading embedding model: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+                self._embedding_model = None
+        else:
+            logger.debug("✓ Embedding model already cached, returning existing instance")
         return self._embedding_model
 
     @property
@@ -827,6 +960,10 @@ Analyze the following conversation and provide a concise summary.""",
         # Force re-initialization of valves using the current class definition
         self.valves = self.Valves()
 
+        # Initialize persistent embedding cache
+        self.embedding_cache = EmbeddingCache()
+        logger.info("✓ Initialized persistent embedding cache")
+
         # ------------------------------------------------------------
         # OpenWebUI may optionally inject a `.config` attribute that
         # contains plugin-specific configuration (e.g. from a YAML or
@@ -875,6 +1012,12 @@ Analyze the following conversation and provide a concise summary.""",
             "json_parse_errors": 0,
             "memory_crud_errors": 0,
         }
+        
+        # Schedule retroactive embedding of all existing memories
+        logger.info("Scheduling retroactive embedding of existing memories...")
+        self._retroactive_embedding_task = asyncio.create_task(self._retroactively_embed_all_memories())
+        self._background_tasks.add(self._retroactive_embedding_task)
+        self._retroactive_embedding_task.add_done_callback(self._background_tasks.discard)
         
         # Log configuration for deduplication, helpful for testing and validation
         logger.debug(f"Memory deduplication settings:")
@@ -1588,7 +1731,12 @@ Analyze the following conversation and provide a concise summary.""",
         # Load valves early, handle potential errors
         try:
             # Reload global valves if OWUI injected config exists; otherwise keep defaults
+            logger.debug(f"🔍 DEBUG: self.config = {getattr(self, 'config', '<Not Set>')}")
+            logger.debug(f"🔍 DEBUG: self.config.get('valves') = {getattr(self, 'config', {}).get('valves', '<No valves key>')}")
+            
             self.valves = self.Valves(**getattr(self, "config", {}).get("valves", {}))
+            
+            logger.debug(f"✓ Valves reloaded. vector_similarity_threshold={self.valves.vector_similarity_threshold}, top_n_memories={self.valves.top_n_memories}")
 
             # Load user-specific valves (may override some per-user settings)
             user_valves = self._get_user_valves(__user__)
@@ -1948,6 +2096,71 @@ Analyze the following conversation and provide a concise summary.""",
                 f"Could not determine user valves settings from data {user_valves_data}: {e}"
             )
             return self.UserValves()  # Return default UserValves on error
+
+    async def _retroactively_embed_all_memories(self):
+        """Retroactively embed all existing memories that don't have embeddings yet"""
+        try:
+            await asyncio.sleep(2)  # Give plugin time to fully initialize
+            logger.info("🔄 Starting retroactive embedding of all existing memories...")
+            
+            # Get all unique memories across all users
+            try:
+                all_memories = Memories.get_memories()  # Get all memories
+            except Exception as e:
+                logger.warning(f"Could not retrieve all memories: {e}, trying empty list")
+                all_memories = []
+            
+            if not all_memories:
+                logger.info("No existing memories found to embed")
+                return
+            
+            logger.info(f"📊 Found {len(all_memories)} existing memories to potentially embed")
+            embedded_count = 0
+            skipped_count = 0
+            error_count = 0
+            
+            for memory in all_memories:
+                try:
+                    mem_id = str(getattr(memory, "id", None))
+                    mem_text = getattr(memory, "content", "")
+                    
+                    if not mem_id or not mem_text:
+                        skipped_count += 1
+                        continue
+                    
+                    # Check if already embedded in persistent cache
+                    existing_emb = self.embedding_cache.get(mem_id) if hasattr(self, 'embedding_cache') else None
+                    
+                    if existing_emb is not None:
+                        logger.debug(f"✓ Memory {mem_id} already has embedding, skipping")
+                        skipped_count += 1
+                        continue
+                    
+                    # Compute embedding if not present
+                    if self.embedding_model is not None:
+                        embedding = self.embedding_model.encode(mem_text, normalize_embeddings=True)
+                        
+                        # Store in persistent cache
+                        if hasattr(self, 'embedding_cache'):
+                            self.embedding_cache.put(mem_id, mem_text, embedding)
+                            embedded_count += 1
+                            logger.debug(f"✓ Embedded and cached memory {mem_id}")
+                        
+                        # Also store in in-memory cache for current session
+                        self.memory_embeddings[mem_id] = embedding
+                    else:
+                        logger.warning(f"Embedding model not available, cannot embed memory {mem_id}")
+                        error_count += 1
+                        
+                except Exception as e:
+                    error_count += 1
+                    logger.warning(f"Error embedding memory {mem_id}: {e}")
+                    continue
+            
+            logger.info(f"✓ Retroactive embedding complete: {embedded_count} embedded, {skipped_count} skipped, {error_count} errors")
+            
+        except Exception as e:
+            logger.error(f"Fatal error during retroactive embedding: {e}\n{traceback.format_exc()}")
 
     async def _get_formatted_memories(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all memories for a user and format them for processing"""
@@ -2703,7 +2916,7 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
             logger.debug(f"LLM raw response for memory identification: {llm_response}")
 
             # --- Handle LLM Errors --- #
-            if llm_response.startswith("Error:"):
+            if llm_response.startswith("Error:") or not llm_response.strip():
                 self.error_counters["llm_call_errors"] += 1
                 if "LLM_CONNECTION_FAILED" in llm_response:
                     logger.error(f"LLM Connection Error during identification: {llm_response}")
@@ -3109,6 +3322,9 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
 
         import time
 
+        # DEBUG: Show what valve settings are being used
+        logger.info(f"🔍 get_relevant_memories START: vector_similarity_threshold={self.valves.vector_similarity_threshold}, top_n_memories={self.valves.top_n_memories}")
+
         start = time.perf_counter()
         try:
             # Get all memories for the user
@@ -3145,20 +3361,30 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
 
             if user_embedding is not None:
                 # Calculate vector similarities only if user embedding was successful
+                logger.info(f"🔍 DEBUG: Processing {len(existing_memories)} memories for embedding")
                 for mem in existing_memories:
                     mem_id = mem.get("id")
-                    # Ensure embedding exists in our cache for this memory
-                    mem_emb = self.memory_embeddings.get(mem_id)
+                    mem_text = mem.get("memory") or ""
+                    
+                    # Try to retrieve from persistent cache first
+                    mem_emb = self.embedding_cache.get(mem_id) if hasattr(self, 'embedding_cache') else None
+                    
+                    # If not in persistent cache, try in-memory cache (for backwards compat)
+                    if mem_emb is None:
+                        mem_emb = self.memory_embeddings.get(mem_id)
+                    
                     # Lazily compute and cache the memory embedding if not present
                     if mem_emb is None and self.embedding_model is not None:
                         try:
-                            mem_text = mem.get("memory") or ""
                             if mem_text:
                                 mem_emb = self.embedding_model.encode(
                                     mem_text, normalize_embeddings=True
                                 )
-                                # Cache for future similarity checks
+                                # Store in BOTH persistent and in-memory cache
                                 self.memory_embeddings[mem_id] = mem_emb
+                                if hasattr(self, 'embedding_cache'):
+                                    self.embedding_cache.put(mem_id, mem_text, mem_emb)
+                                logger.debug(f"✓ Embedded memory {mem_id}: text_len={len(mem_text)}, emb_shape={mem_emb.shape if hasattr(mem_emb, 'shape') else 'N/A'}")
                         except Exception as e:
                             logger.warning(
                                 f"Error computing embedding for memory {mem_id}: {e}"
@@ -3169,18 +3395,15 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                             # Cosine similarity (since embeddings are normalized)
                             sim = float(np.dot(user_embedding, mem_emb))
                             vector_similarities.append((sim, mem))
+                            logger.debug(f"📊 Memory {mem_id}: similarity={sim:.4f}")
                         except Exception as e:
                             logger.warning(
                                 f"Error calculating similarity for memory {mem_id}: {e}"
                             )
                             continue  # Skip this memory if calculation fails
-                        else:
-                            logger.debug(
-                                f"No embedding available for memory {mem_id} even after attempted computation."
-                            )
                     else:
                         logger.debug(
-                            f"No embedding available for memory {mem_id} even after attempted computation."
+                            f"⚠️ No embedding for memory {mem_id} even after attempted computation."
                         )
 
                 # Sort by similarity descending
@@ -3878,20 +4101,35 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                     }
                     logger.debug(f"Ollama request data: {json.dumps(data)[:500]}...")
                 elif provider_type == "openai_compatible":
-                    # Prepare the request body for OpenAI-compatible API
-                    data = {
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt_with_date},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": 0,
-                        "top_p": 1,
-                        "max_tokens": 1024,
-                        "response_format": {"type": "json_object"},  # Force JSON mode
-                        "seed": 42,
-                        "stream": False,
-                    }
+                    # Check if this is LM Studio (port 1234)
+                    is_lm_studio = ":1234" in api_url
+                    
+                    if is_lm_studio:
+                        # LM Studio expects 'prompt' field instead of 'messages'
+                        combined_prompt = f"{system_prompt_with_date}\n\n{user_prompt}"
+                        data = {
+                            "model": model,
+                            "prompt": combined_prompt,
+                            "temperature": 0,
+                            "top_p": 1,
+                            "max_tokens": 1024,
+                            "stream": False,
+                        }
+                    else:
+                        # Standard OpenAI-compatible API
+                        data = {
+                            "model": model,
+                            "messages": [
+                                {"role": "system", "content": system_prompt_with_date},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0,
+                            "top_p": 1,
+                            "max_tokens": 1024,
+                            "response_format": {"type": "json_object"},  # Force JSON mode
+                            "seed": 42,
+                            "stream": False,
+                        }
                     logger.debug(
                         f"OpenAI-compatible request data: {json.dumps(data)[:500]}..."
                     )
@@ -3946,15 +4184,27 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         logger.debug(f"Raw API response: {json.dumps(data)[:500]}...")
 
                         if provider_type == "openai_compatible":
-                            if (
-                                data.get("choices")
-                                and data["choices"][0].get("message")
-                                and data["choices"][0]["message"].get("content")
-                            ):
-                                content = data["choices"][0]["message"]["content"]
-                                logger.info(
-                                    f"Retrieved content from OpenAI-compatible response (length: {len(content)})"
-                                )
+                            # Check if this is LM Studio (port 1234)
+                            is_lm_studio = ":1234" in api_url
+                            
+                            if is_lm_studio:
+                                # LM Studio returns text in choices[0].text
+                                if data.get("choices") and data["choices"][0].get("text"):
+                                    content = data["choices"][0]["text"]
+                                    logger.info(
+                                        f"Retrieved content from LM Studio response (length: {len(content)})"
+                                    )
+                            else:
+                                # Standard OpenAI format returns message.content
+                                if (
+                                    data.get("choices")
+                                    and data["choices"][0].get("message")
+                                    and data["choices"][0]["message"].get("content")
+                                ):
+                                    content = data["choices"][0]["message"]["content"]
+                                    logger.info(
+                                        f"Retrieved content from OpenAI-compatible response (length: {len(content)})"
+                                    )
                         elif provider_type == "ollama":
                             if data.get("message") and data["message"].get("content"):
                                 content = data["message"]["content"]
