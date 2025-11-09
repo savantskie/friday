@@ -145,6 +145,8 @@ import time
 import sqlite3
 import os
 import pickle
+import aiohttp
+import numpy as np
 
 # Embedding model imports
 from sentence_transformers import SentenceTransformer
@@ -342,6 +344,49 @@ class EmbeddingCache:
             self.conn.close()
 
 
+# ============================================================================
+# NOMIC EMBEDDING PROVIDER - Calls LM Studio for 768D embeddings
+# ============================================================================
+
+async def get_nomic_embedding(text: str, lm_studio_url: str = "http://192.168.1.50:1234/v1/embeddings") -> Optional[np.ndarray]:
+    """
+    Get 768D embedding from LM Studio using Nomic model.
+    
+    Args:
+        text: Text to embed
+        lm_studio_url: LM Studio API endpoint (default: http://192.168.1.50:1234/v1/embeddings)
+    
+    Returns:
+        numpy array of 768D embedding, or None if failed
+    """
+    if not text or not text.strip():
+        return None
+    
+    try:
+        timeout = aiohttp.ClientTimeout(total=120)  # 2-minute timeout for model loading
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            payload = {
+                "model": "text-embedding-nomic-embed-text-v1.5",
+                "input": text.strip()
+            }
+            async with session.post(lm_studio_url, json=payload) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data and "data" in data and len(data["data"]) > 0:
+                        embedding = data["data"][0].get("embedding")
+                        if embedding:
+                            return np.array(embedding, dtype=np.float32)
+                    logger.warning(f"Invalid LM Studio response format: {data}")
+                    return None
+                else:
+                    error_text = await response.text()
+                    logger.error(f"LM Studio API error {response.status}: {error_text}")
+                    return None
+    except Exception as e:
+        logger.error(f"Error calling LM Studio embedding: {e}")
+        return None
+
+
 class Filter:
     # Class-level singleton attributes to avoid missing attribute errors
     _embedding_model = None
@@ -350,23 +395,13 @@ class Filter:
 
     @property
     def embedding_model(self):
-        if self._embedding_model is None:
-            try:
-                logger.info("🔄 Embedding model is None, attempting to load SentenceTransformer(all-MiniLM-L6-v2)...")
-                from sentence_transformers import SentenceTransformer
-
-                logger.debug("✓ SentenceTransformer import successful, instantiating model...")
-                self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-                logger.info("✓✓ Successfully loaded and cached embedding model (all-MiniLM-L6-v2)")
-            except ImportError as e:
-                logger.error(f"❌ ImportError: Failed to import SentenceTransformer: {e}")
-                self._embedding_model = None
-            except Exception as e:
-                logger.error(f"❌ Exception loading embedding model: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-                self._embedding_model = None
-        else:
-            logger.debug("✓ Embedding model already cached, returning existing instance")
-        return self._embedding_model
+        """
+        Marker property for backward compatibility.
+        Actual embedding calls now use async get_nomic_embedding() function.
+        This property returns None since we're using async LM Studio API instead of SentenceTransformer.
+        """
+        logger.debug("✓ Using async Nomic embeddings from LM Studio (text-embedding-nomic-embed-text-v1.5)")
+        return None  # Indicates async-based approach, not a local model
 
     @property
     def memory_embeddings(self):
@@ -1012,6 +1047,10 @@ Analyze the following conversation and provide a concise summary.""",
             "json_parse_errors": 0,
             "memory_crud_errors": 0,
         }
+        
+        # Track embedding dimension for smart validation (only check on dimension change)
+        self._last_embedding_dimension = None  # Will be set on first user embedding
+        self._dimension_change_detected = False  # Flag to force check once if dimension changes
         
         # Schedule retroactive embedding of all existing memories
         logger.info("Scheduling retroactive embedding of existing memories...")
@@ -2098,7 +2137,7 @@ Analyze the following conversation and provide a concise summary.""",
             return self.UserValves()  # Return default UserValves on error
 
     async def _retroactively_embed_all_memories(self):
-        """Retroactively embed all existing memories that don't have embeddings yet"""
+        """Retroactively embed all existing memories and regenerate if dimensions mismatch"""
         try:
             await asyncio.sleep(2)  # Give plugin time to fully initialize
             logger.info("🔄 Starting retroactive embedding of all existing memories...")
@@ -2117,7 +2156,11 @@ Analyze the following conversation and provide a concise summary.""",
             logger.info(f"📊 Found {len(all_memories)} existing memories to potentially embed")
             embedded_count = 0
             skipped_count = 0
+            regenerated_count = 0
             error_count = 0
+            
+            # Track the embedding dimension from first successful embedding
+            fresh_emb_sample = None
             
             for memory in all_memories:
                 try:
@@ -2131,33 +2174,66 @@ Analyze the following conversation and provide a concise summary.""",
                     # Check if already embedded in persistent cache
                     existing_emb = self.embedding_cache.get(mem_id) if hasattr(self, 'embedding_cache') else None
                     
-                    if existing_emb is not None:
-                        logger.debug(f"✓ Memory {mem_id} already has embedding, skipping")
-                        skipped_count += 1
+                    # Get a fresh embedding from LM Studio to check dimension compatibility
+                    fresh_emb = await get_nomic_embedding(mem_text)
+                    
+                    # If we can't get fresh embedding, skip this memory
+                    if fresh_emb is None:
+                        if existing_emb is not None:
+                            logger.debug(f"✓ Memory {mem_id} has cached embedding but LM Studio unavailable, keeping cached version")
+                            skipped_count += 1
+                        else:
+                            logger.warning(f"Could not embed memory {mem_id}, LM Studio unavailable")
+                            error_count += 1
                         continue
                     
-                    # Compute embedding if not present
-                    if self.embedding_model is not None:
-                        embedding = self.embedding_model.encode(mem_text, normalize_embeddings=True)
+                    # Track embedding dimension on first successful embedding (for smart checks later)
+                    if fresh_emb_sample is None and hasattr(fresh_emb, 'shape'):
+                        fresh_emb_sample = fresh_emb
+                        self._last_embedding_dimension = fresh_emb.shape[0]
+                        logger.debug(f"📊 Set embedding dimension to {self._last_embedding_dimension}D for future checks")
+                    
+                    # Check if cached embedding needs regeneration (dimension mismatch)
+                    if existing_emb is not None:
+                        try:
+                            if hasattr(existing_emb, 'shape') and hasattr(fresh_emb, 'shape'):
+                                if existing_emb.shape[0] != fresh_emb.shape[0]:
+                                    logger.info(
+                                        f"⚠️ Dimension mismatch for memory {mem_id}: cached={existing_emb.shape[0]}D, current={fresh_emb.shape[0]}D. Regenerating..."
+                                    )
+                                    # Use the fresh embedding that was just generated
+                                    if hasattr(self, 'embedding_cache'):
+                                        self.embedding_cache.put(mem_id, mem_text, fresh_emb)
+                                    self.memory_embeddings[mem_id] = fresh_emb
+                                    regenerated_count += 1
+                                    continue
+                        except Exception as e:
+                            logger.debug(f"Could not check embedding dimensions for {mem_id}: {e}, regenerating")
+                            if hasattr(self, 'embedding_cache'):
+                                self.embedding_cache.put(mem_id, mem_text, fresh_emb)
+                            self.memory_embeddings[mem_id] = fresh_emb
+                            regenerated_count += 1
+                            continue
                         
-                        # Store in persistent cache
+                        # Cached embedding is valid (same dimensions), keep it
+                        logger.debug(f"✓ Memory {mem_id} already has valid embedding, skipping")
+                        skipped_count += 1
+                    else:
+                        # No cached embedding, store the fresh one
                         if hasattr(self, 'embedding_cache'):
-                            self.embedding_cache.put(mem_id, mem_text, embedding)
+                            self.embedding_cache.put(mem_id, mem_text, fresh_emb)
                             embedded_count += 1
                             logger.debug(f"✓ Embedded and cached memory {mem_id}")
                         
                         # Also store in in-memory cache for current session
-                        self.memory_embeddings[mem_id] = embedding
-                    else:
-                        logger.warning(f"Embedding model not available, cannot embed memory {mem_id}")
-                        error_count += 1
+                        self.memory_embeddings[mem_id] = fresh_emb
                         
                 except Exception as e:
                     error_count += 1
-                    logger.warning(f"Error embedding memory {mem_id}: {e}")
+                    logger.warning(f"Error processing memory {mem_id}: {e}")
                     continue
             
-            logger.info(f"✓ Retroactive embedding complete: {embedded_count} embedded, {skipped_count} skipped, {error_count} errors")
+            logger.info(f"✓ Retroactive embedding complete: {embedded_count} new, {regenerated_count} regenerated, {skipped_count} valid, {error_count} errors")
             
         except Exception as e:
             logger.error(f"Fatal error during retroactive embedding: {e}\n{traceback.format_exc()}")
@@ -3338,21 +3414,19 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
             vector_similarities = []
             user_embedding = None # Initialize to handle potential errors
             try:
-                if self.embedding_model:
-                    user_embedding = self.embedding_model.encode(
-                        current_message, normalize_embeddings=True
-                    )
-                else:
-                    logger.warning("Embedding model not available for user message encoding.")
-                    # If no embedding model, cannot use vector similarity, fallback depends on config
+                # Call async Nomic embedding function
+                user_embedding = await get_nomic_embedding(current_message)
+                if user_embedding is None:
+                    logger.warning("Failed to get embedding for user message from LM Studio.")
+                    # If no embedding available, cannot use vector similarity, fallback depends on config
                     if not self.valves.use_llm_for_relevance:
-                         logger.warning("Cannot calculate relevance without embedding model or LLM fallback.")
+                         logger.warning("Cannot calculate relevance without embedding and no LLM fallback.")
                          return [] # Cannot proceed without either method
 
             except Exception as e:
                 self.error_counters["embedding_errors"] += 1
                 logger.error(
-                    f"Error computing embedding for user message: {e}\n{traceback.format_exc()}" # Removed extra backslash
+                    f"Error computing embedding for user message: {e}\n{traceback.format_exc()}"
                 )
                 # Decide fallback based on config
                 if not self.valves.use_llm_for_relevance:
@@ -3362,6 +3436,18 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
             if user_embedding is not None:
                 # Calculate vector similarities only if user embedding was successful
                 logger.info(f"🔍 DEBUG: Processing {len(existing_memories)} memories for embedding")
+                
+                # Track embedding dimension and detect if it changed
+                current_embedding_dim = user_embedding.shape[0] if hasattr(user_embedding, 'shape') else None
+                
+                # Check if this is a new dimension (dimension changed from last time)
+                dimension_changed = False
+                if current_embedding_dim != self._last_embedding_dimension:
+                    dimension_changed = True
+                    logger.info(f"📊 Embedding dimension changed: {self._last_embedding_dimension}D → {current_embedding_dim}D. Will regenerate incompatible cached embeddings.")
+                    self._last_embedding_dimension = current_embedding_dim
+                    self._dimension_change_detected = True
+                
                 for mem in existing_memories:
                     mem_id = mem.get("id")
                     mem_text = mem.get("memory") or ""
@@ -3373,18 +3459,33 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                     if mem_emb is None:
                         mem_emb = self.memory_embeddings.get(mem_id)
                     
-                    # Lazily compute and cache the memory embedding if not present
-                    if mem_emb is None and self.embedding_model is not None:
+                    # Only check dimension compatibility if dimension has changed
+                    # Otherwise, assume cached embeddings are compatible
+                    if mem_emb is not None and dimension_changed:
+                        try:
+                            # Verify dimension compatibility only when dimension changed
+                            if hasattr(mem_emb, 'shape') and hasattr(user_embedding, 'shape'):
+                                if mem_emb.shape[0] != user_embedding.shape[0]:
+                                    logger.debug(
+                                        f"Dimension mismatch for memory {mem_id}: cached={mem_emb.shape[0]}D, expected={user_embedding.shape[0]}D. Regenerating..."
+                                    )
+                                    mem_emb = None  # Force regeneration
+                        except Exception as e:
+                            logger.debug(f"Could not check embedding dimensions: {e}")
+                            mem_emb = None  # Force regeneration on error
+                    
+                    # Lazily compute and cache the memory embedding if not present or dimension mismatch
+                    if mem_emb is None:
                         try:
                             if mem_text:
-                                mem_emb = self.embedding_model.encode(
-                                    mem_text, normalize_embeddings=True
-                                )
-                                # Store in BOTH persistent and in-memory cache
-                                self.memory_embeddings[mem_id] = mem_emb
-                                if hasattr(self, 'embedding_cache'):
-                                    self.embedding_cache.put(mem_id, mem_text, mem_emb)
-                                logger.debug(f"✓ Embedded memory {mem_id}: text_len={len(mem_text)}, emb_shape={mem_emb.shape if hasattr(mem_emb, 'shape') else 'N/A'}")
+                                # Call async Nomic embedding function
+                                mem_emb = await get_nomic_embedding(mem_text)
+                                if mem_emb is not None:
+                                    # Store in BOTH persistent and in-memory cache
+                                    self.memory_embeddings[mem_id] = mem_emb
+                                    if hasattr(self, 'embedding_cache'):
+                                        self.embedding_cache.put(mem_id, mem_text, mem_emb)
+                                    logger.debug(f"✓ Embedded memory {mem_id}: text_len={len(mem_text)}, emb_shape={mem_emb.shape if hasattr(mem_emb, 'shape') else 'N/A'}")
                         except Exception as e:
                             logger.warning(
                                 f"Error computing embedding for memory {mem_id}: {e}"
