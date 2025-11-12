@@ -4,11 +4,12 @@
 
 ## Core Principles
 1. **Pure OpenAI API Compatibility** - Works with any OpenAI-compatible frontend
-2. **Generic GPU Support** - Leverage vLLM's existing multi-GPU capabilities  
-3. **Resource Awareness** - Monitor and warn about VRAM/RAM limitations
-4. **User-Controlled Settings** - Remember last-used parameters, user decides whether to apply
-5. **Configurable Model Paths** - Flexible model directory configuration
-6. **Production Ready** - Robust error handling, monitoring, graceful operations
+2. **Generic GPU Support** - Leverage vLLM's existing multi-GPU capabilities, investigate Vulkan (low priority)
+3. **Smart Resource Management** - Warn users about limitations, allow override, graceful failure before system crash
+4. **Global Model Settings Memory** - Remember last-used parameters per model globally (not per-user/frontend)
+5. **Flexible Configuration** - Support YAML files, environment variables, and web-based setup UI
+6. **Minimal Core Changes** - Preserve vLLM's inference behavior, only modify model loading behavior
+7. **Easy Updates** - Architecture allows easier merging of upstream vLLM updates
 
 ## Refined Architecture
 
@@ -65,30 +66,40 @@ class ModelOrchestrator:
 ```python
 class ResourceMonitor:
     def get_gpu_info(self):
-        # Support CUDA (nvidia-ml-py), ROCm (rocm-smi), Vulkan (investigate)
+        # Priority: CUDA (nvidia-ml-py), ROCm (rocm-smi)
+        # Future: Vulkan support (Phase 5 investigation)
     
     def get_memory_info(self):
         # Linux: /proc/meminfo, cross-platform: psutil
     
     def estimate_model_requirements(self, model_config):
         # Calculate VRAM needs based on parameters, quantization
+    
+    def check_loading_safety(self, model_requirements):
+        # Warn user of potential issues, allow override
+        # Detect likely crashes before they happen
+        return {"safe": bool, "warning": str, "allow_override": bool}
 ```
 
-### **3. SettingsMemory** (User-Controlled)
+### **3. SettingsMemory** (Global Per-Model)
 ```python
 class SettingsMemory:
     def remember_settings(self, model_id, settings):
-        # Store last-used parameters per model
+        # Store last-used parameters per model globally
+        # Not per-user or per-frontend - simple global memory
     
     def get_suggested_settings(self, model_id):
-        # Return last-used settings with user choice options
+        # Return last-used settings for this model
+        # User can apply, dismiss, or customize
     
     def apply_or_dismiss(self, model_id, user_choice):
-        # Handle user decision on suggested settings
+        # Simple: apply last settings or start fresh
+        # No complex user/session tracking needed
 ```
 
-## Configuration Example
+## Configuration Options (Multiple Methods)
 
+### **Option 1: YAML Config File**
 ```yaml
 # vllm-fork-config.yaml
 server:
@@ -102,14 +113,31 @@ models:
   auto_discover: true
   
 resources:
-  warn_on_low_memory: true
-  minimum_free_vram_gb: 2.0
-  enable_vulkan: false  # experimental
+  warn_on_insufficient_memory: true
+  allow_resource_override: true  # Let users ignore warnings
+  crash_prevention: true        # Try to fail gracefully
+  enable_vulkan: false         # Phase 5 investigation
   
 settings_memory:
   enabled: true
   remember_for_days: 30
+  global_per_model: true       # Not per-user tracking
 ```
+
+### **Option 2: Environment Variables**
+```bash
+VLLM_FORK_HOST=0.0.0.0
+VLLM_FORK_PORT=8000
+VLLM_FORK_MODEL_PATHS="/home/nate/models,~/.cache/huggingface/hub"
+VLLM_FORK_ALLOW_RESOURCE_OVERRIDE=true
+VLLM_FORK_CRASH_PREVENTION=true
+```
+
+### **Option 3: Web-Based Setup UI**
+- First-run configuration wizard
+- Runtime settings adjustment
+- Model path management
+- Resource monitoring dashboard
 
 ## Updated Implementation Phases
 
@@ -129,19 +157,41 @@ settings_memory:
 - Resource warnings and optimization suggestions
 
 ### **Phase 4: Polish & Compatibility** (Week 7-8)
-- Multiple frontend testing (OpenWebUI, Chatbot UI, etc.)
-- Robust error handling and logging
-- Configuration management
+- Multiple frontend testing (OpenWebUI, Chatbot UI, LibreChat, etc.)
+- Robust error handling and graceful failure mechanisms
+- All three configuration methods (YAML, ENV, Web UI)
+- Resource override controls and crash prevention
 
-### **Phase 5: Production Ready** (Week 9-10)
+### **Phase 5: Production Ready & Future Features** (Week 9-10)
 - Load testing and performance optimization
-- Documentation and examples
-- Deployment guides (Docker, systemd, etc.)
+- Documentation and deployment examples (Docker, systemd)
+- **Vulkan support investigation** (low priority but user-requested)
+- Upstream vLLM update integration testing
 
-Does this refined design align better with your vision? The key changes:
-- ✅ Generic GPU support (not hardware-specific)
-- ✅ OpenAI API compatibility (not frontend-specific)  
-- ✅ User-controlled settings memory
-- ✅ Resource awareness with warnings
-- ✅ Configurable model paths
-- ✅ Clearer implementation phases
+## Key Architectural Benefits
+
+### **Easy vLLM Updates**
+Since we're only modifying model loading behavior (not inference), merging upstream vLLM updates should be straightforward:
+- Core inference engine remains untouched
+- Changes focused on orchestration layer
+- Minimal conflicts with upstream development
+
+### **Resource Management Philosophy**
+- **Warn, Don't Block**: Alert users to potential issues
+- **User Override**: Allow experienced users to ignore warnings  
+- **Graceful Failure**: Detect and prevent system crashes when possible
+- **Safety Setting**: Option to completely disable warnings for power users
+
+### **Simplicity Focus**
+- **Global model settings** (not per-user complexity)
+- **Pure model runner** (not a chat interface)
+- **Minimal core changes** (preserve vLLM's strengths)
+- **Multiple config options** (flexibility without forcing one approach)
+
+This design addresses all feedback:
+- ✅ Vulkan support as Phase 5 investigation (low priority)
+- ✅ Global per-model settings memory (not per-user/frontend)
+- ✅ Warn and allow override for resource issues
+- ✅ Triple configuration support (YAML + ENV + Web UI)
+- ✅ Focus on easy upstream updates
+- ✅ Graceful failure mechanisms
