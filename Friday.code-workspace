@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../OpenWebUI/data"
+		},
+		{
+			"path": "../vllm"
 		}
 	],
 	"settings": {
