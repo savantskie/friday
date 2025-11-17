@@ -244,189 +244,201 @@ class MemoryOperation(BaseModel):
     memory_bank: Optional[str] = None  # NEW – bank assignment
 
 
-class EmbeddingCache:
-    """Persistent SQLite-based embedding cache for memory embeddings"""
-
-    def __init__(
-        self, db_path: str = "/media/nate/Friday/Friday/data/memory_embeddings.db"
-    ):
-        self.db_path = db_path
-        self.conn = None
-        self._init_db()
-
-    def _init_db(self):
-        """Initialize SQLite database for embeddings"""
-        try:
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS memory_embeddings (
-                    memory_id TEXT PRIMARY KEY,
-                    memory_text TEXT NOT NULL,
-                    embedding BLOB NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """
-            )
-            self.conn.commit()
-            logger.info(f"✓ Embedding cache database initialized at {self.db_path}")
-        except Exception as e:
-            logger.error(f"❌ Error initializing embedding cache database: {e}")
-            self.conn = None
-
-    def get(self, memory_id: str) -> Optional[np.ndarray]:
-        """Retrieve embedding from cache"""
-        if not self.conn:
-            return None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT embedding FROM memory_embeddings WHERE memory_id = ?",
-                (memory_id,),
-            )
-            row = cursor.fetchone()
-            if row:
-                embedding = pickle.loads(row[0])
-                logger.debug(f"✓ Retrieved cached embedding for memory {memory_id}")
-                return embedding
-            return None
-        except Exception as e:
-            logger.warning(
-                f"Error retrieving embedding from cache for {memory_id}: {e}"
-            )
-            return None
-
-    def put(self, memory_id: str, memory_text: str, embedding: np.ndarray):
-        """Store embedding in cache"""
-        if not self.conn:
-            return
-        try:
-            cursor = self.conn.cursor()
-            embedding_blob = pickle.dumps(embedding)
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO memory_embeddings (memory_id, memory_text, embedding, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-                (memory_id, memory_text, embedding_blob),
-            )
-            self.conn.commit()
-            logger.debug(
-                f"✓ Stored embedding for memory {memory_id} to persistent cache"
-            )
-        except Exception as e:
-            logger.warning(f"Error storing embedding in cache for {memory_id}: {e}")
-
-    def delete(self, memory_id: str):
-        """Delete embedding from cache"""
-        if not self.conn:
-            return
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "DELETE FROM memory_embeddings WHERE memory_id = ?", (memory_id,)
-            )
-            self.conn.commit()
-            logger.debug(f"✓ Deleted embedding from cache for memory {memory_id}")
-        except Exception as e:
-            logger.warning(f"Error deleting embedding from cache for {memory_id}: {e}")
-
-    def clear(self):
-        """Clear all embeddings from cache"""
-        if not self.conn:
-            return
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM memory_embeddings")
-            self.conn.commit()
-            logger.info("✓ Cleared all embeddings from cache")
-        except Exception as e:
-            logger.warning(f"Error clearing embedding cache: {e}")
-
-    def get_all_memory_ids(self) -> List[str]:
-        """Get all memory IDs in cache"""
-        if not self.conn:
-            return []
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT memory_id FROM memory_embeddings")
-            return [row[0] for row in cursor.fetchall()]
-        except Exception as e:
-            logger.warning(f"Error retrieving memory IDs from cache: {e}")
-            return []
-
-    def close(self):
-        """Close database connection"""
-        if self.conn:
-            self.conn.close()
-
-
-# ============================================================================
-# NOMIC EMBEDDING PROVIDER - Calls LM Studio for 768D embeddings
-# ============================================================================
-
-
-async def get_nomic_embedding(
-    text: str, lm_studio_url: str = "http://192.168.1.50:1234/v1/embeddings"
-) -> Optional[np.ndarray]:
-    """
-    Get 768D embedding from LM Studio using Nomic model.
-
-    Args:
-        text: Text to embed
-        lm_studio_url: LM Studio API endpoint (default: http://192.168.1.50:1234/v1/embeddings)
-
-    Returns:
-        numpy array of 768D embedding, or None if failed
-    """
-    if not text or not text.strip():
-        return None
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=120)  # 2-minute timeout for model loading
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            payload = {
-                "model": "text-embedding-nomic-embed-text-v1.5",
-                "input": text.strip(),
-            }
-            async with session.post(lm_studio_url, json=payload) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data and "data" in data and len(data["data"]) > 0:
-                        embedding = data["data"][0].get("embedding")
-                        if embedding:
-                            return np.array(embedding, dtype=np.float32)
-                    logger.warning(f"Invalid LM Studio response format: {data}")
-                    return None
-                else:
-                    error_text = await response.text()
-                    logger.error(f"LM Studio API error {response.status}: {error_text}")
-                    return None
-    except Exception as e:
-        logger.error(f"Error calling LM Studio embedding: {e}")
-        return None
-
-
 class Filter:
     # Class-level singleton attributes to avoid missing attribute errors
     _embedding_model = None
     _memory_embeddings = {}
     _relevance_cache = {}
 
+    # ========================================================================
+    # NESTED: EmbeddingCache - Persistent SQLite-based embedding cache
+    # ========================================================================
+    class EmbeddingCache:
+        """Persistent SQLite-based embedding cache for memory embeddings"""
+
+        def __init__(
+            self, db_path: str = "/media/nate/Friday/Friday/data/memory_embeddings.db"
+        ):
+            self.db_path = db_path
+            self.conn = None
+            self._init_db()
+
+        def _init_db(self):
+            """Initialize SQLite database for embeddings"""
+            try:
+                os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+                self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS memory_embeddings (
+                        memory_id TEXT PRIMARY KEY,
+                        memory_text TEXT NOT NULL,
+                        embedding BLOB NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """
+                )
+                self.conn.commit()
+                logger.info(f"✓ Embedding cache database initialized at {self.db_path}")
+            except Exception as e:
+                logger.error(f"❌ Error initializing embedding cache database: {e}")
+                self.conn = None
+
+        def get(self, memory_id: str) -> Optional[np.ndarray]:
+            """Retrieve embedding from cache"""
+            if not self.conn:
+                return None
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT embedding FROM memory_embeddings WHERE memory_id = ?",
+                    (memory_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    embedding = pickle.loads(row[0])
+                    logger.debug(f"✓ Retrieved cached embedding for memory {memory_id}")
+                    return embedding
+                return None
+            except Exception as e:
+                logger.warning(
+                    f"Error retrieving embedding from cache for {memory_id}: {e}"
+                )
+                return None
+
+        def put(self, memory_id: str, memory_text: str, embedding: np.ndarray):
+            """Store embedding in cache"""
+            if not self.conn:
+                return
+            try:
+                cursor = self.conn.cursor()
+                embedding_blob = pickle.dumps(embedding)
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO memory_embeddings (memory_id, memory_text, embedding, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                    (memory_id, memory_text, embedding_blob),
+                )
+                self.conn.commit()
+                logger.debug(
+                    f"✓ Stored embedding for memory {memory_id} to persistent cache"
+                )
+            except Exception as e:
+                logger.warning(f"Error storing embedding in cache for {memory_id}: {e}")
+
+        def delete(self, memory_id: str):
+            """Delete embedding from cache"""
+            if not self.conn:
+                return
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "DELETE FROM memory_embeddings WHERE memory_id = ?", (memory_id,)
+                )
+                self.conn.commit()
+                logger.debug(f"✓ Deleted embedding from cache for memory {memory_id}")
+            except Exception as e:
+                logger.warning(f"Error deleting embedding from cache for {memory_id}: {e}")
+
+        def clear(self):
+            """Clear all embeddings from cache"""
+            if not self.conn:
+                return
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM memory_embeddings")
+                self.conn.commit()
+                logger.info("✓ Cleared all embeddings from cache")
+            except Exception as e:
+                logger.warning(f"Error clearing embedding cache: {e}")
+
+        def get_all_memory_ids(self) -> List[str]:
+            """Get all memory IDs in cache"""
+            if not self.conn:
+                return []
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT memory_id FROM memory_embeddings")
+                return [row[0] for row in cursor.fetchall()]
+            except Exception as e:
+                logger.warning(f"Error retrieving memory IDs from cache: {e}")
+                return []
+
+        def close(self):
+            """Close database connection"""
+            if self.conn:
+                self.conn.close()
+
+    # ========================================================================
+    # NESTED: Async method for LM Studio embeddings
+    # ========================================================================
+    async def get_nomic_embedding(
+        self, text: str
+    ) -> tuple[Optional[np.ndarray], Optional[str]]:
+        """
+        Get embedding from LM Studio using configured embedding model.
+        
+        Returns a tuple of (embedding, error_trace):
+        - embedding: numpy array of embedding, or None if failed
+        - error_trace: None if successful, or a string containing error details and traceback if failed
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Tuple of (np.ndarray or None, error_trace or None)
+        """
+        if not text or not text.strip():
+            return None, None
+
+        try:
+            # On first call, validate that the embedding model is ready
+            if not self._embedding_model_validated:
+                logger.info("First embedding call - validating model availability...")
+                is_ready = await self._ensure_embedding_model_ready()
+                if not is_ready:
+                    error_msg = "Could not validate embedding model availability"
+                    logger.error(error_msg)
+                    return None, error_msg
+
+            timeout = aiohttp.ClientTimeout(total=120)  # 2-minute timeout for model loading
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                payload = {
+                    "model": self.valves.embedding_model_name,
+                    "input": text.strip(),
+                }
+                async with session.post(self.valves.embedding_api_endpoint_url, json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data and "data" in data and len(data["data"]) > 0:
+                            embedding = data["data"][0].get("embedding")
+                            if embedding:
+                                return np.array(embedding, dtype=np.float32), None
+                        # Invalid response format
+                        error_msg = f"Invalid LM Studio response format: {data}"
+                        logger.warning(error_msg)
+                        return None, error_msg
+                    else:
+                        error_text = await response.text()
+                        error_msg = f"LM Studio API error {response.status}: {error_text}"
+                        logger.error(error_msg)
+                        return None, error_msg
+        except Exception as e:
+            error_trace = traceback.format_exc()
+            logger.error(f"Error calling LM Studio embedding: {e}\n{error_trace}")
+            return None, f"Exception: {str(e)}\n{error_trace}"
+
     @property
     def embedding_model(self):
         """
-        Marker property for backward compatibility.
-        Actual embedding calls now use async get_nomic_embedding() function.
-        This property returns None since we're using async LM Studio API instead of SentenceTransformer.
+        Property for embedding model access.
+        Returns None - actual embeddings are obtained via the async get_nomic_embedding() static method.
+        This is called by some methods for compatibility checks.
         """
-        logger.debug(
-            "✓ Using async Nomic embeddings from LM Studio (text-embedding-nomic-embed-text-v1.5)"
-        )
-        return None  # Indicates async-based approach, not a local model
+        return None  # Indicates async-based LM Studio approach
 
     @property
     def memory_embeddings(self):
@@ -634,6 +646,21 @@ Analyze the following related memories and provide a concise summary.""",
             description="API Key for the LLM provider (required if type is 'openai_compatible')",
         )
         # --- End Generic LLM Provider Configuration ---
+
+        # --- Begin Embedding Model Configuration ---
+        embedding_model_name: str = Field(
+            default="text-embedding-nomic-embed-text-v1.5",
+            description="Name of the embedding model to use from LM Studio (e.g., 'text-embedding-nomic-embed-text-v1.5')",
+        )
+        embedding_model_dimension: int = Field(
+            default=768,
+            description="Dimension of the embedding vectors (e.g., 768 for Nomic, 384 for other models)",
+        )
+        embedding_api_endpoint_url: str = Field(
+            default="http://192.168.1.50:1234/v1/embeddings",
+            description="API endpoint URL for embedding model in LM Studio (e.g., 'http://192.168.1.50:1234/v1/embeddings')",
+        )
+        # --- End Embedding Model Configuration ---
 
         # Memory processing settings
         related_memories_n: int = Field(
@@ -1093,8 +1120,8 @@ Analyze the following conversation and provide a concise summary.""",
         # Force re-initialization of valves using the current class definition
         self.valves = self.Valves()
 
-        # Initialize persistent embedding cache
-        self.embedding_cache = EmbeddingCache()
+        # Initialize persistent embedding cache (using nested class)
+        self.embedding_cache = self.EmbeddingCache()
         logger.info("✓ Initialized persistent embedding cache")
 
         # ------------------------------------------------------------
@@ -1161,6 +1188,9 @@ Analyze the following conversation and provide a concise summary.""",
         self._dimension_change_detected = (
             False  # Flag to force check once if dimension changes
         )
+
+        # Flag to track if embedding model has been validated against LM Studio
+        self._embedding_model_validated = False
 
         # Schedule retroactive embedding of all existing memories
         logger.info("Scheduling retroactive embedding of existing memories...")
@@ -1259,6 +1289,210 @@ Analyze the following conversation and provide a concise summary.""",
 
         # Track that background tasks are not yet re-initialised via inlet()
         self._background_tasks_started: bool = False
+
+    def _get_embedding_model_tag(self) -> str:
+        """Generate embedding model metadata tag based on configuration.
+        
+        Format: __embedding_model:{model_name}_{dimension}d
+        Example: __embedding_model:nomic_embed_text_v1.5_768d
+        
+        Returns:
+            Tag string reflecting current embedding model configuration
+        """
+        # Sanitize model name for tag (replace special chars with underscores)
+        model_name = self.valves.embedding_model_name.replace("-", "_").replace(".", "_")
+        dimension = self.valves.embedding_model_dimension
+        tag = f"__embedding_model:{model_name}_{dimension}d"
+        return tag
+
+    async def _detect_embedding_model_info(self) -> Dict[str, Any]:
+        """
+        Auto-detect embedding model name and dimension from LM Studio.
+        
+        Queries the /v1/embeddings endpoint with a test embedding to detect:
+        - Actual model name being used
+        - Vector dimension of the embeddings
+        
+        This makes the plugin self-aware of which embedding model is running.
+        
+        Returns:
+            Dictionary with keys:
+            - 'model_name': str - The embedding model name from LM Studio
+            - 'dimension': int - The embedding vector dimension
+            - 'success': bool - Whether detection was successful
+            - 'error': Optional[str] - Error message if detection failed
+        """
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                payload = {
+                    "model": self.valves.embedding_model_name,
+                    "input": "test",  # Simple test string
+                }
+                async with session.post(
+                    self.valves.embedding_api_endpoint_url, 
+                    json=payload
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Extract model name from response
+                        model_name = data.get("model")
+                        
+                        # Extract dimension from embedding vector
+                        if "data" in data and len(data["data"]) > 0:
+                            embedding = data["data"][0].get("embedding")
+                            if embedding and isinstance(embedding, list):
+                                dimension = len(embedding)
+                                
+                                logger.info(
+                                    f"✅ Auto-detected embedding model: {model_name} "
+                                    f"(dimension: {dimension})"
+                                )
+                                
+                                return {
+                                    "model_name": model_name,
+                                    "dimension": dimension,
+                                    "success": True,
+                                    "error": None,
+                                }
+                        
+                        error_msg = "Invalid LM Studio response format - no embedding data"
+                        logger.warning(error_msg)
+                        return {
+                            "model_name": None,
+                            "dimension": None,
+                            "success": False,
+                            "error": error_msg,
+                        }
+                    else:
+                        error_msg = f"LM Studio API error {response.status}"
+                        logger.error(error_msg)
+                        return {
+                            "model_name": None,
+                            "dimension": None,
+                            "success": False,
+                            "error": error_msg,
+                        }
+                        
+        except asyncio.TimeoutError:
+            error_msg = "Timeout querying LM Studio for model info"
+            logger.error(error_msg)
+            return {
+                "model_name": None,
+                "dimension": None,
+                "success": False,
+                "error": error_msg,
+            }
+        except Exception as e:
+            error_msg = f"Error detecting embedding model: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "model_name": None,
+                "dimension": None,
+                "success": False,
+                "error": error_msg,
+            }
+
+    async def _ensure_embedding_model_ready(self) -> bool:
+        """
+        Validate and ensure the configured embedding model is ready before use.
+        
+        This is called on the first embedding request to ensure LM Studio has
+        the embedding model loaded and ready. Uses a fallback chain:
+        1. Check if configured model is loaded
+        2. If not, wait for it to load (with retries)
+        3. If that fails, look for any embedding model in LM Studio
+        4. If that fails, fall back to hardcoded default
+        
+        Updates self.valves with actual model info if different from configured.
+        
+        Returns:
+            bool - True if a usable embedding model was found, False otherwise
+        """
+        if self._embedding_model_validated:
+            return True  # Already validated, skip
+        
+        configured_model = self.valves.embedding_model_name
+        logger.info(f"Validating embedding model: {configured_model}")
+        
+        try:
+            # Try to detect what's actually loaded
+            model_info = await self._detect_embedding_model_info()
+            
+            if model_info.get("success"):
+                detected_model = model_info.get("model_name")
+                detected_dimension = model_info.get("dimension")
+                
+                if detected_model == configured_model:
+                    # Perfect match!
+                    logger.info(
+                        f"✅ Embedding model validated: {detected_model} "
+                        f"({detected_dimension}D)"
+                    )
+                    self.valves.embedding_model_dimension = detected_dimension
+                    self._embedding_model_validated = True
+                    return True
+                else:
+                    # Mismatch - different model is loaded
+                    logger.warning(
+                        f"⚠ Model mismatch - configured: {configured_model}, "
+                        f"loaded: {detected_model}"
+                    )
+                    logger.info(f"Using loaded model: {detected_model} ({detected_dimension}D)")
+                    self.valves.embedding_model_name = detected_model
+                    self.valves.embedding_model_dimension = detected_dimension
+                    self._embedding_model_validated = True
+                    return True
+            else:
+                # Detection failed - try fallback chain
+                logger.warning(
+                    f"Could not detect embedding model: {model_info.get('error')}"
+                )
+                
+                # Fallback 1: Try to find ANY embedding model in LM Studio
+                logger.info("Attempting fallback: searching for any embedding model...")
+                try:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.get(
+                            f"{self.valves.embedding_api_endpoint_url}".replace("/v1/embeddings", "/v1/models")
+                        ) as response:
+                            if response.status == 200:
+                                models_data = await response.json()
+                                embedding_models = [
+                                    m.get("id") for m in models_data.get("data", [])
+                                    if "embed" in m.get("id", "").lower()
+                                ]
+                                
+                                if embedding_models:
+                                    fallback_model = embedding_models[0]
+                                    logger.info(
+                                        f"Found embedding model via fallback: {fallback_model}"
+                                    )
+                                    self.valves.embedding_model_name = fallback_model
+                                    self._embedding_model_validated = True
+                                    return True
+                except Exception as e:
+                    logger.debug(f"Fallback search failed: {e}")
+                
+                # Fallback 2: Use hardcoded default (original Nomic model)
+                logger.warning(
+                    "Using hardcoded default embedding model: "
+                    "text-embedding-nomic-embed-text-v1.5"
+                )
+                self.valves.embedding_model_name = "text-embedding-nomic-embed-text-v1.5"
+                self._embedding_model_validated = True
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error validating embedding model: {e}")
+            logger.warning(
+                "Proceeding with configured model despite validation error: "
+                f"{configured_model}"
+            )
+            self._embedding_model_validated = True
+            return True  # Continue anyway to avoid blocking embedding
 
     async def _calculate_memory_age_days(self, memory: Dict[str, Any]) -> float:
         """Calculate age of a memory in days."""
@@ -2040,16 +2274,6 @@ Analyze the following conversation and provide a concise summary.""",
         logger.debug(
             f"Inlet received body keys: {list(body.keys())} for user: {__user__.get('id', 'N/A') if __user__ else 'N/A'}"
         )
-        logger.warning(
-            f"DEBUG Adaptive_Memory_v3: body.get('chat_id') = {body.get('chat_id')}"
-        )
-        logger.warning(
-            f"DEBUG Adaptive_Memory_v3: body.get('conversation_id') = {body.get('conversation_id')}"
-        )
-        logger.warning(f"DEBUG Adaptive_Memory_v3: body.get('id') = {body.get('id')}")
-        logger.warning(
-            f"DEBUG Adaptive_Memory_v3: Full body keys = {list(body.keys()) if body else []}"
-        )
 
         # Ensure user info is present
         if not __user__ or not __user__.get("id"):
@@ -2061,15 +2285,6 @@ Analyze the following conversation and provide a concise summary.""",
         # Load valves early, handle potential errors
         try:
             # Reload global valves if OWUI injected config exists; otherwise keep current valves
-            logger.debug(
-                f"🔍 DEBUG: self.config = {getattr(self, 'config', '<Not Set>')}"
-            )
-            logger.debug(
-                f"🔍 DEBUG: self.config.get('valves') = {getattr(self, 'config', {}).get('valves', '<No valves key>')}"
-            )
-
-            # CRITICAL FIX: Only reload valves if config actually contains valves, otherwise keep the valves from __init__
-            # This prevents user-configured valve settings from being overwritten by defaults
             loaded_config_valves = getattr(self, "config", {}).get("valves", None)
             if loaded_config_valves is not None:
                 self.valves = self.Valves(**loaded_config_valves)
@@ -2583,10 +2798,18 @@ Analyze the following conversation and provide a concise summary.""",
             return self.UserValves()  # Return default UserValves on error
 
     async def _retroactively_embed_all_memories(self):
-        """Retroactively embed all existing memories and regenerate if dimensions mismatch"""
+        """Retroactively embed all existing memories and regenerate if dimensions mismatch.
+        
+        Checks for embedding metadata tag to avoid re-embedding already-processed memories.
+        Tag format: __embedding_model:nomic_embed_text_v1.5_768d
+        """
         try:
             await asyncio.sleep(2)  # Give plugin time to fully initialize
             logger.info("🔄 Starting retroactive embedding of all existing memories...")
+
+            # Generate embedding model tag based on current configuration
+            EMBEDDING_MODEL_TAG = self._get_embedding_model_tag()
+            logger.debug(f"Using embedding tag: {EMBEDDING_MODEL_TAG}")
 
             # Get all unique memories across all users
             try:
@@ -2616,8 +2839,17 @@ Analyze the following conversation and provide a concise summary.""",
                 try:
                     mem_id = str(getattr(memory, "id", None))
                     mem_text = getattr(memory, "content", "")
+                    mem_tags = list(getattr(memory, "tags", []) or [])
 
                     if not mem_id or not mem_text:
+                        skipped_count += 1
+                        continue
+
+                    # CHECK: Has this memory already been embedded with the correct model?
+                    if EMBEDDING_MODEL_TAG in mem_tags:
+                        logger.debug(
+                            f"✓ Memory {mem_id} already tagged with {EMBEDDING_MODEL_TAG}, skipping"
+                        )
                         skipped_count += 1
                         continue
 
@@ -2629,10 +2861,12 @@ Analyze the following conversation and provide a concise summary.""",
                     )
 
                     # Get a fresh embedding from LM Studio to check dimension compatibility
-                    fresh_emb = await get_nomic_embedding(mem_text)
+                    fresh_emb, emb_error = await self.get_nomic_embedding(mem_text)
 
-                    # If we can't get fresh embedding, skip this memory
+                    # If we can't get fresh embedding, log error and skip this memory
                     if fresh_emb is None:
+                        if emb_error:
+                            logger.warning(f"Embedding error for memory {mem_id}: {emb_error}")
                         if existing_emb is not None:
                             logger.debug(
                                 f"✓ Memory {mem_id} has cached embedding but LM Studio unavailable, keeping cached version"
@@ -2669,6 +2903,25 @@ Analyze the following conversation and provide a concise summary.""",
                                             mem_id, mem_text, fresh_emb
                                         )
                                     self.memory_embeddings[mem_id] = fresh_emb
+                                    
+                                    # TAG memory with embedding model info (add tag if not present)
+                                    if EMBEDDING_MODEL_TAG not in mem_tags:
+                                        mem_tags.append(EMBEDDING_MODEL_TAG)
+                                        # Update memory with new tags
+                                        try:
+                                            memory.tags = mem_tags
+                                            await add_memory(
+                                                request=Request(scope={"type": "http", "app": webui_app}),
+                                                user=getattr(memory, 'user', None),
+                                                form_data=AddMemoryForm(
+                                                    content=mem_text,
+                                                    metadata={"tags": mem_tags}
+                                                ),
+                                            )
+                                            logger.debug(f"✓ Tagged memory {mem_id} with {EMBEDDING_MODEL_TAG}")
+                                        except Exception as tag_error:
+                                            logger.debug(f"Could not tag memory {mem_id}: {tag_error}")
+                                    
                                     regenerated_count += 1
                                     continue
                         except Exception as e:
@@ -2681,7 +2934,15 @@ Analyze the following conversation and provide a concise summary.""",
                             regenerated_count += 1
                             continue
 
-                        # Cached embedding is valid (same dimensions), keep it
+                        # Cached embedding is valid (same dimensions), keep it and TAG it
+                        if EMBEDDING_MODEL_TAG not in mem_tags:
+                            mem_tags.append(EMBEDDING_MODEL_TAG)
+                            try:
+                                memory.tags = mem_tags
+                                logger.debug(f"✓ Tagged existing valid memory {mem_id}")
+                            except Exception as tag_error:
+                                logger.debug(f"Could not tag memory {mem_id}: {tag_error}")
+                        
                         logger.debug(
                             f"✓ Memory {mem_id} already has valid embedding, skipping"
                         )
@@ -2690,8 +2951,20 @@ Analyze the following conversation and provide a concise summary.""",
                         # No cached embedding, store the fresh one
                         if hasattr(self, "embedding_cache"):
                             self.embedding_cache.put(mem_id, mem_text, fresh_emb)
-                            embedded_count += 1
-                            logger.debug(f"✓ Embedded and cached memory {mem_id}")
+                            
+                        # TAG the memory with embedding model info
+                        if EMBEDDING_MODEL_TAG not in mem_tags:
+                            mem_tags.append(EMBEDDING_MODEL_TAG)
+                        
+                        # Store the tag in the memory
+                        try:
+                            memory.tags = mem_tags
+                            logger.debug(f"✓ Tagged new embedding for memory {mem_id}")
+                        except Exception as tag_error:
+                            logger.debug(f"Could not tag new memory {mem_id}: {tag_error}")
+                        
+                        embedded_count += 1
+                        logger.debug(f"✓ Embedded and cached memory {mem_id}")
 
                         # Also store in in-memory cache for current session
                         self.memory_embeddings[mem_id] = fresh_emb
@@ -4043,13 +4316,15 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
             # --- Local vector similarity filtering ---
             vector_similarities = []
             user_embedding = None  # Initialize to handle potential errors
+            user_emb_error = None  # Track embedding errors
             try:
                 # Call async Nomic embedding function
-                user_embedding = await get_nomic_embedding(current_message)
+                user_embedding, user_emb_error = await self.get_nomic_embedding(current_message)
                 if user_embedding is None:
-                    logger.warning(
-                        "Failed to get embedding for user message from LM Studio."
-                    )
+                    error_msg = f"Failed to get embedding for user message from LM Studio."
+                    if user_emb_error:
+                        error_msg += f" Error: {user_emb_error}"
+                    logger.warning(error_msg)
                     # If no embedding available, cannot use vector similarity, fallback depends on config
                     if not self.valves.use_llm_for_relevance:
                         logger.warning(
@@ -4129,7 +4404,7 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                         try:
                             if mem_text:
                                 # Call async Nomic embedding function
-                                mem_emb = await get_nomic_embedding(mem_text)
+                                mem_emb, mem_emb_error = await self.get_nomic_embedding(mem_text)
                                 if mem_emb is not None:
                                     # Store in BOTH persistent and in-memory cache
                                     self.memory_embeddings[mem_id] = mem_emb
@@ -4789,22 +5064,54 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             f"Failed to link memory to Friday (non-blocking): {e}"
                         )
 
-                # Generate and cache embedding for new memory if embedding model is available
-                # This helps with future deduplication checks when using embedding-based similarity
-                if self.embedding_model is not None and mem_id is not None:
+                # Generate and cache embedding for new memory with LM Studio
+                # Also tag the memory to indicate it's been embedded
+                if mem_id is not None:
                     try:
                         memory_clean = (
                             re.sub(r"\[Tags:.*?\]\s*", "", formatted_content)
                             .lower()
                             .strip()
                         )
-                        memory_embedding = self.embedding_model.encode(
-                            memory_clean, normalize_embeddings=True
-                        )
-                        self.memory_embeddings[mem_id] = memory_embedding
-                        logger.debug(
-                            f"Generated and cached embedding for new memory ID: {mem_id}"
-                        )
+                        # Get embedding from LM Studio
+                        memory_embedding, emb_error = await self.get_nomic_embedding(memory_clean)
+                        
+                        if memory_embedding is not None:
+                            # Store in caches
+                            self.memory_embeddings[mem_id] = memory_embedding
+                            if hasattr(self, "embedding_cache"):
+                                self.embedding_cache.put(mem_id, memory_clean, memory_embedding)
+                            
+                            # Add embedding model tag to memory (dynamic based on configuration)
+                            EMBEDDING_MODEL_TAG = self._get_embedding_model_tag()
+                            updated_tags = list(operation.tags) if operation.tags else []
+                            if EMBEDDING_MODEL_TAG not in updated_tags:
+                                updated_tags.append(EMBEDDING_MODEL_TAG)
+                            
+                            # Update memory with embedding tag
+                            if updated_tags != operation.tags:
+                                try:
+                                    await add_memory(
+                                        request=Request(scope={"type": "http", "app": webui_app}),
+                                        user=user,
+                                        form_data=AddMemoryForm(
+                                            content=formatted_content,
+                                            metadata={
+                                                "tags": updated_tags,
+                                                "memory_bank": operation.memory_bank or self.valves.default_memory_bank,
+                                            },
+                                        ),
+                                    )
+                                    logger.debug(f"✓ Tagged new memory {mem_id} with {EMBEDDING_MODEL_TAG}")
+                                except Exception as tag_error:
+                                    logger.debug(f"Could not tag new memory {mem_id}: {tag_error}")
+                            
+                            logger.debug(
+                                f"Generated and cached embedding for new memory ID: {mem_id}"
+                            )
+                        else:
+                            if emb_error:
+                                logger.debug(f"Failed to generate embedding for memory {mem_id}: {emb_error}")
                     except Exception as e:
                         logger.warning(
                             f"Failed to generate embedding for new memory: {e}"
