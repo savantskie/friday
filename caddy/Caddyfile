@@ -63,6 +63,22 @@ fridayonline.bounceme.net {
             reverse_proxy 192.168.1.50:12345
         }
 
+        # --- OWUI STATIC ASSETS MUST BE HERE ---
+        @static_app path /_app/*
+        handle @static_app {
+            reverse_proxy 127.0.0.1:3000
+        }
+
+        @static_assets path /assets/*
+        handle @static_assets {
+            reverse_proxy 127.0.0.1:3000
+        }
+
+        @static_build path /build/*
+        handle @static_build {
+            reverse_proxy 127.0.0.1:3000
+        }
+
         # ---------- Default: proxy OpenWebUI ----------
         reverse_proxy 127.0.0.1:3000 {
             transport http {
