@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "../vllm"
+		},
+		{
+			"path": "../OpenWebUI"
 		}
 	],
 	"settings": {

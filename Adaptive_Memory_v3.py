@@ -219,6 +219,30 @@ except Exception as e:
 logger.propagate = False  # Prevent duplicate logs if root logger has handlers
 # Do not override root logger level; respect GLOBAL_LOG_LEVEL or root config
 
+# Create a dedicated error logger for LLM and system errors
+try:
+    import os
+    from datetime import datetime
+    
+    error_log_dir = "/media/nate/Friday/Friday/logs"
+    os.makedirs(error_log_dir, exist_ok=True)
+    
+    # Create a timestamped error log file
+    error_log_filename = f"ERRORS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    error_log_path = os.path.join(error_log_dir, error_log_filename)
+    
+    error_logger = logging.getLogger("openwebui.plugins.adaptive_memory.errors")
+    error_file_handler = logging.FileHandler(error_log_path, encoding="utf-8")
+    error_file_handler.setFormatter(formatter)
+    error_logger.addHandler(error_file_handler)
+    error_logger.setLevel(logging.ERROR)
+    error_logger.propagate = False
+    
+    logger.info(f"Error logger initialized - writing to {error_log_filename}")
+except Exception as e:
+    error_logger = None
+    logger.error(f"Failed to create error logger: {e}")
+
 # Friday Memory System integration (non-blocking)
 FRIDAY_MEMORY_SYSTEM_PATH = "/media/nate/Friday/Friday"
 try:
@@ -742,6 +766,12 @@ Analyze the following related memories and provide a concise summary.""",
             default="bullet", description="Format for displaying memories in context"
         )
 
+        # Model pipeline configuration
+        interface_model_name: str = Field(
+            default="qwen/qwen3-vl-4b",
+            description="Name of the interface/tool model that checks for tools. Memory injection is skipped for this model to allow it to execute tools before context is enriched.",
+        )
+
         # Memory categories
         enable_identity_memories: bool = Field(
             default=True,
@@ -785,80 +815,141 @@ Analyze the following related memories and provide a concise summary.""",
         # DO NOT mix concerns across prompts. Example of mistake: Don't mention injection/retrieval in extraction prompt.
         # This keeps the LLM focused on its single task and prevents confusion about responsibilities.
         memory_identification_prompt: str = Field(
-            default="""You are an automated JSON data extraction system. Your ONLY function is to identify user-specific, persistent facts, preferences, goals, relationships, or interests from the user's messages and output them STRICTLY as a structured JSON object.
+            default="""You are an automated JSON data extraction system. Your ONLY function is to identify user-specific, persistent or contextually relevant information from the user's messages and output them STRICTLY as a structured JSON object.
+
+Your job is to aggressively detect meaningful user-related information including: preferences, ongoing tasks, technical context, current projects, constraints, identity details, habits, patterns, or any other data that may provide continuity or relevance across sessions.
+
+Your extraction must remain flexible, nuanced, and permissive, capturing even subtle or implied information. When the user suggests or hints at something meaningful, treat it as a potential memory and extract it — but phrase all memory content cautiously (e.g., "User is currently working on…", "User has been experimenting with…", "User appears to…") to avoid overstating permanence.
+
+You MUST use tags and memory banks as defined below.
+
+---
 
 **ABSOLUTE OUTPUT REQUIREMENT:**
 +- Your ENTIRE response MUST be ONLY a valid JSON object with exactly this structure:
-+  `{"status": "success|no_memories_found", "reason": "<reason_string>", "memories": [...]}`
-+- The `status` field MUST be either "success" (when memories found) or "no_memories_found" (when none found)
-+- The `reason` field MUST be a diagnostic string explaining the status
-+- The `memories` field MUST be a JSON array of memory objects (can be empty if status is "no_memories_found")
-+- Each memory object MUST follow: `{"operation": "NEW", "content": "...", "tags": ["..."], "memory_bank": "..."}`
-+- **DO NOT** include ANY text before or after the JSON object. No explanations, no greetings, no apologies, no notes, no summaries, no markdown formatting like ```json, no conversational text whatsoever. Failure to comply will break the system processing your output.
++  `{"status": "success|no_memories_found", "reason": "<reason_string>", "memories": [...]}`  
++- The `status` field MUST be either "success" (when memories found) or "no_memories_found"
++- The `reason` field MUST briefly describe why the status was chosen
++- The `memories` field MUST be a JSON array of memory objects (empty if no_memories_found)
++- Each memory object MUST follow:
++  `{"operation": "NEW", "content": "...", "tags": ["..."], "memory_bank": "..."}`  
++- DO NOT include ANY text before or after the JSON object. No explanation, no comments, no markdown formatting, no conversational text.
+
+---
 
 **STATUS FIELD VALUES:**
-+- `"status": "success"` → When one or more memories are extracted and included in the memories array
-+- `"status": "no_memories_found"` → When no relevant user-specific information is detected (memories array will be empty)
++- `"status": "success"` → At least one memory extracted  
++- `"status": "no_memories_found"` → No qualifying information found
 
-**REASON FIELD GUIDANCE (Choose the most appropriate):**
-+- When status is "success": Use a brief diagnostic like "3 new memories extracted" or "Personal preferences identified" or similar
-+- When status is "no_memories_found": Choose from:
-+  * "No user-specific information detected in message"
-+  * "Message contains only general knowledge or questions"
-+  * "Message is off-topic for memory extraction"
-+  * "No persistent facts, preferences, goals, or relationships mentioned"
+**REASON FIELD GUIDANCE:**
++- For success: e.g., "3 new memories extracted", "contextual information identified"  
++- For no_memories_found: choose one:  
+   * "No user-specific information detected in message"  
+   * "Message contains only general knowledge or questions"  
+   * "Message is off-topic for memory extraction"  
+   * "No persistent facts, preferences, goals, or relationships mentioned"
 
-**INFORMATION TO EXTRACT (User-Specific ONLY):**
-+- **Explicit Preferences/Statements:** User states "I love X", "My favorite is Y", "I enjoy Z". Extract these verbatim.
-+- **Identity:** Name, location, age, profession, etc.
-+- **Goals:** Aspirations, plans.
-+- **Relationships:** Mentions of family, romantic relationships, friends, colleagues.
-+- **Possessions:** Things owned or desired.
-+- **Behaviors/Interests:** Topics the user discusses or asks about (implying interest).
+---
+
+**INFORMATION TO EXTRACT (Aggressive Mode):**
+Extract ANY meaningful, relevant, or repeated details including:
+
++- **Explicit Preferences:** Statements like "I like X", "I enjoy Y", "I hate Z".
++- **Identity:** Name, roles, capabilities, self-descriptions (but refer to User in memory content).
++- **Goals:** Intentions, aspirations, plans (explicit or implied).
++- **Relationships:** Friends, family, coworkers, AI relationships (unless excluded).
++- **Possessions:** Tools, hardware, systems, software, models, environments.
++- **Behaviors and Interests:** Repeated topics, habits, routines, technical behaviors.
++- **Projects (NEW TAG):** Multi-step, ongoing efforts the User is working on.
++- **Tasks (NEW TAG):** Action items the User plans or is in the middle of.
++- **Context (NEW TAG):** Situational facts relevant to the User's present work or environment.
++- **Technical State (NEW TAG):** Hardware, system configurations, active models, runtime conditions.
++- **Constraints (NEW TAG):** Limitations, requirements, boundaries affecting User decisions.
++- **Emotional Tone (NEW TAG):** User reactions that may influence future context.
++- **Meta-Patterns (NEW TAG):** Repeated behavioral or conversational patterns.
++- **Intent Signals (NEW TAG):** When User implies desire, interest, or intention.
++- **Misc (NEW TAG):** Any valuable information not covered above.
+
+If the message contains *any* information that may benefit future reasoning, store it.
+
+When unsure, **store it** using safe, cautious wording.
+
+---
+
+**ALLOWED TAGS:**
+You must use any combination of these tags:
+
+
+- identity  
+- behavior  
+- preference  
+- goal  
+- relationship  
+- possession  
+- project  
+- task  
+- context  
+- technical_state  
+- constraint  
+- emotional_tone  
+- preference_strength  
+- meta_pattern  
+- intent_signal  
+- misc  
+
+Tags may be combined as needed.
+
+---
 
 **MEMORY BANK ASSIGNMENT:**
-+- Each memory MUST be assigned to a specific memory bank via the \"memory_bank\" field.
-+- Valid memory banks: \"General\", \"Personal\", \"Work\".
-+- Assign the most appropriate bank based on context:
-   * \"Personal\" - For personal preferences, family relationships, hobbies, etc.
-   * \"Work\" - For professional goals, work relationships, job skills, etc.
-   * \"General\" - For general interests or facts that don't clearly fit elsewhere.
-+- If unsure which bank to use, default to \"General\".
-+- Example: `\"memory_bank\": \"Personal\"` for a memory about family; `\"memory_bank\": \"Work\"` for job skills.
+Each memory MUST include one memory_bank.  
+Valid banks are:
+
+
+- General  
+- Personal  
+- Work
+- Projects  
+- Technical  
+- Tasks  
+- Research  
+- Context  
+- Patterns  
+- Preferences  
+- Temporary  
+
+Choose the most appropriate memory bank based on content.  
+If uncertain, default to **General**.
+
+---
 
 **STRICT RULES:**
-+1.  **STRUCTURED JSON OBJECT:** Output MUST be a JSON object (not array) with status, reason, and memories fields
-+2.  **DIRECT PREFERENCES ARE PRIORITY:** Extract all "I love/like/enjoy..." statements
-+3.  **SEPARATE ITEMS:** Each distinct piece of info is a separate JSON object in the memories array
-+4.  **ALLOWED TAGS ONLY:** Use ONLY `["identity", "behavior", "preference", "goal", "relationship", "possession"]`
-+5.  **MEMORY BANK REQUIRED:** Every memory must include a \"memory_bank\" field with one of the valid bank names
+1. **Output MUST be a JSON object with status/reason/memories (not a plain array)**  
+2. **All memory objects MUST be separate entries**  
+3. **Use cautious phrasing for inferred or implied information**  
+4. **Use expanded tags and expanded memory banks**  
+5. **Follow JSON schema EXACTLY**  
+6. **No added explanations or extra output — JSON ONLY**
 
-**FAILURE EXAMPLES (DO NOT PRODUCE OUTPUT LIKE THIS):**
-+- `[]` or `[{"operation": ...}]` -- INVALID (must be object, not array)
-+- `{"status": "success"}` -- INVALID (missing reason and memories fields)
-+- `{"memories": [...]}` -- INVALID (missing status and reason fields)
-+- `Here are the memories: {"status": "success", ...}` -- INVALID (extra text before JSON)
-+- ` ```json\n{...}\n``` ` -- INVALID (markdown formatting)
-+- `I found 2 memories: {"status": "success", ...}` -- INVALID (conversational text)
-+- `{"status": "success", "memories": [...]}` -- INVALID (missing reason field)
+---
 
-**EXAMPLE OUTPUT - When memories found:**
+**EXAMPLE OUTPUT - When memories found (REQUIRED FORMAT):**
 ```json
 {
   "status": "success",
-  "reason": "2 preferences and 1 relationship identified",
+  "reason": "Contextual and project-related details extracted",
   "memories": [
     {
       "operation": "NEW",
-      "content": "User loves drinking coffee in the morning",
-      "tags": ["preference", "behavior"],
-      "memory_bank": "Personal"
+      "content": "User is currently working on improving an AI project",
+      "tags": ["project", "behavior"],
+      "memory_bank": "Projects"
     },
     {
       "operation": "NEW",
-      "content": "User is working on a machine learning project at work",
-      "tags": ["behavior"],
-      "memory_bank": "Work"
+      "content": "User has been experimenting with new model configurations",
+      "tags": ["technical_state", "behavior"],
+      "memory_bank": "Technical"
     }
   ]
 }
@@ -868,7 +959,7 @@ Analyze the following related memories and provide a concise summary.""",
 ```json
 {
   "status": "no_memories_found",
-  "reason": "Message contains only general knowledge or questions",
+  "reason": "No user-specific information detected in message",
   "memories": []
 }
 ```
@@ -877,57 +968,69 @@ Analyze the following user message(s) and provide ONLY the JSON object output. A
             description="System prompt for memory identification (Structured JSON with status/reason)",
         )
 
-        # This prompt includes backward compatibility information because it's used during RETRIEVAL/INJECTION phase.
-        # The LLM needs to know how to handle old format memories it encounters. This is appropriate here (unlike extraction).
+        # This prompt uses the wrapped Format 1 structure to match the identification prompt and provide consistent output.
+        # The code accepts both formats, but the LLM is trained to output Format 1 with status/reason metadata.
         memory_relevance_prompt: str = Field(
             default="""You are a memory retrieval assistant. Your task is to determine which memories are relevant to the current context of a conversation.
 
-**BACKWARD COMPATIBILITY - OLD AND NEW FORMATS:**
-The memory system recently transitioned from an old format to the new structured format. You may encounter memories in the OLD format during retrieval. Both formats are VALID and should be treated equally:
+Your responsibilities:
+1. Evaluate the current user message.
+2. Review all provided memories.
+3. Score each memory's relevance on a scale from 0 to 1.
+4. Consider which memories are suitable for potential context injection based on topic alignment, recency, and memory content.
+5. Return ONLY a JSON object with status/reason/memories in the format shown below.
 
-**OLD FORMAT (Legacy - still valid):**
-- Memories stored as: `[Tags: preference] User loves coffee`
-- Or as array of objects: `[{"operation": "NEW", "content": "...", "tags": [...]}]`
+Do NOT return any additional text.
 
-**NEW FORMAT (Current):**
-- Memories structured as: `{"status": "success|no_memories_found", "reason": "...", "memories": [...]}`
+IMPORTANT RULES:
+- Relevance is determined primarily by:
+  • How closely the memory's content matches the topic of the current user message
+  • Whether the memory's tags, content, or meaning directly relate to the conversation
+  • Whether the memory contains information useful for reasoning about the user's current needs
+  • Recency (newer memories matter more, but only after topic relevance)
+  • Whether the memory's bank aligns with the topic (but this is NOT exclusive; multiple banks may be relevant simultaneously)
 
-**YOUR RESPONSIBILITIES WITH OLD FORMAT MEMORIES:**
-1. **Recognition:** When you encounter old format memories, recognize them as valid user memories
-2. **Score equally:** Format does NOT affect relevance - score both old and new format memories with the same criteria
-3. **Flagging (CRITICAL):** When you encounter old format memories during this retrieval, ALWAYS flag them for conversion by including in your response:
-   - `"conversion_flagged": true`
-   - `"flagged_memories": [<list of memory IDs or content that were old format>]`
-   - Example: `[{"memory": "User likes coffee", "id": "123", "relevance": 0.8}, {"memory": "another memory", "id": "456", "relevance": 0.6}]` + `"conversion_flagged": true` + `"flagged_memories": ["123", "456"]`
-4. **Continue normally:** The flagging is metadata for the system to know which memories to migrate - it does NOT change your scoring or behavior
+- If the topic could reasonably relate to multiple types of memories, treat memories across those types as potentially relevant.
+- Topic relevance ALWAYS outweighs recency, but recency still influences the score.
+- Only user-specific, assistant-specific, or session-relevant memories should receive meaningful scores.
+- General knowledge, trivia, or facts unrelated to the user or the assistant's functions MUST receive very low relevance (near 0).
 
-This ensures old memories are recognized as valid while the system gradually migrates them to the new format.
+SCORING GUIDANCE:
+Use a 0.0 to 1.0 scale:
+- 1.0 = Directly related to the current message's topic; highly important
+- 0.7–0.9 = Strongly associated or clearly useful for context
+- 0.4–0.6 = Possibly relevant, indirectly related, or context-adjacent
+- 0.1–0.3 = Weakly related, background-level relevance
+- 0.0 = Completely irrelevant
 
-IMPORTANT: **Do NOT mark general knowledge, trivia, or unrelated facts not associated with the user as relevant. Unless said unrelated facts are related to the user or your own functions.** Only user-specific, or content involving you or how you are built if told by the user should be rated highly.
+Memory banks should influence the score ONLY when they give contextual clues about which memories fit the topic. If multiple banks could plausibly relate, consider memories from all relevant banks.
 
-Given the current user message and a set of memories, rate each memory's relevance on a scale from 0 to 1, where:
-- 0 means completely irrelevant
-- 1 means highly relevant and directly applicable
+**ABSOLUTE OUTPUT REQUIREMENT:**
+Your output MUST be a JSON object with exactly this structure:
+{"status": "success|no_relevant_memories", "reason": "<brief reason>", "memories": [{"memory": "<content>", "id": "<id>", "relevance": <float>}]}
 
-Consider:
-- Explicit mentions in the user message
-- Implicit connections to the user's personal info, preferences, goals, or relationships
-- Potential usefulness for answering questions **about the user**
-- Recency and importance of the memory
+EXAMPLE OUTPUT - When relevant memories found:
+```json
+{
+  "status": "success",
+  "reason": "Found 2 memories relevant to the current topic",
+  "memories": [
+    {"memory": "User likes coffee", "id": "123", "relevance": 0.9},
+    {"memory": "User prefers morning conversations", "id": "456", "relevance": 0.7}
+  ]
+}
+```
 
-Examples:
-- "User likes coffee" → likely relevant if coffee is mentioned
-- "World War II started in 1939" → **irrelevant trivia, rate near 0, unless user states it is something they have recently learned**
-- "User's friend is named Sarah" → relevant if friend is mentioned
+EXAMPLE OUTPUT - When no relevant memories found:
+```json
+{
+  "status": "no_relevant_memories",
+  "reason": "No memories matched the current topic or context",
+  "memories": []
+}
+```
 
-Return your analysis as a JSON array with each memory's content, ID, and relevance score.
-Example: [{"memory": "User likes coffee", "id": "123", "relevance": 0.8}]
-
-If you encounter old format memories during this analysis and need to flag them for conversion, add to your response:
-- `"conversion_flagged": true`
-- `"flagged_memories": [<list of memory IDs that were old format>]`
-
-Your output must be valid JSON only. No additional text.""",
+No text before or after the JSON object.""",
             description="System prompt for memory relevance assessment",
         )
 
@@ -1113,6 +1216,10 @@ Analyze the following conversation and provide a concise summary.""",
         timezone: str = Field(
             default="",
             description="User's timezone (overrides global setting if provided)",
+        )
+        interface_model_name: str = Field(
+            default="",
+            description="Per-user override for interface model name. If empty, uses global setting.",
         )
 
     def __init__(self):
@@ -2607,9 +2714,20 @@ Analyze the following conversation and provide a concise summary.""",
                     user_id=user_id,
                     user_timezone=user_valves.timezone,  # Use user-specific timezone
                 )
-                if relevant_memories:
+                
+                # Check if this is the interface/tool model - if so, skip memory injection
+                current_model = body.get("model", "")
+                # Use per-user override if set, otherwise fall back to global setting
+                interface_model = user_valves.interface_model_name if user_valves.interface_model_name else self.valves.interface_model_name
+                is_interface_model = current_model == interface_model
+                
+                if is_interface_model:
+                    logger.debug(
+                        f"Skipping memory injection for interface model '{current_model}'. Will be injected when main model runs."
+                    )
+                elif relevant_memories:
                     logger.info(
-                        f"Injecting {len(relevant_memories)} relevant memories for user {user_id}"
+                        f"Injecting {len(relevant_memories)} relevant memories for user {user_id} into main model"
                     )
                     self._inject_memories_into_context(body, relevant_memories)
                 else:
@@ -3834,9 +3952,24 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                     logger.error(
                         f"LLM Connection Error during identification: {llm_response}"
                     )
+                    if error_logger:
+                        error_logger.error(
+                            f"[MEMORY_IDENTIFICATION] LLM Connection Failed\n"
+                            f"Response: {llm_response}\n"
+                            f"User Message: {clean_input[:200]}...\n"
+                            f"System Prompt Length: {len(system_prompt)}"
+                        )
                     self._error_message = "llm_connection_error"
                 else:
                     logger.error(f"LLM Error during identification: {llm_response}")
+                    if error_logger:
+                        error_logger.error(
+                            f"[MEMORY_IDENTIFICATION] LLM Error\n"
+                            f"Response: {llm_response}\n"
+                            f"User Message: {clean_input[:200]}...\n"
+                            f"System Prompt Length: {len(system_prompt)}\n"
+                            f"Error Counter: {self.error_counters['llm_call_errors']}"
+                        )
                     self._error_message = "llm_error"
                 return []  # Return empty list on LLM error
 
@@ -3846,26 +3979,18 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                 f"Parsed result type: {type(result)}, content: {str(result)[:500]}"
             )
 
-            # NEW: Unwrap structured response format (status/reason/memories) to memories array
-            if isinstance(result, dict) and "status" in result and "memories" in result:
-                logger.debug(
-                    f"Detected structured response format. Status: {result.get('status')}, "
-                    f"Reason: {result.get('reason')}"
-                )
-                result = result.get("memories", [])
-                logger.debug(f"Unwrapped structured response to {len(result)} memories")
-
-            # Check if we got a dict instead of a list (other than our new structured format)
+            # Handle both Format 1 (wrapped with status/reason) and Format 2 (flat array)
             if isinstance(result, dict):
-                # If it looks like our structured format but is malformed, catch it
-                if "status" in result:
-                    logger.error(
-                        f"Malformed structured response detected (missing 'memories' field or other issue): {result}"
+                # Check if it's a wrapped response (Format 1 with status/reason/memories)
+                if "status" in result and "memories" in result:
+                    logger.debug(
+                        f"Detected Format 1 (wrapped) response. Status: {result.get('status')}, "
+                        f"Reason: {result.get('reason')}"
                     )
-                    self._error_message = "malformed_structured_response"
-                    return []
+                    result = result.get("memories", [])
+                    logger.debug(f"Unwrapped Format 1 response to {len(result)} memories")
                 else:
-                    # This is an unexpected dict (old format error), try the old conversion
+                    # This is an unexpected dict format, try the old conversion
                     logger.warning(
                         "LLM returned a JSON object instead of an array. Attempting conversion."
                     )
@@ -4196,6 +4321,15 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
         logger.debug(
             f"Full text that failed JSON parsing: {text}"
         )  # Log full text on final failure
+        
+        if error_logger:
+            error_logger.error(
+                f"[JSON_PARSE_ERROR] Failed to parse JSON after all attempts\n"
+                f"Original Length: {original_length}\n"
+                f"Failed Text (first 500 chars): {text[:500] if text else 'EMPTY'}\n"
+                f"Total JSON Parse Errors: {self.error_counters['json_parse_errors']}"
+            )
+        
         return None
 
     def _calculate_memory_similarity(self, memory1: str, memory2: str) -> float:
@@ -4650,6 +4784,13 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             logger.error(
                                 f"Error from LLM during memory relevance: {llm_response_text}"
                             )
+                            if error_logger:
+                                error_logger.error(
+                                    f"[MEMORY_RELEVANCE] LLM Error\n"
+                                    f"Response: {llm_response_text}\n"
+                                    f"Current Message: {current_message[:200]}...\n"
+                                    f"Uncached Memories Count: {len(uncached_memories)}"
+                                )
                         # If LLM fails, we might return empty or potentially fall back
                         # For now, return empty to indicate failure
                         return []
@@ -4659,6 +4800,14 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         llm_response_text
                     )
 
+                    # Handle both Format 1 (wrapped with status/reason) and Format 2 (flat array)
+                    if isinstance(llm_relevance_results, dict) and "status" in llm_relevance_results and "memories" in llm_relevance_results:
+                        logger.debug(
+                            f"Detected Format 1 (wrapped) response in relevance scoring. Status: {llm_relevance_results.get('status')}"
+                        )
+                        llm_relevance_results = llm_relevance_results.get("memories", [])
+                        logger.debug(f"Unwrapped Format 1 response to {len(llm_relevance_results)} items")
+
                     if not llm_relevance_results or not isinstance(
                         llm_relevance_results, list
                     ):
@@ -4666,6 +4815,14 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             f"Failed to parse relevance data from LLM response for uncached items. "
                             f"Response text (first 200 chars): {llm_response_text[:200] if llm_response_text else 'EMPTY'}"
                         )
+                        if error_logger:
+                            error_logger.error(
+                                f"[MEMORY_RELEVANCE_PARSE_ERROR] Failed to parse relevance response\n"
+                                f"Response Type: {type(llm_relevance_results)}\n"
+                                f"Response (first 300 chars): {llm_response_text[:300] if llm_response_text else 'EMPTY'}\n"
+                                f"Current Message: {current_message[:200]}...\n"
+                                f"Uncached Memories: {len(uncached_memories)}"
+                            )
                         # Graceful fallback: assign neutral relevance to uncached items
                         # This prevents loss of data when LLM formatting fails
                         logger.info(
@@ -5333,13 +5490,32 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                     }
                     logger.debug(f"Ollama request data: {json.dumps(data)[:500]}...")
                 elif provider_type == "openai_compatible":
-                    # Check if this is LM Studio (port 1234)
-                    is_lm_studio = ":1234" in api_url
+                    # Determine the request format based on the endpoint
+                    # If endpoint contains "/chat/completions", use messages format
+                    # Otherwise use prompt format (for completions endpoint)
+                    use_messages_format = "/chat/completions" in api_url
+                    
+                    logger.debug(
+                        f"OpenAI-compatible config: api_url={api_url}, use_messages_format={use_messages_format}"
+                    )
 
-                    if is_lm_studio:
-                        # LM Studio expects 'prompt' field instead of 'messages'
-                        # CRITICAL: Inject JSON requirement INTO the system prompt, not just before it
-                        # This ensures the model prioritizes JSON formatting
+                    if use_messages_format:
+                        # Chat completions endpoint - use messages format
+                        data = {
+                            "model": model,
+                            "messages": [
+                                {"role": "system", "content": system_prompt_with_date},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0,
+                            "top_p": 1,
+                            "max_tokens": 1024,
+                            "stream": False,
+                        }
+                        logger.debug("Using messages format for chat completions")
+                    else:
+                        # Completions endpoint - use prompt format
+                        # CRITICAL: Inject JSON requirement INTO the system prompt
                         system_with_json = f"""{system_prompt_with_date}
 
 CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other text.
@@ -5356,23 +5532,8 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                             "max_tokens": 1024,
                             "stream": False,
                         }
-                    else:
-                        # Standard OpenAI-compatible API
-                        data = {
-                            "model": model,
-                            "messages": [
-                                {"role": "system", "content": system_prompt_with_date},
-                                {"role": "user", "content": user_prompt},
-                            ],
-                            "temperature": 0,
-                            "top_p": 1,
-                            "max_tokens": 1024,
-                            "response_format": {
-                                "type": "json_object"
-                            },  # Force JSON mode
-                            "seed": 42,
-                            "stream": False,
-                        }
+                        logger.debug("Using prompt format for completions endpoint")
+                    
                     logger.debug(
                         f"OpenAI-compatible request data: {json.dumps(data)[:500]}..."
                     )
@@ -5427,20 +5588,11 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                         logger.debug(f"Raw API response: {json.dumps(data)[:500]}...")
 
                         if provider_type == "openai_compatible":
-                            # Check if this is LM Studio (port 1234)
-                            is_lm_studio = ":1234" in api_url
+                            # Determine response format based on endpoint
+                            use_messages_format = "/chat/completions" in api_url
 
-                            if is_lm_studio:
-                                # LM Studio returns text in choices[0].text
-                                if data.get("choices") and data["choices"][0].get(
-                                    "text"
-                                ):
-                                    content = data["choices"][0]["text"]
-                                    logger.info(
-                                        f"Retrieved content from LM Studio response (length: {len(content)})"
-                                    )
-                            else:
-                                # Standard OpenAI format returns message.content
+                            if use_messages_format:
+                                # Chat completions endpoint returns message.content
                                 if (
                                     data.get("choices")
                                     and data["choices"][0].get("message")
@@ -5448,7 +5600,14 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                                 ):
                                     content = data["choices"][0]["message"]["content"]
                                     logger.info(
-                                        f"Retrieved content from OpenAI-compatible response (length: {len(content)})"
+                                        f"Retrieved content from chat completions response (length: {len(content)})"
+                                    )
+                            else:
+                                # Completions endpoint returns text
+                                if data.get("choices") and data["choices"][0].get("text"):
+                                    content = data["choices"][0]["text"]
+                                    logger.info(
+                                        f"Retrieved content from completions response (length: {len(content)})"
                                     )
                         elif provider_type == "ollama":
                             if data.get("message") and data["message"].get("content"):
@@ -5458,38 +5617,6 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                                 )
 
                         if content:
-                            # Quick validation for LM Studio: ensure it looks like JSON
-                            if (
-                                provider_type == "openai_compatible"
-                                and ":1234" in api_url
-                            ):
-                                content_stripped = content.strip()
-                                # Check for hallucination patterns (repeated brackets, etc.)
-                                if (
-                                    content_stripped.count("[ ]") > 5
-                                    or content.count("[][]") > 3
-                                ):
-                                    logger.warning(
-                                        f"LM Studio response appears to be hallucinating (repeated brackets). "
-                                        f"Content starts: {content_stripped[:100]}. Triggering retry..."
-                                    )
-                                    if attempt <= max_retries:
-                                        sleep_time = retry_delay * (
-                                            2 ** (attempt - 1)
-                                        ) + random.uniform(0, 0.5)
-                                        logger.info(
-                                            f"Hallucination detected. Retrying in {sleep_time:.2f}s..."
-                                        )
-                                        await asyncio.sleep(sleep_time)
-                                        continue  # Retry this attempt
-                                elif not (
-                                    content_stripped.startswith("{")
-                                    or content_stripped.startswith("[")
-                                ):
-                                    logger.warning(
-                                        f"LM Studio response doesn't appear to be JSON (starts with: {content_stripped[:50]}). "
-                                        f"Content may be malformed. Attempting to continue with extraction..."
-                                    )
                             return content
                         else:
                             error_msg = f"Could not extract content from {provider_type} response format"
