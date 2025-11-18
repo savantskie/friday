@@ -4003,6 +4003,10 @@ class EmbeddingService:
             "openai": None
         }
         
+        # Set up embeddings_endpoint from primary config
+        primary_base_url = self.primary_config.get("base_url", "")
+        self.embeddings_endpoint = primary_base_url
+        
         logger.info("🔧 Intelligent Embedding Service Configuration")
         primary_provider = self.primary_config.get('provider', 'lm_studio')
         primary_model = self.primary_config.get('model', 'text-embedding-nomic-embed-text-v1.5')
@@ -5180,22 +5184,24 @@ class FridayMemorySystem:
             try:
                 # Try a simple ping to the embedding service
                 test_embedding = await self.embedding_service.generate_embedding("test")
+                primary_endpoint = self.embedding_service.primary_config.get("base_url", "unknown")
                 if test_embedding:
                     health_data["embedding_service"] = {
                         "status": "healthy",
-                        "endpoint": self.embedding_service.embeddings_endpoint,
+                        "endpoint": primary_endpoint,
                         "embedding_dimensions": len(test_embedding)
                     }
                 else:
                     health_data["embedding_service"] = {
                         "status": "unhealthy",
-                        "endpoint": self.embedding_service.embeddings_endpoint,
+                        "endpoint": primary_endpoint,
                         "error": "Failed to generate test embedding"
                     }
             except Exception as e:
+                primary_endpoint = self.embedding_service.primary_config.get("base_url", "unknown")
                 health_data["embedding_service"] = {
                     "status": "unhealthy",
-                    "endpoint": self.embedding_service.embeddings_endpoint,
+                    "endpoint": primary_endpoint,
                     "error": str(e)
                 }
             

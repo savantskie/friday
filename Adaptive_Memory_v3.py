@@ -661,9 +661,9 @@ Analyze the following related memories and provide a concise summary.""",
             description="Name of the LLM model to use (e.g., 'llama3:latest', 'gpt-4o')",
         )
         llm_api_endpoint_url: str = Field(
-            # Change default to use host.docker.internal for accessing Ollama on host
-            default="http://host.docker.internal:11434/api/chat",
-            description="API endpoint URL for the LLM provider (e.g., 'http://host.docker.internal:11434/api/chat', 'https://api.openai.com/v1/chat/completions')",
+            # Change default to use 172.17.0.1 for Linux Docker to access Ollama on host
+            default="http://172.17.0.1:11434/api/chat",
+            description="API endpoint URL for the LLM provider (e.g., 'http://172.17.0.1:11434/api/chat', 'https://api.openai.com/v1/chat/completions')",
         )
         llm_api_key: Optional[str] = Field(
             default=None,
@@ -2294,7 +2294,7 @@ Analyze the following conversation and provide a concise summary.""",
 
         # Discover Ollama models
         try:
-            ollama_url = "http://host.docker.internal:11434/api/tags"
+            ollama_url = "http://172.17.0.1:11434/api/tags"
             async with session.get(ollama_url) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -2707,6 +2707,19 @@ Analyze the following conversation and provide a concise summary.""",
             self.valves.show_memories and not self._embedding_feature_guard_active
         ):  # Guard embedding-dependent retrieval
             try:
+                # Show status that we're checking for memories
+                if show_status:
+                    await self._safe_emit(
+                        __event_emitter__,
+                        {
+                            "type": "status",
+                            "data": {
+                                "description": "🧠 Checking for relevant memories to inject…",
+                                "done": False,
+                            },
+                        },
+                    )
+                
                 logger.debug(f"Retrieving relevant memories for user {user_id}")
                 # Use user-specific timezone for relevance calculation context
                 relevant_memories = await self.get_relevant_memories(
@@ -2725,13 +2738,46 @@ Analyze the following conversation and provide a concise summary.""",
                     logger.debug(
                         f"Skipping memory injection for interface model '{current_model}'. Will be injected when main model runs."
                     )
+                    if show_status:
+                        await self._safe_emit(
+                            __event_emitter__,
+                            {
+                                "type": "status",
+                                "data": {
+                                    "description": f"⏸️ Waiting for tool execution (interface model: {current_model})",
+                                    "done": False,
+                                },
+                            },
+                        )
                 elif relevant_memories:
                     logger.info(
                         f"Injecting {len(relevant_memories)} relevant memories for user {user_id} into main model"
                     )
+                    if show_status:
+                        await self._safe_emit(
+                            __event_emitter__,
+                            {
+                                "type": "status",
+                                "data": {
+                                    "description": f"💾 Injecting {len(relevant_memories)} relevant memories into context…",
+                                    "done": False,
+                                },
+                            },
+                        )
                     self._inject_memories_into_context(body, relevant_memories)
                 else:
                     logger.debug(f"No relevant memories found for user {user_id}")
+                    if show_status:
+                        await self._safe_emit(
+                            __event_emitter__,
+                            {
+                                "type": "status",
+                                "data": {
+                                    "description": "✓ No relevant memories to inject",
+                                    "done": True,
+                                },
+                            },
+                        )
             except Exception as e:
                 logger.error(
                     f"Error retrieving/injecting memories: {e}\n{traceback.format_exc()}"
@@ -2920,9 +2966,24 @@ Analyze the following conversation and provide a concise summary.""",
         
         Checks for embedding metadata tag to avoid re-embedding already-processed memories.
         Tag format: __embedding_model:nomic_embed_text_v1.5_768d
+        
+        Also checks embeddings_completed.log to skip full retroactive embedding if recently completed.
         """
         try:
             await asyncio.sleep(2)  # Give plugin time to fully initialize
+            
+            # Check if we've already completed a full retroactive embedding recently
+            embeddings_log_path = "/media/nate/Friday/Friday/logs/embeddings_completed.log"
+            try:
+                if os.path.exists(embeddings_log_path):
+                    with open(embeddings_log_path, "r") as f:
+                        last_completed = f.read().strip()
+                    logger.info(f"📝 Previous embedding run completed at: {last_completed}")
+                    logger.info("⏭️  Skipping full retroactive embedding. Will only embed new memories.")
+                    return  # Skip the full retroactive embedding if it's already been done
+            except Exception as e:
+                logger.debug(f"Could not read embeddings_completed.log: {e}, proceeding with retroactive embedding")
+            
             logger.info("🔄 Starting retroactive embedding of all existing memories...")
 
             # Generate embedding model tag based on current configuration
@@ -3095,6 +3156,17 @@ Analyze the following conversation and provide a concise summary.""",
             logger.info(
                 f"✓ Retroactive embedding complete: {embedded_count} new, {regenerated_count} regenerated, {skipped_count} valid, {error_count} errors"
             )
+            
+            # Write completion timestamp to log file
+            try:
+                embeddings_log_path = "/media/nate/Friday/Friday/logs/embeddings_completed.log"
+                from datetime import datetime
+                completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                with open(embeddings_log_path, "w") as f:
+                    f.write(completion_time)
+                logger.info(f"📝 Wrote embedding completion timestamp: {completion_time}")
+            except Exception as e:
+                logger.warning(f"Could not write embeddings_completed.log: {e}")
 
         except Exception as e:
             logger.error(
@@ -3809,7 +3881,7 @@ Rate the relevance of EACH memory to the current user message."""
                     )
                 else:
                     plural = "memory" if saved_count == 1 else "memories"
-                    status_desc = f"✅ Added {saved_count} new {plural} to your memory bank ({elapsed_time:.2f}s)"
+                    status_desc = f"✅ Added {saved_count} new {plural} to short term memory ({elapsed_time:.2f}s)"
             else:
                 # Build smarter status based on duplicate counters
                 if getattr(self, "_duplicate_refreshed", 0):
