@@ -170,6 +170,7 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
         "hourly": "temperature_2m,precipitation_probability",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
         "timezone": tz,
+        "temperature_unit": "fahrenheit",
     }
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
