@@ -2786,12 +2786,12 @@ Analyze the following conversation and provide a concise summary.""",
         
         # CRITICAL DEBUG: Log exact model value and full body structure
         model_in_body = body.get('model', 'NOT SET')
-        inlet_outlet_logger.info(f"📥 INLET CALLED - Model in body: {model_in_body}")
-        inlet_outlet_logger.info(f"📥 INLET: Full body keys: {list(body.keys())}")
+        logger.info(f"🔴 INLET CALLED - Model in body: {model_in_body}")
+        logger.info(f"🔴 INLET: Full body keys: {list(body.keys())}")
         if 'messages' in body:
-            inlet_outlet_logger.info(f"📥 INLET: Number of messages: {len(body['messages'])}")
+            logger.info(f"🔴 INLET: Number of messages: {len(body['messages'])}")
             for i, msg in enumerate(body['messages']):
-                inlet_outlet_logger.info(f"📥 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} first_100_chars={str(msg.get('content', ''))[:100]}")
+                logger.info(f"🔴 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} first_100_chars={str(msg.get('content', ''))[:100]}")
 
         # Ensure user info is present
         if not __user__ or not __user__.get("id"):
@@ -3182,7 +3182,7 @@ Analyze the following conversation and provide a concise summary.""",
                     )
                 
                 logger.debug(f"Retrieving relevant memories for user {user_id}")
-                inlet_outlet_logger.info(f"🧠 INLET: Calling get_relevant_memories() for memory injection BEFORE main LLM")
+                logger.info(f"🧠 INLET: Calling get_relevant_memories() for memory injection BEFORE main LLM")
                 # Extract text from multimodal content if needed (handles images with text)
                 message_text_for_retrieval = self._extract_text_from_content(final_message) if final_message else ""
                 
@@ -3265,12 +3265,12 @@ Analyze the following conversation and provide a concise summary.""",
 
         # CRITICAL DEBUG: Show what model and messages are going back to OpenWebUI for main LLM
         model_returning = body.get('model', 'NOT SET')
-        inlet_outlet_logger.info(f"📤 INLET RETURNING - Model in body: {model_returning}")
+        logger.info(f"🔴 INLET RETURNING - Model in body: {model_returning}")
         if 'messages' in body:
-            inlet_outlet_logger.info(f"📤 INLET: Returning {len(body['messages'])} messages")
+            logger.info(f"🔴 INLET: Returning {len(body['messages'])} messages")
             for i, msg in enumerate(body['messages']):
                 content_preview = str(msg.get('content', ''))[:100]
-                inlet_outlet_logger.info(f"📤 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} preview={content_preview}")
+                logger.info(f"🔴 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} preview={content_preview}")
         return body
 
     async def outlet(
@@ -3284,7 +3284,7 @@ Analyze the following conversation and provide a concise summary.""",
 
         # Log function entry
         logger.debug("Outlet called - making deep copy of body dictionary")
-        inlet_outlet_logger.info(f"📥 OUTLET CALLED - Model in body: {body.get('model', 'NOT SET')} - LLM should have already responded")
+        logger.info(f"🟢 OUTLET CALLED - Model in body: {body.get('model', 'NOT SET')} - LLM should have already responded")
 
         # Store model for use in memory operations (user_id + model = isolation key)
         self._current_model = body.get("model", "default")
@@ -3396,7 +3396,7 @@ Analyze the following conversation and provide a concise summary.""",
         # Process the response content for injecting memories
         try:
             # Get relevant memories for context injection on next interaction
-            inlet_outlet_logger.info(f"🧠 OUTLET: Calling get_relevant_memories() for memory injection AFTER main LLM response")
+            logger.info(f"🧠 OUTLET: Calling get_relevant_memories() for memory injection AFTER main LLM response")
             memories = await self.get_relevant_memories(
                 current_message=last_user_message_content
                 or "",  # Use the variable holding the user message
