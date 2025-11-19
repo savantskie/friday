@@ -829,6 +829,19 @@ class AIMemoryDatabase(DatabaseManager):
         
         return True
     
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory by ID"""
+        try:
+            await self.execute_update(
+                "DELETE FROM curated_memories WHERE memory_id = ?",
+                (memory_id,)
+            )
+            logger.info(f"🗑️  Deleted memory: {memory_id}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to delete memory {memory_id}: {e}")
+            return False
+    
     async def get_memories(self, limit: int = 10, memory_type: str = None) -> List[Dict]:
         """Get memories, optionally filtered by type"""
         
@@ -5312,6 +5325,23 @@ class FridayMemorySystem:
             "status": "success" if success else "error",
             "memory_id": memory_id
         }
+    
+    async def delete_memory(self, memory_id: str) -> Dict:
+        """Delete a memory by ID"""
+        try:
+            success = await self.ai_memory_db.delete_memory(memory_id)
+            return {
+                "status": "success" if success else "error",
+                "memory_id": memory_id,
+                "message": "Memory deleted" if success else "Failed to delete memory"
+            }
+        except Exception as e:
+            logger.error(f"Error deleting memory {memory_id}: {e}")
+            return {
+                "status": "error",
+                "memory_id": memory_id,
+                "message": str(e)
+            }
     
     # Schedule operations
     async def create_appointment(self, title: str, scheduled_datetime: str,

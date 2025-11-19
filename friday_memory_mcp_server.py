@@ -49,10 +49,14 @@ from mcp.types import (
 
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
+from port_manager import PortManager
 
 # Initialize with dynamic path
 BASE_PATH = get_base_path()
 memory_system = FridayMemorySystem(data_dir=str(BASE_PATH / "memory_data"))
+
+# Initialize port manager
+port_manager = PortManager(memory_data_path=str(BASE_PATH / "memory_data"))
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
@@ -1777,18 +1781,59 @@ class FridayMemoryMCPServer:
             logger.info("🔧 Automatic maintenance stopped")
 
 
-async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: int = 21434):
-    """Start the HTTP API server if needed"""
+async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: Optional[int] = None):
+    """Start the HTTP API server with intelligent port binding
+    
+    Uses port_manager to:
+    - Find an available port (tries primary, then backups)
+    - Detect calling program (VS Code, LM Studio, etc.)
+    - Save port info for client discovery
+    
+    Args:
+        mcp_server: The MCP server instance
+        host: Host to bind to (default 127.0.0.1)
+        port: Optional port override. If None, uses port_manager to find one.
+    """
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.middleware.cors import CORSMiddleware
         import uvicorn
         
+        # Use port manager to find an available port if not specified
+        if port is None:
+            try:
+                # Detect caller program first
+                port_manager.detect_caller_program()
+                
+                # Find available port
+                port = port_manager.find_available_port()
+                logger.warning(f"🔍 Using port {port} (caller: {port_manager.caller_program.value})")
+                
+                # Save port info for clients to discover
+                port_manager.save_port_info()
+                
+            except RuntimeError as e:
+                logger.error(f"❌ {e}")
+                raise
+        
         app = FastAPI(title="Friday Memory API")
 
         from fastapi import Request, HTTPException
 
-        API_KEY = "0d4b94f58f5a401ea88b149a17f09fc9"  # Change this later or load from env
+        # Load API key from mcpo_api_key.txt file
+        API_KEY = None
+        try:
+            key_file = BASE_PATH / "keys" / "mcpo_api_key.txt"
+            if key_file.exists():
+                with open(key_file, 'r') as f:
+                    content = f.read().strip()
+                    API_KEY = content
+                logger.info("✅ Loaded API key from keys/mcpo_api_key.txt")
+        except Exception as e:
+            logger.error(f"❌ Failed to load API key from file: {e}")
+        
+        if not API_KEY:
+            raise RuntimeError("API Key could not be loaded from keys/mcpo_api_key.txt")
 
         async def verify_api_key(request: Request):
             client_key = request.headers.get("X-API-Key")
@@ -1807,12 +1852,191 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
         
         @app.get("/api/health")
         async def health_check():
-            return {"status": "healthy", "server": "friday-memory"}
+            """Health check endpoint with server info"""
+            process_info = await port_manager.get_process_info()
             
-        # Start server without blocking
+            return {
+                "status": "healthy",
+                "server": "friday-memory",
+                "port": port_manager.active_port,
+                "primary_port": port_manager.PRIMARY_PORT,
+                "caller_program": port_manager.caller_program.value,
+                "process_id": port_manager.process_id,
+                "http_url": f"http://127.0.0.1:{port_manager.active_port}",
+                "process_name": process_info.get("process_name"),
+                "memory_usage_mb": process_info.get("memory_usage_mb")
+            }
+        
+        @app.get("/api/diagnostics")
+        async def diagnostics():
+            """Diagnostics endpoint showing port and caller info"""
+            process_info = await port_manager.get_process_info()
+            
+            return {
+                "server_info": {
+                    "active_port": port_manager.active_port,
+                    "primary_port": port_manager.PRIMARY_PORT,
+                    "backup_ports": port_manager.BACKUP_PORTS,
+                    "http_url": f"http://127.0.0.1:{port_manager.active_port}",
+                    "caller_program": port_manager.caller_program.value
+                },
+                "process_info": process_info,
+                "message": "MCP server successfully detected caller program and bound to available port"
+            }
+        
+        @app.post("/api/memories/promote")
+        async def promote_memory(request: Request):
+            """
+            Promote a memory from short-term (OpenWebUI) to long-term (Friday Memory System).
+            
+            Request body:
+            {
+                "content": "Memory content (required)",
+                "memory_type": "Optional: memory type",
+                "tags": ["optional", "tags"],
+                "source_conversation_id": "Optional: source conversation ID"
+            }
+            
+            Response:
+            {
+                "status": "success",
+                "memory_id": "new_memory_id",
+                "importance_level": 8,
+                "message": "Memory promoted to long-term storage"
+            }
+            """
+            try:
+                # Verify API key
+                await verify_api_key(request)
+                
+                # Parse request body
+                body = await request.json()
+                content = body.get("content")
+                
+                if not content or not content.strip():
+                    raise HTTPException(status_code=400, detail="Memory content is required")
+                
+                # Extract optional fields
+                memory_type = body.get("memory_type")
+                tags = body.get("tags", [])
+                source_conversation_id = body.get("source_conversation_id")
+                
+                # Add "promoted" tag to indicate origin
+                if isinstance(tags, list):
+                    if "promoted" not in tags:
+                        tags.append("promoted")
+                else:
+                    tags = ["promoted"]
+                
+                # Call create_memory with promoted importance level (8-9)
+                # Use 8 as default for promoted memories (high but not critical)
+                result = await mcp_server.memory_system.create_memory(
+                    content=content,
+                    memory_type=memory_type,
+                    importance_level=8,
+                    tags=tags,
+                    source_conversation_id=source_conversation_id
+                )
+                
+                # Add additional metadata to response
+                result["importance_level"] = 8
+                result["message"] = "Memory promoted to long-term storage"
+                
+                logger.info(f"✅ Memory promoted: {result.get('memory_id')}")
+                return result
+                
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+            except Exception as e:
+                logger.error(f"❌ Error promoting memory: {e}")
+                raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        
+        @app.delete("/api/memories/cleanup")
+        async def cleanup_test_memories(request: Request):
+            """
+            Delete test/temporary memories marked with 'test' or 'temporary' tags.
+            
+            Query parameters:
+                tag: "test" or "temporary" (default: "test")
+                dry_run: true/false - if true, return count without deleting (default: false)
+            
+            Response:
+            {
+                "status": "success",
+                "deleted_count": 5,
+                "deleted_ids": ["id1", "id2", ...],
+                "message": "5 test memories cleaned up"
+            }
+            """
+            try:
+                # Verify API key
+                await verify_api_key(request)
+                
+                # Get query parameters
+                tag = request.query_params.get("tag", "test")
+                dry_run = request.query_params.get("dry_run", "false").lower() == "true"
+                
+                # Valid cleanup tags
+                valid_tags = ["test", "temporary", "promoted"]  # promoted for testing
+                if tag not in valid_tags:
+                    raise HTTPException(status_code=400, detail=f"Invalid tag: {tag}. Must be one of: {valid_tags}")
+                
+                # Search for memories with this tag
+                search_results = await mcp_server.memory_system.search_memories(
+                    query=f"tag:{tag}",
+                    limit=1000  # Get up to 1000 test memories
+                )
+                
+                # Extract memory IDs from results
+                deleted_ids = []
+                
+                if dry_run:
+                    # Just count and report
+                    deleted_count = len(search_results) if search_results else 0
+                    logger.info(f"🧹 DRY RUN: Would delete {deleted_count} memories with tag '{tag}'")
+                    return {
+                        "status": "success",
+                        "deleted_count": deleted_count,
+                        "deleted_ids": [],
+                        "dry_run": True,
+                        "message": f"DRY RUN: Would delete {deleted_count} test memories"
+                    }
+                else:
+                    # Actually delete memories
+                    if search_results:
+                        for result in search_results:
+                            memory_id = result.get("memory_id") or result.get("id")
+                            if memory_id:
+                                try:
+                                    await mcp_server.memory_system.ai_memory_db.delete_memory(memory_id)
+                                    deleted_ids.append(memory_id)
+                                except Exception as e:
+                                    logger.warning(f"Failed to delete memory {memory_id}: {e}")
+                    
+                    deleted_count = len(deleted_ids)
+                    logger.info(f"🧹 Cleaned up {deleted_count} memories with tag '{tag}'")
+                    
+                    return {
+                        "status": "success",
+                        "deleted_count": deleted_count,
+                        "deleted_ids": deleted_ids,
+                        "message": f"{deleted_count} test memories cleaned up"
+                    }
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"❌ Error cleaning up memories: {e}")
+                raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+            
+        # Create and start server
         config = uvicorn.Config(app, host=host, port=port, log_level="info")
         server = uvicorn.Server(config)
-        return await server.serve()
+        logger.info(f"🌐 HTTP API server ready on http://{host}:{port}")
+        await server.serve()
+        
     except ImportError:
         logger.info("FastAPI not installed - HTTP API disabled")
         return None
@@ -1830,6 +2054,12 @@ async def main():
     
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
+    
+    # Start HTTP API server in background
+    # Port will be auto-detected and fallback to backups if needed
+    http_task = asyncio.create_task(
+        start_http_server(srv, host="127.0.0.1", port=None)
+    )
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
@@ -1850,6 +2080,10 @@ async def main():
     except Exception:
         logger.exception("Server error")
         await srv.cleanup()
+        if not http_task.done():
+            http_task.cancel()
+        # Clean up port info on shutdown
+        port_manager.cleanup_port_info()
 
 
 

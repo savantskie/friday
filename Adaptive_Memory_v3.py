@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.4
+version: 0.0.6
 ---
 
 # Overview
@@ -172,6 +172,7 @@ from open_webui.main import app as webui_app
 # Set up logging (before Friday import)
 logger = logging.getLogger("openwebui.plugins.adaptive_memory")
 handler = logging.StreamHandler()
+inlet_outlet_logger = None  # Will be initialized below
 
 
 class JsonFormatter(logging.Formatter):
@@ -195,6 +196,10 @@ class JsonFormatter(logging.Formatter):
 
 
 formatter = JsonFormatter()
+
+# Clear existing handlers to prevent duplicates (happens when module is reloaded)
+logger.handlers.clear()
+
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
@@ -213,7 +218,19 @@ try:
     logger.info(
         "FileHandler initialized - logging to /media/nate/Friday/Friday/logs/adaptive_memory_embedding.log"
     )
+    
+    # Add dedicated inlet/outlet debug handler
+    inlet_outlet_handler = logging.FileHandler(
+        os.path.join(log_dir, "inlet_outlet_flow.log"), encoding="utf-8"
+    )
+    inlet_outlet_handler.setFormatter(formatter)
+    inlet_outlet_logger = logging.getLogger("openwebui.plugins.adaptive_memory.flow")
+    inlet_outlet_logger.addHandler(inlet_outlet_handler)
+    inlet_outlet_logger.setLevel(logging.DEBUG)
+    inlet_outlet_logger.propagate = False
+    logger.info("✓ Inlet/Outlet flow logger initialized - logging to inlet_outlet_flow.log")
 except Exception as e:
+    inlet_outlet_logger = logger  # Fallback to main logger
     logger.error(f"Failed to create file logger: {e}")
 
 logger.propagate = False  # Prevent duplicate logs if root logger has handlers
@@ -266,6 +283,160 @@ class MemoryOperation(BaseModel):
     content: Optional[str] = None
     tags: List[str] = []
     memory_bank: Optional[str] = None  # NEW – bank assignment
+
+
+class ImageManager:
+    """
+    Manages persistent image storage (image_database.db).
+    Single source of truth for all image data shared by short-term and long-term memory systems.
+    Images are referenced by hash to avoid duplication across systems.
+    """
+
+    def __init__(self, memory_data_path: str):
+        """Initialize ImageManager with path to memory_data folder"""
+        self.memory_data_path = memory_data_path
+        self.db_path = os.path.join(memory_data_path, "image_database.db")
+        self._init_db()
+
+    def _init_db(self):
+        """Initialize image_database.db with image table if not exists"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS images (
+                    image_hash TEXT PRIMARY KEY,
+                    image_url TEXT,
+                    image_data BLOB NOT NULL,
+                    image_description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            
+            # Create index for faster queries
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_images_created_at
+                ON images(created_at)
+                """
+            )
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"ImageManager initialized: {self.db_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize image database: {e}")
+            raise
+
+    def store_image(
+        self,
+        image_hash: str,
+        image_data: str,
+        image_url: Optional[str] = None,
+        image_description: Optional[str] = None,
+    ) -> bool:
+        """
+        Store image in database. Returns True if stored (or already exists), False on error.
+        Image data should be base64-encoded string.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check if image already exists
+            cursor.execute("SELECT image_hash FROM images WHERE image_hash = ?", (image_hash,))
+            if cursor.fetchone():
+                logger.debug(f"Image {image_hash} already exists, skipping store")
+                conn.close()
+                return True
+            
+            # Store image
+            cursor.execute(
+                """
+                INSERT INTO images (image_hash, image_url, image_data, image_description)
+                VALUES (?, ?, ?, ?)
+                """,
+                (image_hash, image_url, image_data, image_description),
+            )
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Stored image {image_hash}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store image {image_hash}: {e}")
+            return False
+
+    def get_image_by_hash(self, image_hash: str) -> Optional[Dict]:
+        """Retrieve image data by hash. Returns dict with image_url, image_data, image_description, or None"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                """
+                SELECT image_url, image_data, image_description, created_at
+                FROM images WHERE image_hash = ?
+                """,
+                (image_hash,),
+            )
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    "image_hash": image_hash,
+                    "image_url": row[0],
+                    "image_data": row[1],
+                    "image_description": row[2],
+                    "created_at": row[3],
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve image {image_hash}: {e}")
+            return None
+
+    def get_images_by_hashes(self, image_hashes: List[str]) -> List[Dict]:
+        """Retrieve multiple images by their hashes"""
+        images = []
+        for image_hash in image_hashes:
+            img = self.get_image_by_hash(image_hash)
+            if img:
+                images.append(img)
+        return images
+
+    def image_exists(self, image_hash: str) -> bool:
+        """Check if image exists in database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT 1 FROM images WHERE image_hash = ? LIMIT 1", (image_hash,))
+            exists = cursor.fetchone() is not None
+            conn.close()
+            return exists
+        except Exception as e:
+            logger.error(f"Failed to check if image exists {image_hash}: {e}")
+            return False
+
+    def delete_image(self, image_hash: str) -> bool:
+        """Delete image from database (careful with this - breaks links if memories still reference it)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("DELETE FROM images WHERE image_hash = ?", (image_hash,))
+            conn.commit()
+            conn.close()
+            logger.info(f"Deleted image {image_hash}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete image {image_hash}: {e}")
+            return False
 
 
 class Filter:
@@ -397,6 +568,216 @@ class Filter:
                 self.conn.close()
 
     # ========================================================================
+    # HELPER: Extract text from multimodal content (OpenAI-style format)
+    # ========================================================================
+    def _extract_text_from_content(self, content: Union[str, List[Dict]]) -> str:
+        """
+        Extract plain text from OpenWebUI message content.
+        
+        Handles both simple string content and multimodal (vision) content.
+        
+        Args:
+            content: Either a string or a list of content parts (OpenAI-style format)
+                    Example list: [{"type": "text", "text": "prompt"}, {"type": "image_url", "image_url": {...}}]
+        
+        Returns:
+            str - Extracted text content (empty string if no text found)
+        
+        This prevents the 'list' object has no attribute 'strip' error when using vision models with images.
+        """
+        if isinstance(content, str):
+            # Simple case: content is already a string
+            return content
+        
+        if isinstance(content, list):
+            # Multimodal case: extract text parts from list
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and "text" in part:
+                        text = part.get("text", "").strip()
+                        if text:
+                            text_parts.append(text)
+                elif isinstance(part, str):
+                    # Handle case where list contains mixed strings
+                    part_stripped = part.strip()
+                    if part_stripped:
+                        text_parts.append(part_stripped)
+            
+            # Join all text parts with spaces
+            result = " ".join(text_parts)
+            logger.debug(f"Extracted text from multimodal content: {result[:100]}..." if len(result) > 100 else f"Extracted text: {result}")
+            return result
+        
+        # Fallback: convert to string if something else
+        logger.warning(f"Content type was unexpected: {type(content)}. Converting to string.")
+        return str(content)
+
+    def _extract_images_from_content(
+        self, content: Union[str, List[Dict]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract image data from OpenWebUI multimodal message content.
+        
+        Handles OpenAI-style format with image_url objects.
+        
+        Args:
+            content: Either a string or list of content parts
+        
+        Returns:
+            List of dicts with image info:
+            {
+                "url": "data:image/jpeg;base64,..." or "https://...",
+                "type": "image_url" or "base64",
+                "raw": {...}  # Original image_url object
+            }
+        """
+        if not isinstance(content, list):
+            return []  # No images in string content
+        
+        images = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                image_url_obj = part.get("image_url", {})
+                if isinstance(image_url_obj, dict):
+                    url = image_url_obj.get("url", "")
+                    if url:
+                        images.append(
+                            {
+                                "url": url,
+                                "type": "base64" if url.startswith("data:") else "url",
+                                "raw": image_url_obj,
+                            }
+                        )
+        
+        if images:
+            logger.debug(f"Extracted {len(images)} images from multimodal content")
+        return images
+
+    def _generate_image_hash(self, image_url: str) -> str:
+        """Generate deterministic hash for image (for deduplication)"""
+        import hashlib
+
+        return hashlib.md5(image_url.encode()).hexdigest()
+
+    async def _analyze_image_with_memory_model(
+        self,
+        image_url: str,
+        user_query: str,
+        user_id: str,
+        __event_emitter__,
+    ) -> Optional[str]:
+        """
+        Query memory model to analyze image and describe relevant details.
+        
+        Args:
+            image_url: Base64 or URL of image
+            user_query: User's text query related to image
+            user_id: User making request
+            __event_emitter__: Event emitter for status
+        
+        Returns:
+            Image description from memory model, or None if failed
+        """
+        if not self.image_manager:
+            return None
+        
+        try:
+            # Determine which model to use (interface/memory model)
+            memory_model_name = (
+                self.valves.interface_model_name
+                or self.valves.llm_model_name
+            )
+            
+            # Build analysis prompt
+            analysis_prompt = f"""You are analyzing an image in context of this user query: "{user_query}"
+
+What details are relevant to remember about this image? Describe only the key visual information that would be important to recall later in this context. Keep it brief but specific (2-3 sentences max)."""
+            
+            logger.debug(
+                f"Analyzing image with memory model '{memory_model_name}' for user {user_id}"
+            )
+            
+            # Build request for memory model with image
+            if self.valves.llm_provider_type == "openai_compatible":
+                # OpenAI-compatible API
+                headers = {
+                    "Authorization": f"Bearer {self.valves.llm_api_key}",
+                    "Content-Type": "application/json",
+                }
+                url = (
+                    self.valves.llm_api_endpoint_url.rstrip("/")
+                    + "/v1/chat/completions"
+                )
+                payload = {
+                    "model": memory_model_name,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": analysis_prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": image_url},
+                                },
+                            ],
+                        }
+                    ],
+                    "max_tokens": 150,
+                }
+            else:
+                # Ollama API
+                headers = {"Content-Type": "application/json"}
+                url = (
+                    self.valves.llm_api_endpoint_url.rstrip("/") + "/api/chat"
+                )
+                payload = {
+                    "model": memory_model_name,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": analysis_prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": image_url},
+                                },
+                            ],
+                        }
+                    ],
+                    "stream": False,
+                }
+            
+            # Call memory model
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        
+                        # Extract response based on API type
+                        if self.valves.llm_provider_type == "openai_compatible":
+                            description = data.get("choices", [{}])[0].get(
+                                "message", {}
+                            ).get("content", "")
+                        else:  # Ollama
+                            description = data.get("message", {}).get("content", "")
+                        
+                        if description:
+                            logger.debug(
+                                f"Image analysis from memory model: {description[:100]}..."
+                            )
+                            return description
+                    else:
+                        logger.warning(
+                            f"Memory model image analysis failed with status {resp.status}"
+                        )
+        except Exception as e:
+            logger.error(f"Error analyzing image with memory model: {e}")
+        
+        return None
+
+    # ========================================================================
     # NESTED: Async method for LM Studio embeddings
     # ========================================================================
     async def get_nomic_embedding(
@@ -513,11 +894,15 @@ class Filter:
         )
         enable_memory_promotion_task: bool = Field(
             default=True,
-            description="Enable or disable the background memory promotion task (90-day promotion from short-term to long-term)",
+            description="Enable or disable the background memory promotion task (automatic transfer of old memories from short-term to long-term storage)",
         )
         memory_promotion_interval: int = Field(
             default=86400,  # 24 hours
-            description="Interval in seconds between memory promotion runs (90-day transfer from OpenWebUI to Friday)",
+            description="Frequency in seconds between memory promotion runs (how often to check for and promote old memories)",
+        )
+        memory_promotion_age_threshold_days: int = Field(
+            default=90,
+            description="Minimum age in days for a memory to be eligible for promotion from short-term to long-term storage",
         )
         model_discovery_interval: int = Field(
             default=7200,  # 2 hours performance setting
@@ -1388,6 +1773,23 @@ Analyze the following conversation and provide a concise summary.""",
         self._llm_feature_guard_active: bool = False
         self._embedding_feature_guard_active: bool = False
 
+        # --- Image Management ---
+        # Initialize ImageManager for persistent image storage
+        try:
+            memory_data_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "memory_data"
+            )
+            os.makedirs(memory_data_path, exist_ok=True)
+            self.image_manager = ImageManager(memory_data_path)
+            logger.info("✓ Initialized ImageManager for persistent image storage")
+        except Exception as e:
+            logger.error(f"Failed to initialize ImageManager: {e}")
+            self.image_manager = None
+
+        # Session-scoped image cache: {user_id: {image_hash: {url, base64_data, description, query}}}
+        # Images here are transient - only persisted if memory is created
+        self.image_cache_current_turn: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
         # --- Conversation Summarization Cache ---
         # Store summaries in cache (not as memories) to avoid flooding memory system
         self._conversation_summaries: Dict[str, Dict[str, Any]] = {}  # Key: f"{user_id}_{conversation_id}"
@@ -2001,9 +2403,9 @@ Analyze the following conversation and provide a concise summary.""",
                                 logger.debug(f"No memories found for user {user_id}")
                                 continue
 
-                            # Find memories older than 90 days
+                            # Find memories older than configured threshold
                             cutoff_date = datetime.now(timezone.utc) - timedelta(
-                                days=90
+                                days=self.valves.memory_promotion_age_threshold_days
                             )
                             old_memories = []
 
@@ -2381,6 +2783,15 @@ Analyze the following conversation and provide a concise summary.""",
         logger.debug(
             f"Inlet received body keys: {list(body.keys())} for user: {__user__.get('id', 'N/A') if __user__ else 'N/A'}"
         )
+        
+        # CRITICAL DEBUG: Log exact model value and full body structure
+        model_in_body = body.get('model', 'NOT SET')
+        inlet_outlet_logger.info(f"📥 INLET CALLED - Model in body: {model_in_body}")
+        inlet_outlet_logger.info(f"📥 INLET: Full body keys: {list(body.keys())}")
+        if 'messages' in body:
+            inlet_outlet_logger.info(f"📥 INLET: Number of messages: {len(body['messages'])}")
+            for i, msg in enumerate(body['messages']):
+                inlet_outlet_logger.info(f"📥 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} first_100_chars={str(msg.get('content', ''))[:100]}")
 
         # Ensure user info is present
         if not __user__ or not __user__.get("id"):
@@ -2459,10 +2870,60 @@ Analyze the following conversation and provide a concise summary.""",
         if final_message is None and body.get("messages"):
             final_message = body["messages"][-1].get("content")
 
+        # --- Image Analysis & Caching ---
+        # Extract images from multimodal content and analyze with memory model
+        images = self._extract_images_from_content(final_message) if final_message else []
+        if images and self.image_manager:
+            logger.debug(f"Found {len(images)} image(s) in message for user {user_id}")
+            
+            # Initialize cache for this user if needed
+            if user_id not in self.image_cache_current_turn:
+                self.image_cache_current_turn[user_id] = {}
+            
+            # Extract text for image context
+            extracted_message_for_images = self._extract_text_from_content(final_message) if final_message else ""
+            
+            # Analyze each image with memory model
+            for idx, img_info in enumerate(images):
+                try:
+                    image_hash = self._generate_image_hash(img_info["url"])
+                    
+                    # Check if we already analyzed this image this turn
+                    if image_hash in self.image_cache_current_turn[user_id]:
+                        logger.debug(f"Image {image_hash} already cached this turn")
+                        continue
+                    
+                    logger.debug(f"Analyzing image {idx + 1}/{len(images)} with memory model...")
+                    
+                    # Query memory model for image analysis
+                    description = await self._analyze_image_with_memory_model(
+                        image_url=img_info["url"],
+                        user_query=extracted_message_for_images,
+                        user_id=user_id,
+                        __event_emitter__=__event_emitter__,
+                    )
+                    
+                    # Cache image info (transient - only persists if memory created)
+                    self.image_cache_current_turn[user_id][image_hash] = {
+                        "url": img_info["url"],
+                        "base64_data": img_info["url"],  # Store URL or base64 directly
+                        "description": description or "Image attached",
+                        "query": extracted_message_for_images,
+                        "type": img_info["type"],
+                    }
+                    
+                    logger.info(f"Cached image {image_hash} for potential memory storage")
+                except Exception as e:
+                    logger.error(f"Error analyzing image: {e}")
+                    # Continue with other images
+
         # --- Command Handling ---
         # Check if the final message is a command before processing memories
-        if final_message and final_message.strip().startswith("/"):
-            command_parts = final_message.strip().split()
+        # First, extract text if content is multimodal (list format with images)
+        extracted_message = self._extract_text_from_content(final_message) if final_message else ""
+        
+        if extracted_message and extracted_message.strip().startswith("/"):
+            command_parts = extracted_message.strip().split()
             command = command_parts[0].lower()
 
             # --- /memory list_banks Command --- NEW
@@ -2625,13 +3086,13 @@ Analyze the following conversation and provide a concise summary.""",
                 # Implement logic similar to assign_bank: parse args, call OWUI functions, emit status
                 # Remember to add command handlers here based on other implemented features
                 logger.info(
-                    f"Handling generic /memory command stub for user {user_id}: {final_message}"
+                    f"Handling generic /memory command stub for user {user_id}: {extracted_message}"
                 )
                 await self._safe_emit(
                     __event_emitter__,
                     {
                         "type": "info",
-                        "content": f"Memory command '{final_message}' received (implementation pending).",
+                        "content": f"Memory command '{extracted_message}' received (implementation pending).",
                     },
                 )
                 body["messages"] = []
@@ -2642,14 +3103,14 @@ Analyze the following conversation and provide a concise summary.""",
             # --- /note command (Placeholder/Example) ---
             elif command == "/note":
                 logger.info(
-                    f"Handling /note command stub for user {user_id}: {final_message}"
+                    f"Handling /note command stub for user {user_id}: {extracted_message}"
                 )
                 # Implement logic for Feature 6 (Scratchpad)
                 await self._safe_emit(
                     __event_emitter__,
                     {
                         "type": "info",
-                        "content": f"Note command '{final_message}' received (implementation pending).",
+                        "content": f"Note command '{extracted_message}' received (implementation pending).",
                     },
                 )
                 body["messages"] = []
@@ -2721,9 +3182,13 @@ Analyze the following conversation and provide a concise summary.""",
                     )
                 
                 logger.debug(f"Retrieving relevant memories for user {user_id}")
+                inlet_outlet_logger.info(f"🧠 INLET: Calling get_relevant_memories() for memory injection BEFORE main LLM")
+                # Extract text from multimodal content if needed (handles images with text)
+                message_text_for_retrieval = self._extract_text_from_content(final_message) if final_message else ""
+                
                 # Use user-specific timezone for relevance calculation context
                 relevant_memories = await self.get_relevant_memories(
-                    current_message=final_message if final_message else "",
+                    current_message=message_text_for_retrieval,
                     user_id=user_id,
                     user_timezone=user_valves.timezone,  # Use user-specific timezone
                 )
@@ -2787,6 +3252,25 @@ Analyze the following conversation and provide a concise summary.""",
                     {"type": "error", "content": "Error retrieving relevant memories."},
                 )
 
+        # --- Cleanup image cache for this user ---
+        # If images weren't used (no memory created), they're now discarded
+        # Images that were used have already been persisted to image_database.db
+        if user_id in self.image_cache_current_turn:
+            cached_count = len(self.image_cache_current_turn[user_id])
+            if cached_count > 0:
+                logger.debug(
+                    f"Clearing session image cache for user {user_id} ({cached_count} image(s) discarded if unused)"
+                )
+            del self.image_cache_current_turn[user_id]
+
+        # CRITICAL DEBUG: Show what model and messages are going back to OpenWebUI for main LLM
+        model_returning = body.get('model', 'NOT SET')
+        inlet_outlet_logger.info(f"📤 INLET RETURNING - Model in body: {model_returning}")
+        if 'messages' in body:
+            inlet_outlet_logger.info(f"📤 INLET: Returning {len(body['messages'])} messages")
+            for i, msg in enumerate(body['messages']):
+                content_preview = str(msg.get('content', ''))[:100]
+                inlet_outlet_logger.info(f"📤 INLET: Message {i}: role={msg.get('role')} content_length={len(str(msg.get('content', '')))} preview={content_preview}")
         return body
 
     async def outlet(
@@ -2800,6 +3284,7 @@ Analyze the following conversation and provide a concise summary.""",
 
         # Log function entry
         logger.debug("Outlet called - making deep copy of body dictionary")
+        inlet_outlet_logger.info(f"📥 OUTLET CALLED - Model in body: {body.get('model', 'NOT SET')} - LLM should have already responded")
 
         # Store model for use in memory operations (user_id + model = isolation key)
         self._current_model = body.get("model", "default")
@@ -2865,18 +3350,38 @@ Analyze the following conversation and provide a concise summary.""",
                 )
                 # Use asyncio.create_task for non-blocking processing
                 # Reload valves inside _process_user_memories ensures latest config
-                memory_task = asyncio.create_task(
-                    self._process_user_memories(
-                        user_message=last_user_message_content,
-                        user_id=user_id,
-                        event_emitter=__event_emitter__,
-                        show_status=user_valves.show_status,  # Still show status if user wants
-                        user_timezone=user_timezone,
-                        recent_chat_history=message_history_for_context,
-                    )
-                )
-                # Optional: Add callback or handle task completion if needed, but allow it to run in background
-                # memory_task.add_done_callback(lambda t: logger.info(f"Outlet memory task finished: {t.result()}"))
+                logger.debug("Starting memory extraction from outlet response")
+                try:
+                    # CRITICAL: Use create_task for NON-BLOCKING background processing
+                    # This allows outlet() to return response to client IMMEDIATELY
+                    # Memory extraction continues in background while client is satisfied
+                    # We DON'T await here - if we do, client disconnects during long LLM calls
+                    
+                    async def memory_extraction_with_timeout():
+                        """Wrap memory extraction with timeout to prevent hanging forever."""
+                        try:
+                            # Set a 5-minute timeout for memory extraction
+                            # If it takes longer, just abort and let it fail gracefully
+                            await asyncio.wait_for(
+                                self._process_user_memories(
+                                    user_message=last_user_message_content,
+                                    user_id=user_id,
+                                    event_emitter=__event_emitter__,
+                                    show_status=user_valves.show_status,
+                                    user_timezone=user_timezone,
+                                    recent_chat_history=message_history_for_context,
+                                ),
+                                timeout=300  # 5 minutes
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Memory extraction timeout after 5 minutes for user {user_id}")
+                        except Exception as e:
+                            logger.error(f"Background memory extraction failed: {e}\n{traceback.format_exc()}")
+                    
+                    memory_task = asyncio.create_task(memory_extraction_with_timeout())
+                    logger.debug("Memory extraction started as background task with 5-minute timeout")
+                except Exception as e:
+                    logger.error(f"Error starting memory extraction task: {e}\n{traceback.format_exc()}")
             else:
                 logger.warning(
                     "Could not find last user message in outlet body to process for memories."
@@ -2891,6 +3396,7 @@ Analyze the following conversation and provide a concise summary.""",
         # Process the response content for injecting memories
         try:
             # Get relevant memories for context injection on next interaction
+            inlet_outlet_logger.info(f"🧠 OUTLET: Calling get_relevant_memories() for memory injection AFTER main LLM response")
             memories = await self.get_relevant_memories(
                 current_message=last_user_message_content
                 or "",  # Use the variable holding the user message
@@ -3807,6 +4313,35 @@ Rate the relevance of EACH memory to the current user message."""
                     pruned_count = 0
                     for memory_id_to_delete in memories_to_prune_ids:
                         try:
+                            # Before deleting, attempt to promote this memory to Friday Memory System
+                            # Find the memory data to get its content
+                            memory_to_promote = next(
+                                (mem for mem in current_memories_data if mem.get("id") == memory_id_to_delete),
+                                None
+                            )
+                            
+                            if memory_to_promote and FRIDAY_MEMORY_SYSTEM_AVAILABLE:
+                                try:
+                                    memory_content = memory_to_promote.get("memory", "")
+                                    if memory_content:
+                                        from friday_memory_system import FridayMemorySystem
+                                        memory_system = FridayMemorySystem()
+                                        await memory_system.create_memory(
+                                            content=memory_content,
+                                            importance_level=5,  # Default importance for pruned memories
+                                            memory_type="archived",
+                                            source_conversation_id=f"openwebui_user_{user_id}_pruned",
+                                            tags=["promoted", "pruned", "archived"],
+                                        )
+                                        logger.debug(
+                                            f"Successfully promoted memory {memory_id_to_delete} to Friday Memory System before pruning"
+                                        )
+                                except Exception as promote_error:
+                                    logger.warning(
+                                        f"Could not promote memory {memory_id_to_delete} to Friday Memory System: {promote_error}"
+                                    )
+                            
+                            # Now delete the memory from OpenWebUI
                             delete_op = MemoryOperation(
                                 operation="DELETE", id=memory_id_to_delete
                             )
@@ -5264,6 +5799,39 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                 if mem_id is None and isinstance(result, dict):
                     mem_id = result.get("id")
 
+                # --- Link cached images to this memory (if any) ---
+                if mem_id and self.image_manager:
+                    try:
+                        user_id = getattr(user, "id", None)
+                        if user_id and user_id in self.image_cache_current_turn:
+                            cached_images = self.image_cache_current_turn[user_id]
+                            if cached_images:
+                                logger.info(
+                                    f"Found {len(cached_images)} cached image(s) - persisting to database for memory {mem_id}"
+                                )
+                                
+                                # Persist each cached image to permanent storage
+                                for image_hash, image_data in cached_images.items():
+                                    success = self.image_manager.store_image(
+                                        image_hash=image_hash,
+                                        image_data=image_data.get("base64_data", ""),
+                                        image_url=image_data.get("url"),
+                                        image_description=image_data.get("description"),
+                                    )
+                                    
+                                    if success:
+                                        logger.info(
+                                            f"Persisted image {image_hash} to database, linked to memory {mem_id}"
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"Failed to persist image {image_hash}"
+                                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Error linking cached images to memory (non-blocking): {e}"
+                        )
+
                 # Link memory to Friday Memory System (non-blocking)
                 if mem_id and FRIDAY_MEMORY_SYSTEM_AVAILABLE:
                     try:
@@ -5753,6 +6321,18 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                 else:
                     return "Error: LLM API request timed out after multiple retries."
             except ClientError as e:
+                error_str = str(e).lower()
+                # If this is specifically a client disconnect (message sent, client dropped)
+                # don't retry - just log and abort. These happen during background memory tasks
+                # when the OpenWebUI client times out waiting for a response.
+                if "client" in error_str or "disconnected" in error_str or "connection" in error_str:
+                    logger.warning(
+                        f"Client disconnected during LLM query (attempt {attempt}). "
+                        f"Aborting memory extraction as result won't be sent anyway: {str(e)}"
+                    )
+                    return f"Error: Client disconnected during memory processing: {str(e)}"
+                
+                # For other connection errors, retry
                 logger.warning(
                     f"Attempt {attempt} failed: LLM API connection error: {str(e)}"
                 )
