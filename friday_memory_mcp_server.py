@@ -656,7 +656,10 @@ class FridayMemoryMCPServer:
         self.memory_system = FridayMemorySystem(data_dir=str(self.memory_data_dir))
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
-        self._maintenance_task = None  # Background maintenance task 
+        self._maintenance_task = None  # Background maintenance task
+        # Semaphore to limit concurrent database/embedding access (prevents system freeze)
+        # Allows up to 3 simultaneous operations, queues the rest
+        self.db_semaphore = asyncio.Semaphore(3)
         if not isinstance(self.memory_data_dir, Path):
             self.memory_data_dir = Path(self.memory_data_dir)       
         self.schedule_db_path = str(self.memory_data_dir / "schedule.db")
@@ -664,7 +667,7 @@ class FridayMemoryMCPServer:
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
         self._register_handlers()
         # Do NOT start maintenance or file monitoring here
-        logger.info("FridayMemoryMCPServer initialized successfully")
+        logger.info("FridayMemoryMCPServer initialized successfully (Semaphore: 3 concurrent DB ops max)")
     
     def _initialize_reminders_database(self):
         """Initialize the dedicated reminders database"""
@@ -1373,6 +1376,11 @@ class FridayMemoryMCPServer:
                     conn.commit()
         except Exception as e:
             print(f"⚠️ Could not add embedding to reminder {reminder_id}: {e}")
+    
+    async def _protected_tool_call(self, coro):
+        """Wrap a memory system coroutine with semaphore protection to limit concurrent access"""
+        async with self.db_semaphore:
+            return await coro
            
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
@@ -1419,38 +1427,38 @@ class FridayMemoryMCPServer:
                 # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id
                 allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.search_memories(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
                 # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, user_id, model_id
                 allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.create_memory(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
 
             elif tool_name in ("update_memory", "tool_update_memory_post"):
                 # update_memory accepts: memory_id, content, importance_level, tags
                 allowed_args = {"memory_id", "content", "importance_level", "tags"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.update_memory(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
 
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
                 # get_recent_context accepts: limit, session_id, days_back
                 allowed_args = {"limit", "session_id", "days_back"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_recent_context(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
 
             elif tool_name == "store_conversation":
                 # store_conversation accepts: content, role, session_id, metadata
                 allowed_args = {"content", "role", "session_id", "metadata"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.store_conversation(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.store_conversation(**filtered_args))
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 try:
                     # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days
                     allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                    reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**filtered_args)
+                    reflection_id = await self._protected_tool_call(self.memory_system.mcp_db.store_ai_reflection(**filtered_args))
                     result = {"status": "success", "reflection_id": reflection_id}
                 except TypeError as e:
                     if "unexpected keyword argument 'user_id'" in str(e):
@@ -1468,7 +1476,7 @@ class FridayMemoryMCPServer:
                     allowed_args = {"limit", "insight_type", "query"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                     query = arguments.get("query", "").lower()
-                    result = await self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"})
+                    result = await self._protected_tool_call(self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"}))
                     
                     # Filter results if query is provided
                     if query and "reflections" in result:
@@ -1489,7 +1497,7 @@ class FridayMemoryMCPServer:
                 # get_character_context accepts: character_name, context_type, limit
                 allowed_args = {"character_name", "context_type", "limit"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_character_context(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_character_context(**filtered_args))
 
             # -----------------------------------------------------------------
             # Reminder & Appointment Tools
@@ -1498,57 +1506,57 @@ class FridayMemoryMCPServer:
                 # create_appointment accepts: title, description, scheduled_datetime, location, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
                 allowed_args = {"title", "description", "scheduled_datetime", "location", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.create_appointment(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.create_appointment(**filtered_args))
             elif tool_name == "cancel_appointment":
                 # cancel_appointment accepts: appointment_id
                 allowed_args = {"appointment_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.cancel_appointment(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.cancel_appointment(**filtered_args))
             elif tool_name == "complete_appointment":
                 # complete_appointment accepts: appointment_id
                 allowed_args = {"appointment_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.complete_appointment(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.complete_appointment(**filtered_args))
             elif tool_name == "get_appointments":
                 # get_appointments accepts: limit, days_ahead
                 allowed_args = {"limit", "days_ahead"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_appointments(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
             elif tool_name == "get_upcoming_appointments":
                 # get_upcoming_appointments accepts: limit, days_ahead
                 allowed_args = {"limit", "days_ahead"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_upcoming_appointments(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
             elif tool_name == "create_reminder":
                 # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
                 allowed_args = {"content", "due_datetime", "priority_level", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.create_reminder(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.create_reminder(**filtered_args))
             elif tool_name == "reschedule_reminder":
                 # reschedule_reminder accepts: reminder_id, new_due_datetime
                 allowed_args = {"reminder_id", "new_due_datetime"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.reschedule_reminder(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.reschedule_reminder(**filtered_args))
             elif tool_name == "complete_reminder":
                 # complete_reminder accepts: reminder_id
                 allowed_args = {"reminder_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.complete_reminder(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.complete_reminder(**filtered_args))
             elif tool_name == "get_active_reminders":
                 # get_active_reminders accepts: limit, days_ahead
                 allowed_args = {"limit", "days_ahead"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_active_reminders(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
             elif tool_name == "get_completed_reminders":
                 # get_completed_reminders accepts: days
                 allowed_args = {"days"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_completed_reminders(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
             elif tool_name == "delete_reminder":
                 # delete_reminder accepts: reminder_id
                 allowed_args = {"reminder_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.delete_reminder(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.delete_reminder(**filtered_args))
             elif tool_name == "get_reminders":
                 result = await self.get_reminders(**arguments)
 
@@ -1613,52 +1621,52 @@ class FridayMemoryMCPServer:
             # Project / System Tools
             # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
-                result = await self.memory_system.get_system_health()
+                result = await self._protected_tool_call(self.memory_system.get_system_health())
             elif tool_name == "save_development_session":
                 # save_development_session accepts: workspace_path, active_files, git_branch, session_summary
                 allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.save_development_session(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.save_development_session(**filtered_args))
             elif tool_name == "store_project_insight":
                 # store_project_insight accepts: insight_type, content, related_files, importance_level
                 allowed_args = {"insight_type", "content", "related_files", "importance_level"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.store_project_insight(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.store_project_insight(**filtered_args))
             elif tool_name == "search_project_history":
                 # search_project_history accepts: query, limit
                 allowed_args = {"query", "limit"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.search_project_history(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.search_project_history(**filtered_args))
             elif tool_name == "link_code_context":
                 # link_code_context accepts: file_path, function_name, description, conversation_id
                 allowed_args = {"file_path", "function_name", "description", "conversation_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.link_code_context(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.link_code_context(**filtered_args))
             elif tool_name == "get_project_continuity":
                 # get_project_continuity accepts: workspace_path, limit
                 allowed_args = {"workspace_path", "limit"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_project_continuity(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_project_continuity(**filtered_args))
             elif tool_name == "get_tool_usage_summary":
                 # get_tool_usage_summary accepts: days, client_id
                 allowed_args = {"days", "client_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.get_tool_usage_summary(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.get_tool_usage_summary(**filtered_args))
             elif tool_name == "reflect_on_tool_usage":
                 # reflect_on_tool_usage accepts: days, client_id
                 allowed_args = {"days", "client_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.reflect_on_tool_usage(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.reflect_on_tool_usage(**filtered_args))
             elif tool_name == "store_roleplay_memory":
                 # store_roleplay_memory accepts: character_name, event_description, importance_level, tags
                 allowed_args = {"character_name", "event_description", "importance_level", "tags"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.store_roleplay_memory(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.store_roleplay_memory(**filtered_args))
             elif tool_name == "search_roleplay_history":
                 # search_roleplay_history accepts: query, character_name, limit
                 allowed_args = {"query", "character_name", "limit"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.memory_system.search_roleplay_history(**filtered_args)
+                result = await self._protected_tool_call(self.memory_system.search_roleplay_history(**filtered_args))
 
             # -----------------------------------------------------------------
             # Utility Tools
