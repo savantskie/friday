@@ -346,8 +346,14 @@ class ConversationDatabase(DatabaseManager):
             conn.commit()
     
     async def store_message(self, content: str, role: str, session_id: str = None, 
-                          conversation_id: str = None, metadata: Dict = None) -> Dict[str, str]:
+                          conversation_id: str = None, metadata: Dict = None, user_id: str = None, model_id: str = None) -> Dict[str, str]:
         """Store a message and auto-manage sessions/conversations with duplicate detection"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
         
         timestamp = datetime.now(get_local_timezone()).isoformat()
         message_id = str(uuid.uuid4())
@@ -361,10 +367,10 @@ class ConversationDatabase(DatabaseManager):
             existing = await self.execute_query(
                 """SELECT message_id FROM messages 
                    WHERE conversation_id IN (
-                       SELECT conversation_id FROM conversations WHERE session_id = ?
+                       SELECT conversation_id FROM conversations WHERE session_id = ? AND user_id = ? AND model_id = ?
                    ) AND role = ? AND content = ? 
                    AND datetime(timestamp) > datetime('now', '-1 hour')""",
-                (session_id, role, content)
+                (session_id, user_id, model_id, role, content)
             )
             
             if existing:
@@ -399,8 +405,8 @@ class ConversationDatabase(DatabaseManager):
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
             await self.execute_update(
-                "INSERT INTO conversations (conversation_id, session_id, start_timestamp) VALUES (?, ?, ?)",
-                (conversation_id, session_id, timestamp)
+                "INSERT INTO conversations (conversation_id, session_id, start_timestamp, user_id, model_id) VALUES (?, ?, ?, ?, ?)",
+                (conversation_id, session_id, timestamp, user_id, model_id)
             )
         
         # Extract source type from metadata
@@ -408,13 +414,13 @@ class ConversationDatabase(DatabaseManager):
         if metadata:
             source_type = metadata.get("application", metadata.get("file_type", "unknown"))
         
-        # Store the message
+        # Store the message with user_id and model_id
         await self.execute_update(
             """INSERT INTO messages 
-               (message_id, conversation_id, timestamp, role, content, source_type, metadata) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (message_id, conversation_id, timestamp, role, content, source_type, metadata, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (message_id, conversation_id, timestamp, role, content, source_type,
-             json.dumps(metadata) if metadata else None)
+             json.dumps(metadata) if metadata else None, user_id, model_id)
         )
         
         return {
@@ -424,8 +430,14 @@ class ConversationDatabase(DatabaseManager):
             "duplicate": False
         }
     
-    async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7) -> List[Dict]:
+    async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7, user_id: str = None, model_id: str = None) -> List[Dict]:
         """Get recent messages, optionally filtered by session and within specified days"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
         
         # Calculate cutoff date
         from datetime import datetime, timedelta
@@ -437,21 +449,21 @@ class ConversationDatabase(DatabaseManager):
                 SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
-                WHERE c.session_id = ? AND m.timestamp >= ?
+                WHERE c.session_id = ? AND m.timestamp >= ? AND c.user_id = ? AND c.model_id = ?
                 ORDER BY m.timestamp DESC 
                 LIMIT ?
             """
-            params = (session_id, cutoff_timestamp, limit)
+            params = (session_id, cutoff_timestamp, user_id, model_id, limit)
         else:
             query = """
                 SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
                 FROM messages m 
                 JOIN conversations c ON m.conversation_id = c.conversation_id
-                WHERE m.timestamp >= ?
+                WHERE m.timestamp >= ? AND c.user_id = ? AND c.model_id = ?
                 ORDER BY m.timestamp DESC 
                 LIMIT ?
             """
-            params = (cutoff_timestamp, limit)
+            params = (cutoff_timestamp, user_id, model_id, limit)
         
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
@@ -803,8 +815,14 @@ class AIMemoryDatabase(DatabaseManager):
         return memory_id
     
     async def update_memory(self, memory_id: str, content: str = None, 
-                          importance_level: int = None, tags: List[str] = None) -> bool:
+                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None) -> bool:
         """Update an existing memory"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
         
         timestamp = get_current_timestamp()
         updates = ["timestamp_updated = ?"]
@@ -823,18 +841,26 @@ class AIMemoryDatabase(DatabaseManager):
             params.append(json.dumps(tags))
         
         params.append(memory_id)
+        params.append(user_id)
+        params.append(model_id)
         
-        query = f"UPDATE curated_memories SET {', '.join(updates)} WHERE memory_id = ?"
+        query = f"UPDATE curated_memories SET {', '.join(updates)} WHERE memory_id = ? AND user_id = ? AND model_id = ?"
         await self.execute_update(query, tuple(params))
         
         return True
     
-    async def delete_memory(self, memory_id: str) -> bool:
+    async def delete_memory(self, memory_id: str, user_id: str = None, model_id: str = None) -> bool:
         """Delete a memory by ID"""
         try:
+            # Set defaults for mandatory user/model tracking
+            if not user_id:
+                user_id = "Nate"
+            if not model_id:
+                model_id = "Friday"
+            
             await self.execute_update(
-                "DELETE FROM curated_memories WHERE memory_id = ?",
-                (memory_id,)
+                "DELETE FROM curated_memories WHERE memory_id = ? AND user_id = ? AND model_id = ?",
+                (memory_id, user_id, model_id)
             )
             logger.info(f"🗑️  Deleted memory: {memory_id}")
             return True
@@ -842,32 +868,46 @@ class AIMemoryDatabase(DatabaseManager):
             logger.error(f"❌ Failed to delete memory {memory_id}: {e}")
             return False
     
-    async def get_memories(self, limit: int = 10, memory_type: str = None) -> List[Dict]:
-        """Get memories, optionally filtered by type"""
+    async def get_memories(self, limit: int = 10, memory_type: str = None, user_id: str = None, model_id: str = None) -> List[Dict]:
+        """Get memories, optionally filtered by type, user, and model"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
         
         if memory_type:
             query = """
                 SELECT * FROM curated_memories 
-                WHERE memory_type = ? 
+                WHERE memory_type = ? AND user_id = ? AND model_id = ?
                 ORDER BY importance_level DESC, timestamp_created DESC 
                 LIMIT ?
             """
-            params = (memory_type, limit)
+            params = (memory_type, user_id, model_id, limit)
         else:
             query = """
                 SELECT * FROM curated_memories 
+                WHERE user_id = ? AND model_id = ?
                 ORDER BY importance_level DESC, timestamp_created DESC 
                 LIMIT ?
             """
-            params = (limit,)
+            params = (user_id, model_id, limit)
         
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
 
 
 class ScheduleDatabase(DatabaseManager):
-    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds."""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all appointments scheduled for today
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -879,7 +919,9 @@ class ScheduleDatabase(DatabaseManager):
             query = """
                 SELECT *
                 FROM appointments
-                WHERE
+                WHERE user_id = ?
+                AND model_id = ?
+                AND
                     CASE
                         WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
                         ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
@@ -896,7 +938,7 @@ class ScheduleDatabase(DatabaseManager):
                     END ASC
                 LIMIT ?
             """
-            rows = await self.execute_query(query, (start_of_today_epoch, future_epoch, limit))
+            rows = await self.execute_query(query, (user_id, model_id, start_of_today_epoch, future_epoch, limit))
             
             if not rows:
                 return {
@@ -4348,9 +4390,16 @@ class FridayMemorySystem:
                 logger.error(f"Error in periodic maintenance loop: {e}")
                 # Continue the loop even if maintenance fails
     
-    async def get_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get recent appointments from the schedule database"""
-        result = await self.schedule_db.get_appointments(limit, days_ahead)
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        result = await self.schedule_db.get_appointments(limit, days_ahead, user_id, model_id)
         
         if result.get("status") != "success":
             return {
@@ -4421,10 +4470,16 @@ class FridayMemorySystem:
                 raise
     
     # === Reminder Management Tools ===
-    async def complete_reminder(self, reminder_id: str, selection_id: str | None = None) -> Dict:
+    async def complete_reminder(self, reminder_id: str, selection_id: str | None = None, user_id: str = None, model_id: str = None) -> Dict:
         """Mark a reminder as completed (using dynamic path)"""
         import sqlite3
         import asyncio
+
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
 
         # Use dynamic path based on workspace
         db_path = self.data_dir / "schedule.db"
@@ -4433,8 +4488,8 @@ class FridayMemorySystem:
         def _update_by_id(rid: str) -> int:
             with sqlite3.connect(str(db_path)) as conn:
                 cur = conn.execute(
-                    "UPDATE reminders SET completed = 1, completed_at = ? WHERE reminder_id = ?",
-                    (get_current_timestamp(), rid)
+                    "UPDATE reminders SET completed = 1, completed_at = ? WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
+                    (get_current_timestamp(), rid, user_id, model_id)
                 )
                 conn.commit()
                 return cur.rowcount or 0
@@ -4444,8 +4499,8 @@ class FridayMemorySystem:
                 cur = conn.execute(
                     "SELECT reminder_id, title, due_datetime "
                     "FROM reminders "
-                    "WHERE due_datetime = ? AND (completed IS NULL OR completed = 0)",
-                    (due,)
+                    "WHERE due_datetime = ? AND (completed IS NULL OR completed = 0) AND user_id = ? AND model_id = ?",
+                    (due, user_id, model_id)
                 )
                 return cur.fetchall()
 
@@ -4515,15 +4570,22 @@ class FridayMemorySystem:
 
 
 
-    async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
+    async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get active (not completed) reminders within the next X days"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all reminders due today
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         cutoff = (now + timedelta(days=days_ahead)).isoformat()
         rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
-            (start_of_today, cutoff, limit)
+            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? AND model_id = ? ORDER BY due_datetime LIMIT ?",
+            (start_of_today, cutoff, user_id, model_id, limit)
         )
         
         if not rows:
@@ -4547,12 +4609,19 @@ class FridayMemorySystem:
             ]
         }
 
-    async def get_completed_reminders(self, days: int = 7) -> Dict:
+    async def get_completed_reminders(self, days: int = 7, user_id: str = None, model_id: str = None) -> Dict:
         """Get recently completed reminders"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
         rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? ORDER BY completed_at DESC",
-            (cutoff,)
+            "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? AND model_id = ? ORDER BY completed_at DESC",
+            (cutoff, user_id, model_id)
         )
         
         if not rows:
@@ -4575,28 +4644,35 @@ class FridayMemorySystem:
             ]
         }
 
-    async def reschedule_reminder_post(self, body: Dict) -> Dict:
-        if "reminder_id" not in body or "new_due_datetime" not in body:
-            return {
-                "error": "HTTP error! Status: 422. Message: Missing required fields. Please provide 'reminder_id' and 'new_due_datetime'."
-            }
+    async def reschedule_reminder(self, reminder_id: str, new_due_datetime: str, user_id: str = None, model_id: str = None) -> Dict:
+        """Reschedule a reminder to a new due datetime"""
         
-        reminder_id = body["reminder_id"]
-        new_due_datetime = body["new_due_datetime"]
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
         
         result = await self.schedule_db.execute_update(
-            "UPDATE reminders SET due_datetime = ? WHERE reminder_id = ?",
-            (new_due_datetime, reminder_id)
+            "UPDATE reminders SET due_datetime = ? WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
+            (new_due_datetime, reminder_id, user_id, model_id)
         )
         if result > 0:
             return {"status": "success", "message": f"Reminder {reminder_id} rescheduled to {new_due_datetime}"}
         else:
             return {"status": "error", "message": "Reminder not found"}
 
-    async def delete_reminder(self, reminder_id: str) -> Dict:
+    async def delete_reminder(self, reminder_id: str, user_id: str = None, model_id: str = None) -> Dict:
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         result = await self.schedule_db.execute_update(
-            "DELETE FROM reminders WHERE reminder_id = ?",
-            (reminder_id,)
+            "DELETE FROM reminders WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
+            (reminder_id, user_id, model_id)
         )
         if result and result != "0":
             return {"status": "success", "message": f"Reminder {reminder_id} deleted"}
@@ -4604,30 +4680,51 @@ class FridayMemorySystem:
             return {"status": "error", "message": "Reminder not found"}
 
     # === Appointment Management Tools ===
-    async def cancel_appointment(self, appointment_id: str) -> Dict:
+    async def cancel_appointment(self, appointment_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Cancel an appointment"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         result = await self.schedule_db.execute_update(
-            "UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE appointment_id = ?",
-            (get_current_timestamp(), appointment_id)
+            "UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE appointment_id = ? AND user_id = ? AND model_id = ?",
+            (get_current_timestamp(), appointment_id, user_id, model_id)
         )
         if result > 0:
             return {"status": "success", "message": f"Appointment {appointment_id} cancelled"}
         else:
             return {"status": "error", "message": "Appointment not found"}
 
-    async def complete_appointment(self, appointment_id: str) -> Dict:
+    async def complete_appointment(self, appointment_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Mark an appointment as completed"""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         result = await self.schedule_db.execute_update(
-            "UPDATE appointments SET status = 'completed', completed_at = ? WHERE appointment_id = ?",
-            (get_current_timestamp(), appointment_id)
+            "UPDATE appointments SET status = 'completed', completed_at = ? WHERE appointment_id = ? AND user_id = ? AND model_id = ?",
+            (get_current_timestamp(), appointment_id, user_id, model_id)
         )
         if result > 0:
             return {"status": "success", "message": f"Appointment {appointment_id} marked as completed"}
         else:
             return {"status": "error", "message": "Appointment not found"}
 
-    async def get_upcoming_appointments(self, limit: int = 5, days_ahead: int = 30) -> Dict:
+    async def get_upcoming_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes."""
+        
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         now_local = datetime.now(get_local_timezone())
         cutoff_local = now_local + timedelta(days=days_ahead)
         now_epoch = int(now_local.timestamp())
@@ -4636,6 +4733,8 @@ class FridayMemorySystem:
             SELECT *
             FROM appointments
             WHERE status != 'cancelled'
+            AND user_id = ?
+            AND model_id = ?
             AND (
                     CASE
                         WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
@@ -4649,7 +4748,7 @@ class FridayMemorySystem:
                 END ASC
             LIMIT ?
         """
-        rows = await self.schedule_db.execute_query(query, (now_epoch, cutoff_epoch, limit))
+        rows = await self.schedule_db.execute_query(query, (user_id, model_id, now_epoch, cutoff_epoch, limit))
         
         if not rows:
             return {
@@ -5236,11 +5335,17 @@ class FridayMemorySystem:
     
     # Conversation operations
     async def store_conversation(self, content: str, role: str, session_id: str = None,
-                               conversation_id: str = None, metadata: Dict = None) -> Dict:
+                               conversation_id: str = None, metadata: Dict = None, user_id: str = None, model_id: str = None) -> Dict:
         """Store a conversation message"""
         
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
         result = await self.conversations_db.store_message(
-            content, role, session_id, conversation_id, metadata
+            content, role, session_id, conversation_id, metadata, user_id, model_id
         )
         
         # Generate and store embedding asynchronously
@@ -5312,10 +5417,16 @@ class FridayMemorySystem:
         }
     
     async def update_memory(self, memory_id: str, content: str = None,
-                          importance_level: int = None, tags: List[str] = None) -> Dict:
+                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None) -> Dict:
         """Update an existing memory"""
         
-        success = await self.ai_memory_db.update_memory(memory_id, content, importance_level, tags)
+        # Set defaults for mandatory user/model tracking
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        success = await self.ai_memory_db.update_memory(memory_id, content, importance_level, tags, user_id, model_id)
         
         # If content was updated, regenerate embedding
         if content is not None:
@@ -5326,10 +5437,16 @@ class FridayMemorySystem:
             "memory_id": memory_id
         }
     
-    async def delete_memory(self, memory_id: str) -> Dict:
+    async def delete_memory(self, memory_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Delete a memory by ID"""
         try:
-            success = await self.ai_memory_db.delete_memory(memory_id)
+            # Set defaults for mandatory user/model tracking
+            if not user_id:
+                user_id = "Nate"
+            if not model_id:
+                model_id = "Friday"
+            
+            success = await self.ai_memory_db.delete_memory(memory_id, user_id, model_id)
             return {
                 "status": "success" if success else "error",
                 "memory_id": memory_id,

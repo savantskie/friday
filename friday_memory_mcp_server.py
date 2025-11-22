@@ -1424,9 +1424,11 @@ class FridayMemoryMCPServer:
             # Memory & Context Tools
             # -----------------------------------------------------------------
             if tool_name in ("search_memories", "tool_search_memories_post"):
-                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id
-                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id"}
+                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id, user_id, model_id
+                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
@@ -1436,21 +1438,27 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
 
             elif tool_name in ("update_memory", "tool_update_memory_post"):
-                # update_memory accepts: memory_id, content, importance_level, tags
-                allowed_args = {"memory_id", "content", "importance_level", "tags"}
+                # update_memory accepts: memory_id, content, importance_level, tags, user_id, model_id
+                allowed_args = {"memory_id", "content", "importance_level", "tags", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
 
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
-                # get_recent_context accepts: limit, session_id, days_back
-                allowed_args = {"limit", "session_id", "days_back"}
+                # get_recent_context accepts: limit, session_id, days_back, user_id, model_id
+                allowed_args = {"limit", "session_id", "days_back", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
 
             elif tool_name == "store_conversation":
-                # store_conversation accepts: content, role, session_id, metadata
-                allowed_args = {"content", "role", "session_id", "metadata"}
+                # store_conversation accepts: content, role, session_id, metadata, user_id, model_id
+                allowed_args = {"content", "role", "session_id", "metadata", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.store_conversation(**filtered_args))
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
@@ -1508,24 +1516,32 @@ class FridayMemoryMCPServer:
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.create_appointment(**filtered_args))
             elif tool_name == "cancel_appointment":
-                # cancel_appointment accepts: appointment_id
-                allowed_args = {"appointment_id"}
+                # cancel_appointment accepts: appointment_id, user_id, model_id
+                allowed_args = {"appointment_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.cancel_appointment(**filtered_args))
             elif tool_name == "complete_appointment":
-                # complete_appointment accepts: appointment_id
-                allowed_args = {"appointment_id"}
+                # complete_appointment accepts: appointment_id, user_id, model_id
+                allowed_args = {"appointment_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.complete_appointment(**filtered_args))
             elif tool_name == "get_appointments":
-                # get_appointments accepts: limit, days_ahead
-                allowed_args = {"limit", "days_ahead"}
+                # get_appointments accepts: limit, days_ahead, user_id, model_id
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
             elif tool_name == "get_upcoming_appointments":
-                # get_upcoming_appointments accepts: limit, days_ahead
-                allowed_args = {"limit", "days_ahead"}
+                # get_upcoming_appointments accepts: limit, days_ahead, user_id, model_id
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
             elif tool_name == "create_reminder":
                 # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
@@ -1533,29 +1549,39 @@ class FridayMemoryMCPServer:
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.create_reminder(**filtered_args))
             elif tool_name == "reschedule_reminder":
-                # reschedule_reminder accepts: reminder_id, new_due_datetime
-                allowed_args = {"reminder_id", "new_due_datetime"}
+                # reschedule_reminder accepts: reminder_id, new_due_datetime, user_id, model_id
+                allowed_args = {"reminder_id", "new_due_datetime", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.reschedule_reminder(**filtered_args))
             elif tool_name == "complete_reminder":
-                # complete_reminder accepts: reminder_id
-                allowed_args = {"reminder_id"}
+                # complete_reminder accepts: reminder_id, user_id, model_id
+                allowed_args = {"reminder_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.complete_reminder(**filtered_args))
             elif tool_name == "get_active_reminders":
-                # get_active_reminders accepts: limit, days_ahead
-                allowed_args = {"limit", "days_ahead"}
+                # get_active_reminders accepts: limit, days_ahead, user_id, model_id
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
             elif tool_name == "get_completed_reminders":
-                # get_completed_reminders accepts: days
-                allowed_args = {"days"}
+                # get_completed_reminders accepts: days, user_id, model_id
+                allowed_args = {"days", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
             elif tool_name == "delete_reminder":
-                # delete_reminder accepts: reminder_id
-                allowed_args = {"reminder_id"}
+                # delete_reminder accepts: reminder_id, user_id, model_id
+                allowed_args = {"reminder_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.delete_reminder(**filtered_args))
             elif tool_name == "get_reminders":
                 result = await self.get_reminders(**arguments)
@@ -1606,15 +1632,19 @@ class FridayMemoryMCPServer:
             # Brave Search Tools
             # -----------------------------------------------------------------
             elif tool_name == "brave_web_search":
-                # brave_web_search accepts: query, count, country, language
-                allowed_args = {"query", "count", "country", "language"}
+                # brave_web_search accepts: query, count, country, language, user_id, model_id
+                allowed_args = {"query", "count", "country", "language", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self.brave_web_search(**filtered_args)
 
             elif tool_name == "brave_local_search":
-                # brave_local_search accepts: query, location, count, radius
-                allowed_args = {"query", "location", "count", "radius"}
+                # brave_local_search accepts: query, location, count, radius, user_id, model_id
+                allowed_args = {"query", "location", "count", "radius", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self.brave_local_search(**filtered_args)
 
             # -----------------------------------------------------------------
