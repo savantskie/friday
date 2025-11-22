@@ -65,6 +65,13 @@ class PortManager:
         """
         Detect which program is running/importing the MCP server.
         
+        Checks in order:
+        1. Parent process name
+        2. Grandparent process name (for nested calls like node -> lm-studio)
+        3. Great-grandparent process (for deeply nested)
+        4. Command line arguments
+        5. Environment variables
+        
         Returns:
             CallerProgram enum indicating the calling program
         """
@@ -77,50 +84,157 @@ class PortManager:
             
             logger.info(f"Parent process: {parent_name} (PID: {parent_process.pid})")
             
-            # Check for VS Code
+            # Check for VS Code (direct parent)
             if 'code' in parent_name or 'electron' in parent_name:
                 self.caller_program = CallerProgram.VSCODE
-                logger.info("✓ Detected caller: VS Code")
+                logger.info("✓ Detected caller: VS Code (parent)")
                 return CallerProgram.VSCODE
             
-            # Check for LM Studio
+            # Check for LM Studio (direct parent)
             if 'lm-studio' in parent_name or 'lmstudio' in parent_name:
                 self.caller_program = CallerProgram.LM_STUDIO
-                logger.info("✓ Detected caller: LM Studio")
+                logger.info("✓ Detected caller: LM Studio (parent)")
                 return CallerProgram.LM_STUDIO
             
             # Check for Ollama
             if 'ollama' in parent_name:
                 self.caller_program = CallerProgram.OLLAMA
-                logger.info("✓ Detected caller: Ollama")
+                logger.info("✓ Detected caller: Ollama (parent)")
                 return CallerProgram.OLLAMA
             
             # Check for OpenWebUI
             if 'open' in parent_name and 'ui' in parent_name:
                 self.caller_program = CallerProgram.OPENWEBUI
-                logger.info("✓ Detected caller: OpenWebUI")
+                logger.info("✓ Detected caller: OpenWebUI (parent)")
                 return CallerProgram.OPENWEBUI
             
-            # Check command line for Python module names
+            # Check for MCPO (which wraps Python for OpenWebUI)
+            if 'mcpo' in parent_name or 'uv' in parent_name:
+                self.caller_program = CallerProgram.OPENWEBUI
+                logger.info("✓ Detected caller: OpenWebUI via MCPO (parent)")
+                return CallerProgram.OPENWEBUI
+            
+            # Check grandparent process (for nested calls like Python -> Node -> LM Studio)
+            try:
+                grandparent_process = parent_process.parent()
+                grandparent_name = grandparent_process.name().lower()
+                logger.info(f"Grandparent process: {grandparent_name} (PID: {grandparent_process.pid})")
+                
+                if 'code' in grandparent_name or 'electron' in grandparent_name:
+                    self.caller_program = CallerProgram.VSCODE
+                    logger.info("✓ Detected caller: VS Code (grandparent)")
+                    return CallerProgram.VSCODE
+                
+                if 'lm-studio' in grandparent_name or 'lmstudio' in grandparent_name:
+                    self.caller_program = CallerProgram.LM_STUDIO
+                    logger.info("✓ Detected caller: LM Studio (grandparent)")
+                    return CallerProgram.LM_STUDIO
+                
+                if 'ollama' in grandparent_name:
+                    self.caller_program = CallerProgram.OLLAMA
+                    logger.info("✓ Detected caller: Ollama (grandparent)")
+                    return CallerProgram.OLLAMA
+                
+                if 'open' in grandparent_name and 'ui' in grandparent_name:
+                    self.caller_program = CallerProgram.OPENWEBUI
+                    logger.info("✓ Detected caller: OpenWebUI (grandparent)")
+                    return CallerProgram.OPENWEBUI
+                
+                # Check for MCPO in grandparent
+                if 'mcpo' in grandparent_name or 'uv' in grandparent_name:
+                    self.caller_program = CallerProgram.OPENWEBUI
+                    logger.info("✓ Detected caller: OpenWebUI via MCPO (grandparent)")
+                    return CallerProgram.OPENWEBUI
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            
+            # Check great-grandparent (for deeply nested: Python -> Node -> LM Studio -> something)
+            try:
+                great_grandparent_process = grandparent_process.parent()
+                great_grandparent_name = great_grandparent_process.name().lower()
+                logger.info(f"Great-grandparent process: {great_grandparent_name} (PID: {great_grandparent_process.pid})")
+                
+                if 'lm-studio' in great_grandparent_name or 'lmstudio' in great_grandparent_name:
+                    self.caller_program = CallerProgram.LM_STUDIO
+                    logger.info("✓ Detected caller: LM Studio (great-grandparent)")
+                    return CallerProgram.LM_STUDIO
+                
+                if 'code' in great_grandparent_name or 'electron' in great_grandparent_name:
+                    self.caller_program = CallerProgram.VSCODE
+                    logger.info("✓ Detected caller: VS Code (great-grandparent)")
+                    return CallerProgram.VSCODE
+                
+                if 'mcpo' in great_grandparent_name or 'openwebui' in great_grandparent_name:
+                    self.caller_program = CallerProgram.OPENWEBUI
+                    logger.info("✓ Detected caller: OpenWebUI (great-grandparent)")
+                    return CallerProgram.OPENWEBUI
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            
+            # Check command line for module/program indicators (very reliable)
             try:
                 cmdline = ' '.join(current_process.cmdline()).lower()
+                logger.debug(f"Command line: {cmdline[:150]}...")  # Log first 150 chars for privacy
                 
-                if 'lm-studio' in cmdline or 'lmstudio' in cmdline:
+                # Check for LM Studio indicators (before VS Code to avoid conflicts)
+                if 'lm-studio' in cmdline or 'lmstudio' in cmdline or '/lm_studio' in cmdline:
                     self.caller_program = CallerProgram.LM_STUDIO
                     logger.info("✓ Detected caller (from cmdline): LM Studio")
                     return CallerProgram.LM_STUDIO
+                
+                # VS Code specific markers in command line
+                if '.vscode' in cmdline or 'vscode-server' in cmdline or 'copilot' in cmdline or 'codelldb' in cmdline:
+                    self.caller_program = CallerProgram.VSCODE
+                    logger.info("✓ Detected caller (from cmdline): VS Code")
+                    return CallerProgram.VSCODE
                 
                 if 'ollama' in cmdline:
                     self.caller_program = CallerProgram.OLLAMA
                     logger.info("✓ Detected caller (from cmdline): Ollama")
                     return CallerProgram.OLLAMA
                 
-                if 'openwebui' in cmdline or 'open_webui' in cmdline:
+                if 'openwebui' in cmdline or 'open_webui' in cmdline or 'openwebuifridaymcp' in cmdline or 'mcpo' in cmdline:
                     self.caller_program = CallerProgram.OPENWEBUI
-                    logger.info("✓ Detected caller (from cmdline): OpenWebUI")
+                    logger.info("✓ Detected caller (from cmdline): OpenWebUI/MCPO")
                     return CallerProgram.OPENWEBUI
                     
-            except (IndexError, psutil.AccessDenied):
+            except (IndexError, psutil.AccessDenied) as e:
+                logger.debug(f"Could not check cmdline: {e}")
+                pass
+            
+            # Check environment variables as last resort
+            try:
+                # These are sometimes set by the applications
+                env = os.environ
+                
+                # LM Studio might set these
+                if 'LM_STUDIO_PATH' in env or 'LM_STUDIO_HOME' in env:
+                    self.caller_program = CallerProgram.LM_STUDIO
+                    logger.info("✓ Detected caller (from env): LM Studio")
+                    return CallerProgram.LM_STUDIO
+                
+                # VS Code might set these
+                if 'VSCODE_PID' in env or 'VSCODE_FOLDER' in env or 'VSCODE_CWD' in env:
+                    self.caller_program = CallerProgram.VSCODE
+                    logger.info("✓ Detected caller (from env): VS Code")
+                    return CallerProgram.VSCODE
+                
+                # Ollama might set these
+                if 'OLLAMA_HOME' in env:
+                    self.caller_program = CallerProgram.OLLAMA
+                    logger.info("✓ Detected caller (from env): Ollama")
+                    return CallerProgram.OLLAMA
+                
+                # OpenWebUI might set these
+                if 'OPENWEBUI_PATH' in env or 'OPENWEBUIFRIDAYMCP' in env:
+                    self.caller_program = CallerProgram.OPENWEBUI
+                    logger.info("✓ Detected caller (from env): OpenWebUI")
+                    return CallerProgram.OPENWEBUI
+                    
+            except Exception as e:
+                logger.debug(f"Could not check environment variables: {e}")
                 pass
             
             logger.info("⚠ Could not definitively detect caller program")

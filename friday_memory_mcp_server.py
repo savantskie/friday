@@ -49,7 +49,7 @@ from mcp.types import (
 
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
-from port_manager import PortManager
+from port_manager import PortManager, CallerProgram
 
 # Initialize with dynamic path
 BASE_PATH = get_base_path()
@@ -1300,13 +1300,60 @@ class FridayMemoryMCPServer:
             return []
 
     def _detect_client_type(self) -> str:
-        """Detect the type of MCP client connecting"""
-        # This is a placeholder - in real implementation we might check:
-        # - User agent headers
-        # - Connection parameters
-        # - Client capabilities during handshake
-        # For now, assume external clients are SillyTavern if not VS Code
-        return "unknown"  # Will be enhanced based on actual client detection
+        """Detect the type of MCP client connecting using multiple detection methods
+        
+        Detection priority:
+        1. Port-based detection: OpenWebUI always uses port 12345
+        2. Process-based detection: Parent process name (VS Code, LM Studio, Ollama)
+        3. Command-line detection: Process arguments
+        
+        Maps to tool set names:
+        - vscode -> VS Code development tools
+        - lm_studio -> LM Studio integration
+        - openwebui -> OpenWebUI/MCPO integration (port 12345)
+        - ollama -> Ollama integration
+        - unknown -> Default core memory tools only
+        
+        NOTE: If caller_program hasn't been detected yet (e.g., during module import),
+        this will trigger detection now rather than waiting for HTTP server startup.
+        """
+        try:
+            # Ensure caller program has been detected
+            # (It's normally called during start_http_server, but may be called earlier via module import)
+            if port_manager.caller_program == CallerProgram.UNKNOWN and not getattr(port_manager, '_detection_attempted', False):
+                logger.debug("Caller program not yet detected - running detection now")
+                port_manager.detect_caller_program()
+                port_manager._detection_attempted = True
+            
+            # Priority 1: Check if we're running on OpenWebUI's dedicated port (12345)
+            # (Only check if port has been set - it won't be during module import)
+            if port_manager.active_port and port_manager.active_port == 12345:
+                logger.info("🌐 OpenWebUI (MCPO) detected via port 12345 - providing core memory tools")
+                return "unknown"  # OpenWebUI gets core tools via port detection
+            
+            # Priority 2: Use process-based caller detection
+            caller = port_manager.caller_program.value
+            
+            # Map caller program to client type for tool selection
+            if caller == "vscode":
+                logger.info("📝 VS Code detected (parent: code/electron) - providing development tools")
+                return "vscode"
+            elif caller == "lm_studio":
+                logger.info("🤖 LM Studio detected - providing core memory tools")
+                return "unknown"  # LM Studio gets core tools, not platform-specific
+            elif caller == "openwebui":
+                logger.info("🌐 OpenWebUI detected (process name) - providing core memory tools")
+                return "unknown"  # OpenWebUI gets core tools, not platform-specific
+            elif caller == "ollama":
+                logger.info("🐫 Ollama detected - providing core memory tools")
+                return "unknown"  # Ollama gets core tools, not platform-specific
+            else:
+                logger.info(f"❓ Unknown caller program: {caller} - providing core memory tools")
+                return "unknown"
+                
+        except Exception as e:
+            logger.warning(f"Error detecting client type: {e}. Defaulting to core tools.")
+            return "unknown"
     
     async def create_reminder_direct(self, content: str, due_datetime: str, 
                                    priority_level: int = 5, source_conversation_id: str = None) -> Dict:

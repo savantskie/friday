@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 export MCP_OPENAPI_VERSION="3.0.3"
+export OPENWEBUIFRIDAYMCP="true"
 
 # Load API key from file
 API_KEY=$(cat /media/nate/Friday/Friday/keys/mcpo_api_key.txt)
