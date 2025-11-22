@@ -4367,6 +4367,345 @@ class EmbeddingService:
 
 
 class FridayMemorySystem:
+    # Tool documentation for dual-purpose get_tool_information
+    # Organized by category: common (all clients), vscode, sillytavern
+    TOOL_DOCUMENTATION = {
+        "common": {
+            "complete_reminder": {
+                "description": "Mark a reminder as completed",
+                "parameters": {"reminder_id": "string (required) - ID of the reminder to complete"},
+                "use_cases": ["When Nate completes a task", "Tracking accomplishments"],
+                "example": "complete_reminder(reminder_id='abc123')"
+            },
+            "get_active_reminders": {
+                "description": "Get active (not completed) reminders",
+                "parameters": {
+                    "limit": "integer (default 10) - Number of reminders to return",
+                    "days_ahead": "integer (default 30) - Only show reminders due within X days"
+                },
+                "use_cases": ["Check what Nate needs to do soon", "Review upcoming tasks"],
+                "example": "get_active_reminders(days_ahead=7, limit=5)"
+            },
+            "get_weather_open_meteo": {
+                "description": "Get weather forecast (defaults to Motley, MN)",
+                "parameters": {
+                    "override": "boolean - Set true to use custom coordinates",
+                    "latitude/longitude/timezone_str": "Used only if override=true"
+                },
+                "use_cases": ["Weather questions", "Planning outdoor activities"],
+                "example": "get_weather_open_meteo() or with override=true for custom location"
+            },
+            "brave_web_search": {
+                "description": "Search the internet using Brave search engine",
+                "parameters": {
+                    "query": "string (required) - Search query",
+                    "count": "integer (1-20, default 10) - Number of results",
+                    "country": "string (default 'US') - Country code",
+                    "language": "string (default 'en') - Language code"
+                },
+                "use_cases": ["Research questions", "Finding current information"],
+                "example": "brave_web_search(query='python asyncio tutorial', count=10)"
+            },
+            "brave_local_search": {
+                "description": "Find businesses and places near a location",
+                "parameters": {
+                    "query": "string (required) - What to search for",
+                    "location": "string (optional) - Search location",
+                    "radius": "integer (default 5000) - Search radius in meters"
+                },
+                "use_cases": ["Finding services", "Locating restaurants"],
+                "example": "brave_local_search(query='coffee shops', location='Minnesota')"
+            },
+            "get_completed_reminders": {
+                "description": "Get recently completed reminders",
+                "parameters": {"days": "integer (default 7) - How far back to look"},
+                "use_cases": ["Celebrating accomplishments", "Tracking productivity"],
+                "example": "get_completed_reminders(days=1)"
+            },
+            "reschedule_reminder": {
+                "description": "Update the due date of a reminder",
+                "parameters": {
+                    "reminder_id": "string (required)",
+                    "new_due_datetime": "string (required) - ISO datetime format"
+                },
+                "use_cases": ["Postponing tasks", "Adjusting schedules"],
+                "example": "reschedule_reminder(reminder_id='abc', new_due_datetime='2025-11-25T14:00:00Z')"
+            },
+            "delete_reminder": {
+                "description": "Permanently delete a reminder",
+                "parameters": {"reminder_id": "string (required)"},
+                "use_cases": ["Removing obsolete tasks"],
+                "example": "delete_reminder(reminder_id='abc123')"
+            },
+            "cancel_appointment": {
+                "description": "Cancel a scheduled appointment",
+                "parameters": {"appointment_id": "string (required)"},
+                "use_cases": ["Postponing meetings", "Cancelling events"],
+                "example": "cancel_appointment(appointment_id='xyz789')"
+            },
+            "complete_appointment": {
+                "description": "Mark an appointment as completed",
+                "parameters": {"appointment_id": "string (required)"},
+                "use_cases": ["Marking events as done"],
+                "example": "complete_appointment(appointment_id='xyz789')"
+            },
+            "get_upcoming_appointments": {
+                "description": "Get upcoming appointments (not cancelled)",
+                "parameters": {
+                    "limit": "integer (default 5)",
+                    "days_ahead": "integer (default 30)"
+                },
+                "use_cases": ["Check upcoming events", "Planning calendar"],
+                "example": "get_upcoming_appointments(days_ahead=7)"
+            },
+            "search_memories": {
+                "description": "Search memories using semantic similarity or direct ID lookup",
+                "parameters": {
+                    "query": "string (required unless memory_id provided)",
+                    "memory_id": "string (for direct lookup)",
+                    "limit": "integer (default 10)",
+                    "database_filter": "enum: conversations, ai_memories, schedule, all (default all)",
+                    "memory_type": "string - Filter by type (preference, skill, safety, general)"
+                },
+                "use_cases": ["Finding past information", "Recalling preferences", "Looking up decisions"],
+                "example": "search_memories(query='python preferences', database_filter='ai_memories')"
+            },
+            "store_conversation": {
+                "description": "Store conversation excerpts for future reference",
+                "parameters": {
+                    "content": "string (required) - Conversation text",
+                    "role": "string (required) - 'user' or 'assistant'",
+                    "session_id": "string (optional)",
+                    "metadata": "object (optional)"
+                },
+                "use_cases": ["Saving important discussions"],
+                "example": "store_conversation(content='Discussion about project X', role='user')"
+            },
+            "create_memory": {
+                "description": "Create a curated memory entry",
+                "parameters": {
+                    "content": "string (required)",
+                    "memory_type": "string (preference, skill, safety, general, etc.)",
+                    "importance_level": "integer (1-10, default 5)",
+                    "tags": "array of strings"
+                },
+                "use_cases": ["Storing preferences", "Recording decisions", "Documenting constraints"],
+                "example": "create_memory(content='Nate prefers additive code changes', importance_level=8, memory_type='preference')"
+            },
+            "update_memory": {
+                "description": "Update an existing memory",
+                "parameters": {
+                    "memory_id": "string (required)",
+                    "content": "string (optional)",
+                    "importance_level": "integer (optional)",
+                    "tags": "array (optional)"
+                },
+                "use_cases": ["Refining stored information", "Increasing importance of key facts"],
+                "example": "update_memory(memory_id='id123', content='Updated info', importance_level=9)"
+            },
+            "create_appointment": {
+                "description": "Create a calendar event (single or recurring)",
+                "parameters": {
+                    "title": "string (required)",
+                    "scheduled_datetime": "string (required) - ISO format",
+                    "description": "string (optional)",
+                    "location": "string (optional)",
+                    "recurrence_pattern": "enum: daily, weekly, monthly, yearly (optional)",
+                    "recurrence_count": "integer (optional)"
+                },
+                "use_cases": ["Medical appointments", "Meetings", "Recurring events"],
+                "example": "create_appointment(title='Doctor visit', scheduled_datetime='2025-11-25T10:00:00Z')"
+            },
+            "create_reminder": {
+                "description": "Create a task reminder (single or recurring)",
+                "parameters": {
+                    "content": "string (required) - Task description",
+                    "due_datetime": "string (required) - ISO format",
+                    "priority_level": "integer (1-10, default 5)",
+                    "recurrence_pattern": "enum: daily, weekly, monthly, yearly (optional)",
+                    "recurrence_count": "integer (optional)"
+                },
+                "use_cases": ["Task management", "Recurring reminders", "Due dates"],
+                "example": "create_reminder(content='Work on project X', due_datetime='2025-11-24T09:00:00Z', priority_level=7)"
+            },
+            "get_reminders": {
+                "description": "Get recent or filtered reminders",
+                "parameters": {
+                    "limit": "integer (default 5)",
+                    "include_completed": "boolean (default false)",
+                    "days_ahead": "integer (default 30)"
+                },
+                "use_cases": ["Viewing task list", "Planning work"],
+                "example": "get_reminders(limit=10, include_completed=false)"
+            },
+            "get_recent_context": {
+                "description": "Get recent conversation context from past N days",
+                "parameters": {
+                    "limit": "integer (default 5) - Number of items",
+                    "session_id": "string (optional)",
+                    "days_back": "integer (default 7)"
+                },
+                "use_cases": ["Recalling recent discussions", "Context restoration"],
+                "example": "get_recent_context(days_back=3, limit=10)"
+            },
+            "get_system_health": {
+                "description": "Get comprehensive system health and database status",
+                "parameters": {},
+                "use_cases": ["Troubleshooting", "System diagnostics"],
+                "example": "get_system_health()"
+            },
+            "get_tool_information": {
+                "description": "Get tool usage statistics OR tool documentation. Pass mode='documentation' for docs.",
+                "parameters": {
+                    "mode": "string - 'usage' (default) for stats or 'documentation' for tool docs",
+                    "tool_name": "string (optional) - Specific tool name to document",
+                    "days": "integer (default 7) - For usage mode: analyze past N days",
+                    "client_id": "string (optional) - For usage mode: analyze specific client"
+                },
+                "use_cases": ["Getting tool usage stats", "Learning about available tools", "Understanding tool capabilities"],
+                "example": "get_tool_information() OR get_tool_information(mode='documentation') OR get_tool_information(mode='documentation', tool_name='search_memories')"
+            },
+            "reflect_on_tool_usage": {
+                "description": "AI self-reflection on tool usage patterns and effectiveness",
+                "parameters": {
+                    "days": "integer (default 7) - Analyze past N days",
+                    "client_id": "string (optional)"
+                },
+                "use_cases": ["Analyzing tool effectiveness", "Improving tool usage patterns"],
+                "example": "reflect_on_tool_usage(days=7)"
+            },
+            "get_ai_insights": {
+                "description": "Get recent AI self-reflection insights and patterns",
+                "parameters": {
+                    "limit": "integer (default 5)",
+                    "insight_type": "string (optional) - Filter by type",
+                    "query": "string (optional) - Search keywords"
+                },
+                "use_cases": ["Recalling learned patterns", "Understanding AI observations"],
+                "example": "get_ai_insights(limit=5, insight_type='pattern_analysis')"
+            },
+            "store_ai_reflection": {
+                "description": "Store AI insights or observations about patterns",
+                "parameters": {
+                    "content": "string (required) - What was observed",
+                    "reflection_type": "string (default 'general')",
+                    "insights": "array of strings (optional)",
+                    "recommendations": "array of strings (optional)",
+                    "confidence_level": "number 0.0-1.0 (default 0.7)"
+                },
+                "use_cases": ["Recording patterns", "Documenting insights", "Meta-learning"],
+                "example": "store_ai_reflection(content='Noticed pattern X', insights=['Pattern1', 'Pattern2'], confidence_level=0.8)"
+            },
+            "write_ai_insights": {
+                "description": "Alias for store_ai_reflection - write AI insights",
+                "parameters": {"Same as store_ai_reflection": ""},
+                "use_cases": ["Alternative method to store insights"],
+                "example": "write_ai_insights(content='...')"
+            },
+            "get_current_time": {
+                "description": "Get current server time in UTC and local time",
+                "parameters": {},
+                "use_cases": ["Before creating time-based items", "Timezone verification"],
+                "example": "get_current_time()"
+            },
+            "get_appointments": {
+                "description": "Get recent appointments with optional filtering",
+                "parameters": {
+                    "limit": "integer (default 5)",
+                    "days_ahead": "integer (default 30)"
+                },
+                "use_cases": ["Viewing calendar", "Planning"],
+                "example": "get_appointments(days_ahead=30)"
+            }
+        },
+        "vscode": {
+            "save_development_session": {
+                "description": "Capture VS Code development session state",
+                "parameters": {
+                    "workspace_path": "string (required)",
+                    "active_files": "array of strings (optional)",
+                    "git_branch": "string (optional)",
+                    "session_summary": "string (optional)"
+                },
+                "use_cases": ["Session checkpoints", "Saving progress"],
+                "example": "save_development_session(workspace_path='/path/to/work', session_summary='Completed feature X')"
+            },
+            "store_project_insight": {
+                "description": "Record development decisions or architectural insights",
+                "parameters": {
+                    "content": "string (required)",
+                    "insight_type": "string (optional)",
+                    "related_files": "array of strings (optional)",
+                    "importance_level": "integer 1-10 (default 5)"
+                },
+                "use_cases": ["Documenting decisions", "Architecture notes", "Design patterns"],
+                "example": "store_project_insight(content='Chose async pattern for performance', importance_level=8)"
+            },
+            "search_project_history": {
+                "description": "Find past development decisions and context",
+                "parameters": {
+                    "query": "string (required)",
+                    "limit": "integer (default 10)"
+                },
+                "use_cases": ["Recalling past decisions", "Finding implementation notes"],
+                "example": "search_project_history(query='database migration')"
+            },
+            "link_code_context": {
+                "description": "Connect conversation to specific code",
+                "parameters": {
+                    "file_path": "string (required)",
+                    "description": "string (required)",
+                    "function_name": "string (optional)",
+                    "conversation_id": "string (optional)"
+                },
+                "use_cases": ["Code-conversation linking", "Context preservation"],
+                "example": "link_code_context(file_path='friday_memory_system.py', description='Working on embeddings')"
+            },
+            "get_project_continuity": {
+                "description": "Get context to continue development work",
+                "parameters": {
+                    "workspace_path": "string (optional)",
+                    "limit": "integer (default 5) - Context items"
+                },
+                "use_cases": ["Session restoration", "Work continuation"],
+                "example": "get_project_continuity(workspace_path='/path/to/work')"
+            }
+        },
+        "sillytavern": {
+            "get_character_context": {
+                "description": "Get context about characters from memory",
+                "parameters": {
+                    "character_name": "string (required)",
+                    "context_type": "string (optional) - personality, relationships, history",
+                    "limit": "integer (default 5)"
+                },
+                "use_cases": ["Character development", "Roleplay context"],
+                "example": "get_character_context(character_name='Alice', context_type='personality')"
+            },
+            "store_roleplay_memory": {
+                "description": "Store important roleplay moments or character developments",
+                "parameters": {
+                    "character_name": "string (required)",
+                    "event_description": "string (required)",
+                    "importance_level": "integer 1-10 (default 5)",
+                    "tags": "array of strings (optional)"
+                },
+                "use_cases": ["Character development tracking", "Scene memory"],
+                "example": "store_roleplay_memory(character_name='Alice', event_description='Revealed backstory')"
+            },
+            "search_roleplay_history": {
+                "description": "Search past roleplay interactions and character development",
+                "parameters": {
+                    "query": "string (required)",
+                    "character_name": "string (optional)",
+                    "limit": "integer (default 10)"
+                },
+                "use_cases": ["Recalling scenes", "Character continuity"],
+                "example": "search_roleplay_history(query='conflict with Bob', character_name='Alice')"
+            }
+        }
+    }
+
     async def background_main(self):
         # Start maintenance loop, file monitoring, etc.
         await self.run_database_maintenance()
@@ -6726,20 +7065,96 @@ class FridayMemorySystem:
             status, result, error_message
         )
     
-    async def get_tool_usage_summary(self, days: int = 7, client_id: str = None) -> Dict:
-        """Get comprehensive tool usage summary for AI analysis"""
+    async def get_tool_information(self, mode: str = "usage", days: int = 7, client_id: str = None, tool_name: str = None, client_type: str = None) -> Dict:
+        """Dual-purpose tool: Get usage statistics OR tool documentation
         
-        stats = await self.mcp_db.get_tool_usage_stats(days, client_id)
+        Args:
+            mode: "usage" (default) for statistics, "documentation" for tool docs
+            days: For usage mode - analyze past N days
+            client_id: For usage mode - specific client to analyze
+            tool_name: For documentation mode - specific tool to document (optional)
+            client_type: The detected client type (vscode, sillytavern, or unknown)
         
-        # Generate AI insights from the stats
-        insights = await self._generate_tool_usage_insights(stats)
+        Returns:
+            If mode="usage": Tool usage statistics and insights
+            If mode="documentation": Tool descriptions and parameters
+        """
+        try:
+            if mode == "documentation":
+                # Return tool documentation
+                return await self._get_tool_documentation(tool_name, client_type)
+            else:
+                # Return usage statistics (original behavior)
+                stats = await self.mcp_db.get_tool_usage_stats(days, client_id)
+                insights = await self._generate_tool_usage_insights(stats)
+                return {
+                    "status": "success",
+                    "period_days": days,
+                    "stats": stats,
+                    "insights": insights
+                }
+        except Exception as e:
+            logger.error(f"Error in get_tool_information: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    async def _get_tool_documentation(self, tool_name: str = None, client_type: str = None) -> Dict:
+        """Get tool documentation filtered by client type
         
-        return {
-            "status": "success",
-            "period_days": days,
-            "stats": stats,
-            "insights": insights
-        }
+        Args:
+            tool_name: Optional specific tool to document
+            client_type: The client type (vscode, sillytavern, unknown)
+        
+        Returns:
+            Dictionary of tool documentation entries
+        """
+        try:
+            # Default to unknown client if not specified
+            if not client_type:
+                client_type = "unknown"
+            
+            # Build available tools based on client type
+            docs = {"common": self.TOOL_DOCUMENTATION.get("common", {})}
+            
+            if client_type == "vscode":
+                docs["vscode"] = self.TOOL_DOCUMENTATION.get("vscode", {})
+            elif client_type == "sillytavern":
+                docs["sillytavern"] = self.TOOL_DOCUMENTATION.get("sillytavern", {})
+            
+            # If specific tool requested
+            if tool_name:
+                # Search through categories for the tool
+                for category, tools in docs.items():
+                    if tool_name in tools:
+                        return {
+                            "status": "success",
+                            "tool_name": tool_name,
+                            "category": category,
+                            "documentation": tools[tool_name]
+                        }
+                # Tool not found for this client
+                return {
+                    "status": "error",
+                    "error": f"Tool '{tool_name}' is not available for client type '{client_type}'"
+                }
+            else:
+                # Return all docs for this client
+                return {
+                    "status": "success",
+                    "client_type": client_type,
+                    "tool_categories": list(docs.keys()),
+                    "total_tools": sum(len(tools) for tools in docs.values()),
+                    "documentation": docs
+                }
+        except Exception as e:
+            logger.error(f"Error getting tool documentation: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
     
     async def reflect_on_tool_usage(self, days: int = 7, client_id: str = None) -> Dict:
         """AI self-reflection on tool usage patterns"""

@@ -1030,13 +1030,15 @@ class FridayMemoryMCPServer:
                 }
             ),
             Tool(
-                name="get_tool_usage_summary",
-                description="Get AI tool usage summary and insights for self-reflection",
+                name="get_tool_information",
+                description="Get tool usage statistics OR tool documentation. Pass mode='documentation' to get descriptions of available tools. Optionally specify tool_name to get docs for a specific tool.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"}
+                        "mode": {"type": "string", "description": "Mode: 'usage' (default) for statistics or 'documentation' for tool descriptions", "default": "usage"},
+                        "tool_name": {"type": "string", "description": "Optional: specific tool name to document (only with mode='documentation')"},
+                        "days": {"type": "integer", "description": "For usage mode: Days to analyze", "default": 7},
+                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"}
                     }
                 }
             ),
@@ -1724,11 +1726,14 @@ class FridayMemoryMCPServer:
                 allowed_args = {"workspace_path", "limit"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.get_project_continuity(**filtered_args))
-            elif tool_name == "get_tool_usage_summary":
-                # get_tool_usage_summary accepts: days, client_id
-                allowed_args = {"days", "client_id"}
+            elif tool_name == "get_tool_information":
+                # get_tool_information accepts: mode, tool_name, days, client_id
+                # Detects client type automatically
+                allowed_args = {"mode", "tool_name", "days", "client_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self._protected_tool_call(self.memory_system.get_tool_usage_summary(**filtered_args))
+                # Add detected client type
+                client_type = self._detect_client_type()
+                result = await self._protected_tool_call(self.memory_system.get_tool_information(client_type=client_type, **filtered_args))
             elif tool_name == "reflect_on_tool_usage":
                 # reflect_on_tool_usage accepts: days, client_id
                 allowed_args = {"days", "client_id"}
