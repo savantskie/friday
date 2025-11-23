@@ -4781,6 +4781,10 @@ class FridayMemorySystem:
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
+        # Track embedding config state for change detection
+        # This allows us to detect when Adaptive Memory v3 changes config and re-embed accordingly
+        self._last_embedding_config = self._capture_embedding_config()
+        
         # Initialize database maintenance manager (handles rotation, discovery, etc.)
         self.db_maintenance = DatabaseMaintenance(self, memory_data_path=str(memory_data_path))
         
@@ -4808,6 +4812,159 @@ class FridayMemorySystem:
                 logger.error(f"Error initializing file monitor: {e}")
                 raise
     
+    # === Embedding Configuration Management ===
+    def _capture_embedding_config(self) -> Dict[str, Any]:
+        """Capture current embedding configuration for change detection.
+        
+        Returns a snapshot of the current embedding config including:
+        - Primary provider model name and dimension
+        - Primary endpoint URL
+        - Fallback provider model name and dimension
+        
+        Used to detect when Adaptive Memory v3 syncs new config from OpenWebUI valves.
+        """
+        try:
+            primary_config = self.embedding_service.primary_config
+            fallback_config = self.embedding_service.fallback_config
+            
+            config_snapshot = {
+                "primary_model": primary_config.get("model", "unknown"),
+                "primary_dimension": primary_config.get("dimension", 768),
+                "primary_endpoint": primary_config.get("base_url", "unknown"),
+                "fallback_model": fallback_config.get("model", "unknown"),
+                "fallback_dimension": fallback_config.get("dimension", 768),
+                "timestamp": datetime.now().isoformat()
+            }
+            return config_snapshot
+        except Exception as e:
+            logger.error(f"Error capturing embedding config: {e}")
+            return {}
+    
+    def _reload_embedding_config(self) -> bool:
+        """Reload embedding configuration from file and return True if changed.
+        
+        This is called periodically to detect when Adaptive Memory v3 updates
+        embedding_config.json with new valve values.
+        
+        Returns:
+            bool: True if config has changed, False otherwise
+        """
+        try:
+            # Force reload the config from disk
+            self.embedding_service.full_config = self.embedding_service._load_full_config()
+            self.embedding_service.primary_config = self.embedding_service.full_config.get("primary", {})
+            self.embedding_service.fallback_config = self.embedding_service.full_config.get("fallback", {})
+            
+            # Capture new config
+            new_config = self._capture_embedding_config()
+            
+            # Compare with last known config
+            if new_config != self._last_embedding_config:
+                logger.warning(
+                    f"Embedding config change detected!\n"
+                    f"  Old: {self._last_embedding_config}\n"
+                    f"  New: {new_config}"
+                )
+                self._last_embedding_config = new_config
+                return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error reloading embedding config: {e}")
+            return False
+    
+    async def check_and_handle_embedding_config_change(self) -> bool:
+        """Check for embedding config changes and trigger re-embedding if needed.
+        
+        This method should be called periodically from the MCP server or inlet.
+        When a config change is detected (e.g., dimension change), it:
+        1. Logs the change
+        2. Triggers a full re-embedding of all memories with new dimensions
+        3. Updates all memory embeddings in the database
+        
+        Returns:
+            bool: True if config changed and re-embedding was triggered
+        """
+        config_changed = self._reload_embedding_config()
+        
+        if config_changed:
+            logger.info("=" * 80)
+            logger.info("EMBEDDING CONFIG CHANGE DETECTED - INITIATING RE-EMBEDDING PROCESS")
+            logger.info("=" * 80)
+            
+            # Trigger re-embedding of all memories
+            try:
+                await self._reembed_all_memories()
+                logger.info("✅ Re-embedding process completed successfully")
+                return True
+            except Exception as e:
+                logger.error(f"Error during re-embedding process: {e}\n{traceback.format_exc()}")
+                return False
+        
+        return False
+    
+    async def _reembed_all_memories(self) -> None:
+        """Re-embed all memories in the AI memory database with current embedding config.
+        
+        This is called when embedding config changes (e.g., dimension change).
+        Updates all memory embeddings to use new dimensions/model.
+        """
+        logger.info("Starting full re-embedding of all memories...")
+        
+        try:
+            # Get all memories from AI memory database
+            import sqlite3
+            db_path = self.data_dir / "ai_memories.db"
+            
+            memories = []
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.execute("SELECT memory_id, content FROM memories")
+                memories = cursor.fetchall()
+            
+            logger.info(f"Found {len(memories)} memories to re-embed")
+            
+            if not memories:
+                logger.info("No memories to re-embed")
+                return
+            
+            # Re-embed each memory
+            reembedded_count = 0
+            for memory_id, content in memories:
+                try:
+                    # Generate new embedding with current config
+                    new_embedding = await self.embedding_service.generate_embedding(content)
+                    
+                    if new_embedding is not None:
+                        # Store the new embedding
+                        embedding_bytes = new_embedding.tobytes()
+                        embedding_dim = len(new_embedding)
+                        
+                        with sqlite3.connect(str(db_path)) as conn:
+                            conn.execute(
+                                """
+                                UPDATE memories 
+                                SET embedding = ?, embedding_dimension = ?, updated_at = ?
+                                WHERE memory_id = ?
+                                """,
+                                (embedding_bytes, embedding_dim, get_current_timestamp(), memory_id)
+                            )
+                            conn.commit()
+                        
+                        reembedded_count += 1
+                        
+                        if reembedded_count % 50 == 0:
+                            logger.info(f"  Progress: {reembedded_count}/{len(memories)} memories re-embedded")
+                
+                except Exception as e:
+                    logger.error(f"Error re-embedding memory {memory_id}: {e}")
+                    continue
+            
+            logger.info(f"✅ Re-embedding complete: {reembedded_count}/{len(memories)} memories successfully updated")
+        
+        except Exception as e:
+            logger.error(f"Error in _reembed_all_memories: {e}\n{traceback.format_exc()}")
+            raise
+
     # === Reminder Management Tools ===
     async def complete_reminder(self, reminder_id: str, selection_id: str | None = None, user_id: str = None, model_id: str = None) -> Dict:
         """Mark a reminder as completed (using dynamic path)"""
@@ -6190,6 +6347,15 @@ class FridayMemorySystem:
     ) -> Dict:
 
         """Search memories across databases using semantic similarity with importance filtering, or direct ID lookup"""
+        
+        # CHECK: Detect if embedding config has changed (from Adaptive Memory v3 valve sync)
+        # Run this check periodically to catch config changes and trigger re-embedding
+        try:
+            config_changed = await self.check_and_handle_embedding_config_change()
+            if config_changed:
+                logger.info("Embedding config was updated and all memories have been re-embedded")
+        except Exception as e:
+            logger.warning(f"Error checking embedding config during search: {e}")
         
         # If memory_id is provided, do direct ID lookup instead of semantic search
         if memory_id:

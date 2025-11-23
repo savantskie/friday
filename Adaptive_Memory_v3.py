@@ -1799,6 +1799,95 @@ Analyze the following conversation and provide a concise summary.""",
         # Track that background tasks are not yet re-initialised via inlet()
         self._background_tasks_started: bool = False
 
+    def _sync_embedding_config_to_friday(self) -> None:
+        """
+        Sync current embedding configuration from Adaptive Memory valves to Friday's embedding_config.json.
+        
+        This ensures that when users change embedding model or dimension in OpenWebUI valves,
+        the Friday Memory System's long-term memory also uses the same configuration.
+        
+        The Friday system will detect the config change and re-embed all long-term memories
+        with the new dimensions on its next run.
+        
+        Config structure synced:
+        - embedding_model_name
+        - embedding_model_dimension  
+        - embedding_api_endpoint_url
+        
+        Note: This is called during each message inlet to ensure lazy sync of any valve changes.
+        """
+        try:
+            # Determine the path to embedding_config.json (same directory as this file)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Check multiple possible locations for embedding_config.json
+            possible_paths = [
+                os.path.join(script_dir, "embedding_config.json"),
+                os.path.join(os.path.dirname(script_dir), "embedding_config.json"),
+                "/media/nate/Friday/Friday/embedding_config.json",  # Fallback to known location
+            ]
+            
+            config_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    config_path = path
+                    break
+            
+            if not config_path:
+                logger.warning(
+                    f"Could not find embedding_config.json. Searched paths: {possible_paths}"
+                )
+                return
+            
+            # Read current config
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+            except Exception as e:
+                logger.warning(f"Error reading embedding_config.json from {config_path}: {e}")
+                return
+            
+            # Check if sync is needed by comparing current valve values with config
+            config_changed = False
+            
+            # Get current values from LM Studio section (primary provider)
+            if "providers" not in config:
+                config["providers"] = {}
+            if "lm_studio" not in config["providers"]:
+                config["providers"]["lm_studio"] = {}
+            
+            lm_studio_config = config["providers"]["lm_studio"]
+            
+            # Compare and update if different
+            if (lm_studio_config.get("model") != self.valves.embedding_model_name or
+                lm_studio_config.get("dimension") != self.valves.embedding_model_dimension or
+                lm_studio_config.get("endpoint") != self.valves.embedding_api_endpoint_url):
+                
+                # Update config with current valve values
+                lm_studio_config["model"] = self.valves.embedding_model_name
+                lm_studio_config["dimension"] = self.valves.embedding_model_dimension
+                lm_studio_config["endpoint"] = self.valves.embedding_api_endpoint_url
+                config_changed = True
+                
+                logger.info(
+                    f"Embedding config changed detected. Updating to: "
+                    f"model={self.valves.embedding_model_name}, "
+                    f"dimension={self.valves.embedding_model_dimension}, "
+                    f"endpoint={self.valves.embedding_api_endpoint_url}"
+                )
+            
+            # Write back if changed
+            if config_changed:
+                try:
+                    with open(config_path, 'w') as f:
+                        json.dump(config, f, indent=2)
+                    logger.info(f"Successfully synced embedding config to {config_path}")
+                except Exception as e:
+                    logger.error(f"Error writing embedding_config.json to {config_path}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Unexpected error in _sync_embedding_config_to_friday: {e}\n{traceback.format_exc()}")
+
     def _get_embedding_model_tag(self) -> str:
         """Generate embedding model metadata tag based on configuration.
         
@@ -2813,6 +2902,11 @@ Analyze the following conversation and provide a concise summary.""",
                 logger.debug(
                     f"✓ Using current valves (config not set). vector_similarity_threshold={self.valves.vector_similarity_threshold}, top_n_memories={self.valves.top_n_memories}"
                 )
+            
+            # SYNC: After valves are loaded, sync embedding config to Friday Memory System
+            # This ensures both short-term and long-term memory use the same embedding model/dimension
+            self._sync_embedding_config_to_friday()
+
 
             # Load user-specific valves (may override some per-user settings)
             user_valves = self._get_user_valves(__user__)
