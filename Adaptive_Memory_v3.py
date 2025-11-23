@@ -2561,19 +2561,36 @@ Analyze the following conversation and provide a concise summary.""",
                                             )
 
                                             memory_system = FridayMemorySystem()
+                                            logger.info(f"Promoting memory '{mem.get('id')}' to Friday Memory System for user {user_id}")
+                                            
                                             result = await memory_system.create_memory(
                                                 content=memory_content,
                                                 importance_level=5,  # Default importance
                                                 memory_type="archived",
                                                 source_conversation_id=f"openwebui_user_{user_id}",
                                                 tags=["promoted", "archived"],
+                                                wait_for_embedding=True  # IMPORTANT: Wait for embedding to complete
                                             )
-                                            logger.debug(
-                                                f"Successfully stored memory in Friday Memory System: {result.get('memory_id')}"
-                                            )
+                                            
+                                            # Check if creation succeeded
+                                            if result.get("status") == "success":
+                                                embedding_status = result.get("embedding_status", "unknown")
+                                                logger.info(
+                                                    f"✅ Successfully promoted memory {mem.get('id')} to Friday. "
+                                                    f"Memory ID: {result.get('memory_id')}, Embedding: {embedding_status}"
+                                                )
+                                            elif result.get("status") == "partial_failure":
+                                                logger.error(
+                                                    f"❌ Memory created but embedding FAILED for {mem.get('id')} -> {result.get('memory_id')}"
+                                                )
+                                            else:
+                                                logger.warning(
+                                                    f"⚠️  Unexpected status promoting {mem.get('id')}: {result.get('status')}"
+                                                )
+                                        
                                         except Exception as mem_sys_error:
                                             logger.error(
-                                                f"Error storing memory in Friday Memory System: {mem_sys_error}"
+                                                f"❌ Error storing memory in Friday Memory System for {mem.get('id')}: {mem_sys_error}\n{traceback.format_exc()}"
                                             )
                                     else:
                                         logger.warning(

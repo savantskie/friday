@@ -927,6 +927,7 @@ class FridayMemoryMCPServer:
                         "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Memory tags"},
                         "source_conversation_id": {"type": "string", "description": "Source conversation ID"},
+                        "memory_bank": {"type": "string", "description": "Memory category (General, Personal, Work, Context, Tasks)", "default": "General"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
@@ -1481,8 +1482,8 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
-                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, user_id, model_id
-                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "user_id", "model_id"}
+                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id
+                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "memory_bank", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
 
@@ -1681,19 +1682,25 @@ class FridayMemoryMCPServer:
             # Brave Search Tools
             # -----------------------------------------------------------------
             elif tool_name == "brave_web_search":
-                # brave_web_search accepts: query, count, country, language, user_id, model_id
-                allowed_args = {"query", "count", "country", "language", "user_id", "model_id"}
+                # brave_web_search only accepts: query, count, country, language
+                # Extract user_id and model_id for logging, don't pass to tool
+                search_user_id = arguments.get("user_id") or user_id or "Nate"
+                search_model_id = arguments.get("model_id") or model_id or "Friday"
+                logger.info(f"Brave web search requested by user={search_user_id}, model={search_model_id}")
+                
+                allowed_args = {"query", "count", "country", "language"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self.brave_web_search(**filtered_args)
 
             elif tool_name == "brave_local_search":
-                # brave_local_search accepts: query, location, count, radius, user_id, model_id
-                allowed_args = {"query", "location", "count", "radius", "user_id", "model_id"}
+                # brave_local_search only accepts: query, location, count, radius
+                # Extract user_id and model_id for logging, don't pass to tool
+                search_user_id = arguments.get("user_id") or user_id or "Nate"
+                search_model_id = arguments.get("model_id") or model_id or "Friday"
+                logger.info(f"Brave local search requested by user={search_user_id}, model={search_model_id}")
+                
+                allowed_args = {"query", "location", "count", "radius"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self.brave_local_search(**filtered_args)
 
             # -----------------------------------------------------------------
@@ -1985,7 +1992,9 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 "content": "Memory content (required)",
                 "memory_type": "Optional: memory type",
                 "tags": ["optional", "tags"],
-                "source_conversation_id": "Optional: source conversation ID"
+                "memory_bank": "Optional: category (General, Personal, Work, Context, Tasks) - default: General",
+                "conversation_id": "Optional: source conversation ID for linking",
+                "source_conversation_id": "Optional: source conversation ID (deprecated, use conversation_id)"
             }
             
             Response:
@@ -1993,6 +2002,8 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 "status": "success",
                 "memory_id": "new_memory_id",
                 "importance_level": 8,
+                "memory_bank": "Personal",
+                "link_id": "optional_link_id_if_conversation_linked",
                 "message": "Memory promoted to long-term storage"
             }
             """
@@ -2010,7 +2021,8 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 # Extract optional fields
                 memory_type = body.get("memory_type")
                 tags = body.get("tags", [])
-                source_conversation_id = body.get("source_conversation_id")
+                memory_bank = body.get("memory_bank", "General")
+                conversation_id = body.get("conversation_id") or body.get("source_conversation_id")
                 
                 # Add "promoted" tag to indicate origin
                 if isinstance(tags, list):
@@ -2021,19 +2033,53 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 
                 # Call create_memory with promoted importance level (8-9)
                 # Use 8 as default for promoted memories (high but not critical)
-                result = await mcp_server.memory_system.create_memory(
+                # Store memory with memory_bank category for future enrichment
+                memory_id = await mcp_server.memory_system.create_memory(
                     content=content,
                     memory_type=memory_type,
                     importance_level=8,
                     tags=tags,
-                    source_conversation_id=source_conversation_id
+                    memory_bank=memory_bank,
+                    source_conversation_id=conversation_id
                 )
                 
-                # Add additional metadata to response
-                result["importance_level"] = 8
-                result["message"] = "Memory promoted to long-term storage"
+                # Link memory to conversation if provided
+                link_id = None
+                if conversation_id and memory_id:
+                    try:
+                        link_id = await mcp_server.memory_system.link_memory_to_conversation(
+                            memory_id=memory_id,
+                            conversation_id=conversation_id,
+                            link_type="promoted_from_short_term",
+                            link_strength=1.0,
+                            source_system="openwebui_promotion",
+                            metadata={
+                                "memory_bank": memory_bank,
+                                "promoted_at": datetime.now(timezone.utc).isoformat(),
+                                "tags": tags,
+                                "original_importance": 5,
+                                "promotion_importance": 8
+                            }
+                        )
+                        logger.debug(f"✅ Linked promoted memory {memory_id} to conversation {conversation_id}")
+                    except Exception as link_error:
+                        logger.warning(f"Could not link promoted memory to conversation (non-blocking): {link_error}")
+                        # Don't fail the promotion if linking fails - it's a nice-to-have
                 
-                logger.info(f"✅ Memory promoted: {result.get('memory_id')}")
+                # Build response with full context
+                result = {
+                    "status": "success",
+                    "memory_id": memory_id,
+                    "importance_level": 8,
+                    "memory_bank": memory_bank,
+                    "message": "Memory promoted to long-term storage"
+                }
+                
+                if link_id:
+                    result["link_id"] = link_id
+                    result["message"] += " and linked to conversation"
+                
+                logger.info(f"✅ Memory promoted: {memory_id} (bank: {memory_bank})")
                 return result
                 
             except HTTPException:

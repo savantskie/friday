@@ -10,5 +10,12 @@
     "model": "nomic-embed-text:latest",
     "base_url": "http://localhost:11434/api/embeddings",
     "description": "Ollama fallback"
+  },
+  "providers": {
+    "lm_studio": {
+      "model": "text-embedding-bge-m3",
+      "dimension": 768,
+      "endpoint": "http://172.17.0.1:1234/v1/embeddings"
+    }
   }
 }

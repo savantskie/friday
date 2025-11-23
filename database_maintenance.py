@@ -1289,7 +1289,7 @@ class DatabaseMaintenance:
         duplicate_messages = await self.memory_system.conversations_db.execute_update(dedup_query_messages)
         results["duplicate_messages_removed"] = duplicate_messages
 
-        # Deduplicate curated memories by (content, memory_type, source_conversation_id), keep entry with earliest timestamp_created
+        # Deduplicate curated memories by (content, memory_type, source_conversation_id, memory_bank), keep entry with earliest timestamp_created
         dedup_query_memories = '''
             DELETE FROM curated_memories
             WHERE memory_id NOT IN (
@@ -1302,6 +1302,7 @@ class DatabaseMaintenance:
                         WHERE m2.content = m1.content
                           AND m2.memory_type = m1.memory_type
                           AND (m2.source_conversation_id IS m1.source_conversation_id OR (m2.source_conversation_id IS NULL AND m1.source_conversation_id IS NULL))
+                          AND (m2.memory_bank IS m1.memory_bank OR (m2.memory_bank IS NULL AND m1.memory_bank IS NULL))
                     )
                 )
             )

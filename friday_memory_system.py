@@ -690,7 +690,7 @@ class AIMemoryDatabase(DatabaseManager):
             expected_columns = [
                 'memory_id', 'timestamp_created', 'timestamp_updated', 'source_conversation_id',
                 'source_message_ids', 'memory_type', 'content', 'importance_level', 'tags',
-                'embedding', 'user_id', 'model_id', 'created_at'
+                'embedding', 'user_id', 'model_id', 'memory_bank', 'created_at'
             ]
 
             # --- Check and migrate existing table ---
@@ -702,6 +702,8 @@ class AIMemoryDatabase(DatabaseManager):
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN user_id TEXT")
             if "model_id" not in current_columns:
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
+            if "memory_bank" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN memory_bank TEXT DEFAULT 'General'")
 
             # Detect incomplete schema (older versions)
             needs_migration = False
@@ -729,6 +731,7 @@ class AIMemoryDatabase(DatabaseManager):
                         embedding BLOB,
                         user_id TEXT,
                         model_id TEXT DEFAULT 'Friday',
+                        memory_bank TEXT DEFAULT 'General',
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -763,14 +766,19 @@ class AIMemoryDatabase(DatabaseManager):
                         embedding BLOB,
                         user_id TEXT,
                         model_id TEXT DEFAULT 'Friday',
+                        memory_bank TEXT DEFAULT 'General',
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
-            # Add index for faster lookups
+            # Add indexes for faster lookups
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_curated_memories_user_model
                 ON curated_memories (user_id, model_id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_curated_memories_bank
+                ON curated_memories (memory_bank, importance_level)
             """)
 
             conn.commit()
@@ -783,6 +791,7 @@ class AIMemoryDatabase(DatabaseManager):
         importance_level: int = 5,
         tags: List[str] = None,
         source_conversation_id: str = None,
+        memory_bank: str = "General",
         user_id: str = "",
         model_id: str = "",
     ) -> str:
@@ -795,8 +804,8 @@ class AIMemoryDatabase(DatabaseManager):
         await self.execute_update(
             """INSERT INTO curated_memories 
             (memory_id, timestamp_created, timestamp_updated, source_conversation_id,
-                memory_type, content, importance_level, tags, user_id, model_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                memory_type, content, importance_level, tags, memory_bank, user_id, model_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 memory_id,
                 timestamp,
@@ -806,6 +815,7 @@ class AIMemoryDatabase(DatabaseManager):
                 content,
                 importance_level,
                 json.dumps(tags) if tags else None,
+                memory_bank,
                 user_id,
                 model_id,
             ),
@@ -4903,6 +4913,50 @@ class FridayMemorySystem:
         
         return False
     
+    async def _generate_and_store_embedding(self, memory_id: str, content: str, 
+                                              table: str = "curated_memories",
+                                              db_instance=None) -> bool:
+        """Generate embedding for content and store in database. Awaitable with error handling.
+        
+        Args:
+            memory_id: ID of the memory/record
+            content: Text content to embed
+            table: Database table name
+            db_instance: Database instance (uses ai_memory_db if None)
+        
+        Returns:
+            bool: True if embedding was successfully generated and stored, False otherwise
+        """
+        if db_instance is None:
+            db_instance = self.ai_memory_db
+        
+        try:
+            if not content or not content.strip():
+                logger.warning(f"Empty content for {memory_id}, skipping embedding")
+                return False
+            
+            # Generate embedding
+            embedding = await self.embedding_service.generate_embedding(content)
+            if embedding is None:
+                logger.error(f"Failed to generate embedding for {memory_id}: returned None")
+                return False
+            
+            # Store embedding
+            embedding_blob = np.array(embedding, dtype=np.float32).tobytes()
+            embedding_dim = len(embedding)
+            
+            await db_instance.execute_update(
+                f"UPDATE {table} SET embedding = ?, embedding_dimension = ?, updated_at = ? WHERE memory_id = ?",
+                (embedding_blob, embedding_dim, get_current_timestamp(), memory_id)
+            )
+            
+            logger.debug(f"✅ Successfully stored {embedding_dim}D embedding for {memory_id}")
+            return True
+        
+        except Exception as e:
+            logger.error(f"❌ Error generating/storing embedding for {memory_id}: {e}\n{traceback.format_exc()}")
+            return False
+
     async def _reembed_all_memories(self) -> None:
         """Re-embed all memories in the AI memory database with current embedding config.
         
@@ -4918,7 +4972,7 @@ class FridayMemorySystem:
             
             memories = []
             with sqlite3.connect(str(db_path)) as conn:
-                cursor = conn.execute("SELECT memory_id, content FROM memories")
+                cursor = conn.execute("SELECT memory_id, content FROM curated_memories")
                 memories = cursor.fetchall()
             
             logger.info(f"Found {len(memories)} memories to re-embed")
@@ -4931,29 +4985,22 @@ class FridayMemorySystem:
             reembedded_count = 0
             for memory_id, content in memories:
                 try:
-                    # Generate new embedding with current config
-                    new_embedding = await self.embedding_service.generate_embedding(content)
+                    # Use the new awaitable method for guaranteed completion
+                    success = await self._generate_and_store_embedding(
+                        memory_id=memory_id,
+                        content=content,
+                        table="curated_memories",
+                        db_instance=self.ai_memory_db
+                    )
                     
-                    if new_embedding is not None:
-                        # Store the new embedding
-                        embedding_bytes = new_embedding.tobytes()
-                        embedding_dim = len(new_embedding)
-                        
-                        with sqlite3.connect(str(db_path)) as conn:
-                            conn.execute(
-                                """
-                                UPDATE memories 
-                                SET embedding = ?, embedding_dimension = ?, updated_at = ?
-                                WHERE memory_id = ?
-                                """,
-                                (embedding_bytes, embedding_dim, get_current_timestamp(), memory_id)
-                            )
-                            conn.commit()
-                        
+                    if success:
                         reembedded_count += 1
-                        
-                        if reembedded_count % 50 == 0:
-                            logger.info(f"  Progress: {reembedded_count}/{len(memories)} memories re-embedded")
+                    else:
+                        logger.error(f"Failed to re-embed memory {memory_id}")
+                        continue
+                    
+                    if reembedded_count % 50 == 0:
+                        logger.info(f"  Progress: {reembedded_count}/{len(memories)} memories re-embedded")
                 
                 except Exception as e:
                     logger.error(f"Error re-embedding memory {memory_id}: {e}")
@@ -5671,16 +5718,21 @@ class FridayMemorySystem:
             self.file_monitor.add_watch_directory(directory)
     
     async def get_system_health(self) -> Dict:
-        """Get comprehensive system health and statistics"""
+        """Get comprehensive system health and statistics including CPU, RAM, GPU usage"""
         health_data = {
             "status": "healthy",
             "timestamp": datetime.now(get_local_timezone()).isoformat(),
+            "system_resources": {},
             "databases": {},
             "file_monitoring": {},
             "embedding_service": {}
         }
         
         try:
+            # Get system resource metrics (CPU, RAM, GPU)
+            system_metrics = await self._get_system_metrics()
+            health_data["system_resources"] = system_metrics
+            
             # Check conversations database
             conversations_count = await self.conversations_db.execute_query(
                 "SELECT COUNT(*) as count FROM messages"
@@ -5829,6 +5881,152 @@ class FridayMemorySystem:
         
         return health_data
     
+    async def _get_system_metrics(self) -> Dict:
+        """Get actual system metrics: CPU, RAM, and GPU/VRAM usage"""
+        metrics = {
+            "cpu": {},
+            "memory": {},
+            "gpu": {}
+        }
+        
+        try:
+            import psutil
+            
+            # CPU metrics
+            try:
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                cpu_count = psutil.cpu_count(logical=True)
+                cpu_freq = psutil.cpu_freq()
+                
+                metrics["cpu"] = {
+                    "usage_percent": cpu_percent,
+                    "cores": psutil.cpu_count(logical=False),
+                    "logical_cores": cpu_count,
+                    "frequency_mhz": round(cpu_freq.current) if cpu_freq else None,
+                    "status": "healthy"
+                }
+            except Exception as e:
+                metrics["cpu"]["status"] = "unavailable"
+                metrics["cpu"]["error"] = str(e)
+            
+            # RAM metrics
+            try:
+                ram = psutil.virtual_memory()
+                swap = psutil.swap_memory()
+                
+                metrics["memory"] = {
+                    "ram": {
+                        "total_gb": round(ram.total / (1024**3), 2),
+                        "used_gb": round(ram.used / (1024**3), 2),
+                        "available_gb": round(ram.available / (1024**3), 2),
+                        "usage_percent": ram.percent
+                    },
+                    "swap": {
+                        "total_gb": round(swap.total / (1024**3), 2),
+                        "used_gb": round(swap.used / (1024**3), 2),
+                        "usage_percent": swap.percent
+                    },
+                    "status": "healthy"
+                }
+            except Exception as e:
+                metrics["memory"]["status"] = "unavailable"
+                metrics["memory"]["error"] = str(e)
+            
+            # GPU/VRAM metrics - try NVIDIA first, then AMD
+            gpu_devices = []
+            
+            # Try NVIDIA GPUs (nvidia-smi)
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        if line.strip():
+                            parts = [p.strip() for p in line.split(",")]
+                            if len(parts) >= 5:
+                                gpu_devices.append({
+                                    "type": "NVIDIA",
+                                    "index": int(parts[0]),
+                                    "name": parts[1],
+                                    "memory_total_mb": int(float(parts[2])),
+                                    "memory_used_mb": int(float(parts[3])),
+                                    "memory_used_percent": round(float(parts[3]) / float(parts[2]) * 100, 1),
+                                    "utilization_percent": int(float(parts[4]))
+                                })
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+                pass  # NVIDIA not available, will try AMD
+            
+            # Try AMD GPUs (rocm-smi)
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["rocm-smi", "--json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0:
+                    import json
+                    rocm_data = json.loads(result.stdout)
+                    
+                    # rocm-smi --json returns data keyed by GPU index
+                    for gpu_index in sorted(rocm_data.keys()):
+                        if gpu_index == "system_management_version":
+                            continue  # Skip metadata
+                        
+                        gpu_info = rocm_data[gpu_index]
+                        
+                        # Extract memory info
+                        total_mem = gpu_info.get("gpu_memory_total_mb", 0)
+                        used_mem = gpu_info.get("gpu_memory_used_mb", 0)
+                        mem_percent = (used_mem / total_mem * 100) if total_mem > 0 else 0
+                        
+                        gpu_devices.append({
+                            "type": "AMD",
+                            "index": int(gpu_index),
+                            "name": gpu_info.get("gpu_name", f"AMD GPU {gpu_index}"),
+                            "memory_total_mb": total_mem,
+                            "memory_used_mb": used_mem,
+                            "memory_used_percent": round(mem_percent, 1),
+                            "utilization_percent": gpu_info.get("gpu_utilization", 0),
+                            "temperature_c": gpu_info.get("temperature_edge", None)
+                        })
+            except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+                pass  # AMD ROCm not available
+            
+            # Set GPU status based on what we found
+            if gpu_devices:
+                metrics["gpu"]["devices"] = gpu_devices
+                metrics["gpu"]["status"] = "healthy"
+                nvidia_count = sum(1 for d in gpu_devices if d["type"] == "NVIDIA")
+                amd_count = sum(1 for d in gpu_devices if d["type"] == "AMD")
+                if nvidia_count > 0 and amd_count > 0:
+                    metrics["gpu"]["types"] = f"NVIDIA ({nvidia_count}) + AMD ({amd_count})"
+                elif nvidia_count > 0:
+                    metrics["gpu"]["types"] = f"NVIDIA ({nvidia_count})"
+                elif amd_count > 0:
+                    metrics["gpu"]["types"] = f"AMD ({amd_count})"
+            else:
+                metrics["gpu"]["status"] = "no_devices"
+                metrics["gpu"]["message"] = "No NVIDIA or AMD GPUs detected"
+        
+        except ImportError:
+            logger.warning("psutil not installed, system metrics unavailable")
+            return {
+                "cpu": {"status": "unavailable", "error": "psutil not installed"},
+                "memory": {"status": "unavailable", "error": "psutil not installed"},
+                "gpu": {"status": "unavailable", "error": "psutil not installed"}
+            }
+        
+        return metrics
+    
     # Conversation operations
     async def store_conversation(self, content: str, role: str, session_id: str = None,
                                conversation_id: str = None, metadata: Dict = None, user_id: str = None, model_id: str = None) -> Dict:
@@ -5896,20 +6094,44 @@ class FridayMemorySystem:
     async def create_memory(self, content: str, memory_type: str = None,
                           importance_level: int = 5, tags: List[str] = None,
                           source_conversation_id: str = None, user_id: str = None,
-                          model_id: str = None) -> Dict:
-        """Create a curated memory"""
+                          model_id: str = None, wait_for_embedding: bool = False) -> Dict:
+        """Create a curated memory.
+        
+        Args:
+            wait_for_embedding: If True, waits for embedding to complete before returning.
+                               If False, embeddings are generated in background.
+                               Should be True when called from promotion to ensure embeddings complete.
+        """
         
         memory_id = await self.ai_memory_db.create_memory(
             content, memory_type, importance_level, tags, source_conversation_id,
             user_id=user_id, model_id=model_id
         )
         
-        # Generate and store embedding asynchronously
-        asyncio.create_task(self._add_embedding_to_memory(memory_id, content))
+        if wait_for_embedding:
+            # Wait for embedding to complete (used during promotion)
+            logger.debug(f"Creating memory {memory_id} with guaranteed embedding...")
+            success = await self._generate_and_store_embedding(
+                memory_id=memory_id,
+                content=content,
+                table="curated_memories",
+                db_instance=self.ai_memory_db
+            )
+            if not success:
+                logger.error(f"Failed to generate embedding for promoted memory {memory_id}")
+                return {
+                    "status": "partial_failure",
+                    "memory_id": memory_id,
+                    "embedding_status": "failed"
+                }
+        else:
+            # Generate and store embedding asynchronously (background task)
+            asyncio.create_task(self._add_embedding_to_memory(memory_id, content))
         
         return {
             "status": "success",
-            "memory_id": memory_id
+            "memory_id": memory_id,
+            "embedding_status": "completed" if wait_for_embedding else "background"
         }
     
     async def update_memory(self, memory_id: str, content: str = None,
