@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.8
+version: 0.0.9
 ---
 
 # Overview
@@ -5825,6 +5825,10 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
             existing_memories = []
             if self.valves.deduplicate_memories:
                 existing_memories = await self._get_formatted_memories(user_id)
+                
+                # Clean up accidental duplicate memories from tagging bug
+                # This finds pairs of memories with identical content where one has the embedding tag
+                await self._cleanup_tagged_duplicates(user_id, existing_memories)
 
             logger.debug(f"Processing {len(memories)} memory operations")
 
@@ -6043,6 +6047,88 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
             logger.error(f"Error processing memories: {e}\n{traceback.format_exc()}")
             return []  # Return empty list on major error
 
+    async def _cleanup_tagged_duplicates(
+        self, user_id: str, existing_memories: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Clean up accidental duplicate memories created by the tagging bug.
+        
+        Identifies pairs of memories with identical content where:
+        - Memory A: Has the embedding tag (e.g., __embedding_model:...)
+        - Memory B: Lacks the embedding tag (the original)
+        
+        Keeps the one WITH the tag (has the metadata) and deletes the duplicate.
+        
+        This addresses the historical bug where add_memory() was called twice,
+        creating duplicates during the embedding model tagging process.
+        """
+        try:
+            if not existing_memories or len(existing_memories) < 2:
+                return  # Not enough memories to have duplicates
+            
+            # Get the user object for delete operations
+            user = Users.get_user_by_id(user_id)
+            if not user:
+                logger.warning(f"User not found for cleanup: {user_id}")
+                return
+            
+            # Group memories by their content (ignoring tags for comparison)
+            content_groups = {}
+            for mem in existing_memories:
+                # Strip tags from memory content for comparison
+                mem_content = mem.get("memory", "")
+                clean_content = re.sub(r"\[Tags:.*?\]\s*", "", mem_content).lower().strip()
+                
+                if clean_content not in content_groups:
+                    content_groups[clean_content] = []
+                content_groups[clean_content].append(mem)
+            
+            # Find duplicates and clean them up
+            duplicates_removed = 0
+            for clean_content, mems in content_groups.items():
+                if len(mems) <= 1:
+                    continue  # Not a duplicate group
+                
+                # Sort by: has embedding tag (True first), then by ID (alphabetical)
+                # This puts the tagged version first
+                EMBEDDING_MODEL_TAG_PREFIX = "__embedding_model:"
+                
+                def has_embedding_tag(mem):
+                    tags = mem.get("tags", []) or []
+                    return any(EMBEDDING_MODEL_TAG_PREFIX in str(tag) for tag in tags)
+                
+                sorted_mems = sorted(
+                    mems,
+                    key=lambda m: (not has_embedding_tag(m), m.get("id", ""))
+                )
+                
+                # Keep the first one (tagged version if it exists), delete the rest
+                keeper = sorted_mems[0]
+                duplicates_to_delete = sorted_mems[1:]
+                
+                for dup_mem in duplicates_to_delete:
+                    try:
+                        logger.info(
+                            f"[CLEANUP] Removing duplicate memory: {dup_mem.get('id')} "
+                            f"(content: {clean_content[:50]}...) - keeping {keeper.get('id')} with tags"
+                        )
+                        await delete_memory_by_id(dup_mem.get("id"), user=user)
+                        duplicates_removed += 1
+                    except Exception as e:
+                        logger.warning(
+                            f"[CLEANUP] Failed to delete duplicate memory {dup_mem.get('id')}: {e}"
+                        )
+            
+            if duplicates_removed > 0:
+                logger.info(
+                    f"[CLEANUP] Removed {duplicates_removed} duplicate memories for user {user_id}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Error cleaning up tagged duplicates: {e}\n{traceback.format_exc()}"
+            )
+            # Non-blocking error - continue with deduplication
+
     async def _execute_memory_operation(
         self, operation: MemoryOperation, user: Any
     ) -> None:
@@ -6051,6 +6137,14 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
 
         if operation.operation == "NEW":
             try:
+                # Prepare tags: include operation tags + embedding model tag
+                tags_for_save = list(operation.tags) if operation.tags else []
+                EMBEDDING_MODEL_TAG = self._get_embedding_model_tag()
+                if EMBEDDING_MODEL_TAG not in tags_for_save:
+                    tags_for_save.append(EMBEDDING_MODEL_TAG)
+                
+                logger.debug(f"[DEDUP FIX] Creating NEW memory with tags: {tags_for_save} (included embedding tag in initial save to avoid duplicate add_memory calls)")
+                
                 result = await add_memory(
                     request=Request(
                         scope={"type": "http", "app": webui_app}
@@ -6059,7 +6153,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                     form_data=AddMemoryForm(
                         content=formatted_content,
                         metadata={
-                            "tags": operation.tags,
+                            "tags": tags_for_save,
                             "memory_bank": operation.memory_bank
                             or self.valves.default_memory_bank,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -6067,7 +6161,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         },
                     ),
                 )
-                logger.info(f"NEW memory created: {formatted_content[:50]}...")
+                logger.info(f"NEW memory created (single add_memory call): {formatted_content[:50]}...")
 
                 # Extract memory ID for linking and embedding
                 mem_id = getattr(result, "id", None)
@@ -6137,7 +6231,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         )
 
                 # Generate and cache embedding for new memory with LM Studio
-                # Also tag the memory to indicate it's been embedded
+                # The embedding model tag is now included in initial save, so no second add_memory call needed
                 if mem_id is not None:
                     try:
                         memory_clean = (
@@ -6153,30 +6247,6 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             self.memory_embeddings[mem_id] = memory_embedding
                             if hasattr(self, "embedding_cache"):
                                 self.embedding_cache.put(mem_id, memory_clean, memory_embedding)
-                            
-                            # Add embedding model tag to memory (dynamic based on configuration)
-                            EMBEDDING_MODEL_TAG = self._get_embedding_model_tag()
-                            updated_tags = list(operation.tags) if operation.tags else []
-                            if EMBEDDING_MODEL_TAG not in updated_tags:
-                                updated_tags.append(EMBEDDING_MODEL_TAG)
-                            
-                            # Update memory with embedding tag
-                            if updated_tags != operation.tags:
-                                try:
-                                    await add_memory(
-                                        request=Request(scope={"type": "http", "app": webui_app}),
-                                        user=user,
-                                        form_data=AddMemoryForm(
-                                            content=formatted_content,
-                                            metadata={
-                                                "tags": updated_tags,
-                                                "memory_bank": operation.memory_bank or self.valves.default_memory_bank,
-                                            },
-                                        ),
-                                    )
-                                    logger.debug(f"✓ Tagged new memory {mem_id} with {EMBEDDING_MODEL_TAG}")
-                                except Exception as tag_error:
-                                    logger.debug(f"Could not tag new memory {mem_id}: {tag_error}")
                             
                             logger.debug(
                                 f"Generated and cached embedding for new memory ID: {mem_id}"
