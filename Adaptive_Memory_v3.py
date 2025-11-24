@@ -3026,6 +3026,8 @@ Analyze the following conversation and provide a concise summary.""",
                     try:
                         self.valves = self.Valves(**persisted)
                         logger.info(f"✓ Fell back to persisted valve settings from file")
+                        # Ensure the file stays up-to-date even when loading from it
+                        self._save_persisted_valve_settings(self.valves)
                     except Exception as e:
                         logger.error(f"Error applying persisted settings: {e}")
             
