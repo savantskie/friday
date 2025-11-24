@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.6
+version: 0.0.8
 ---
 
 # Overview
@@ -1628,27 +1628,55 @@ Analyze the following conversation and provide a concise summary.""",
         if not hasattr(self, "config"):
             self.config: Dict[str, Any] = {}
 
+        # --- Attempt to load valves from persisted file first (highest priority for startup) ---
+        persisted_settings = self._load_persisted_valve_settings()
+        if persisted_settings:
+            try:
+                self.valves = self.Valves(**persisted_settings)
+                logger.info("✓ Restored valve settings from persisted file (highest startup priority)")
+            except Exception as e:
+                logger.error(f"Error restoring persisted valve settings: {e}, falling back to defaults")
+                self.valves = self.Valves()
+        
         # --- Attempt to load valves from open_webui.config during init ---
         try:
             logger.info(
                 f"Attempting to load valves from self.config during __init__. self.config content: {getattr(self, 'config', '<Not Set>')}"
             )
-            # Use the config if it exists and has 'valves', otherwise keep defaults from initial self.Valves()
+            # Use the config if it exists and has 'valves', otherwise keep current valves
             loaded_config_valves = getattr(self, "config", {}).get("valves", None)
             if loaded_config_valves is not None:
                 self.valves = self.Valves(**loaded_config_valves)
                 logger.info(
                     "Successfully loaded valves from self.config during __init__"
                 )
+                # Save these settings in case OpenWebUI forgets them later
+                self._save_persisted_valve_settings(self.valves)
             else:
                 logger.info(
-                    "self.config had no 'valves' key during __init__, keeping default valves."
+                    "self.config had no 'valves' key during __init__, keeping current valves."
                 )
         except Exception as e:
             logger.error(
-                f"Error loading valves from self.config during __init__ (using defaults): {e}"
+                f"Error loading valves from self.config during __init__ (using current): {e}"
             )
         # --- End valve loading attempt ---
+
+        # Log initialized valve values (these will be defaults at startup, overridden at first inlet call)
+        logger.info(
+            f"✓ STARTUP VALVE DEFAULTS - "
+            f"max_total_memories={self.valves.max_total_memories}, "
+            f"pruning_strategy={self.valves.pruning_strategy}, "
+            f"top_n_memories={self.valves.top_n_memories}, "
+            f"vector_similarity_threshold={self.valves.vector_similarity_threshold}, "
+            f"use_llm_for_relevance={self.valves.use_llm_for_relevance}, "
+            f"show_memories={self.valves.show_memories}, "
+            f"show_status={self.valves.show_status}"
+        )
+        logger.info(
+            f"ℹ️ NOTE: These are DEFAULTS. When you send your first message, these will be "
+            f"overridden by your custom OpenWebUI valve settings if they've been configured."
+        )
 
         self.stored_memories = None
         self._error_message = (
@@ -1887,6 +1915,71 @@ Analyze the following conversation and provide a concise summary.""",
         
         except Exception as e:
             logger.error(f"Unexpected error in _sync_embedding_config_to_friday: {e}\n{traceback.format_exc()}")
+
+    def _load_persisted_valve_settings(self) -> Optional[Dict[str, Any]]:
+        """
+        Load valve settings from persistent JSON file.
+        
+        This file acts as a backup persistence mechanism when OpenWebUI doesn't properly
+        persist valve settings to its config storage. Allows users to set valves once,
+        have them saved to file, and automatically restored on plugin restart.
+        
+        Returns:
+            Dictionary of valve settings if file exists and is valid, None otherwise.
+        """
+        try:
+            # Use the mounted OpenWebUI data directory where the container has write access
+            valve_config_path = "/app/backend/data/valve_settings.json"
+            
+            if not os.path.exists(valve_config_path):
+                logger.debug(f"No persisted valve settings found at {valve_config_path}")
+                return None
+            
+            with open(valve_config_path, 'r') as f:
+                settings = json.load(f)
+            
+            logger.info(f"✓ Loaded persisted valve settings from {valve_config_path}")
+            logger.debug(f"  Loaded settings: {list(settings.keys())}")
+            return settings
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in valve_settings.json: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error loading persisted valve settings: {e}")
+            return None
+
+    def _save_persisted_valve_settings(self, valves: 'Filter.Valves') -> bool:
+        """
+        Save current valve settings to persistent JSON file.
+        
+        This provides a workaround for OpenWebUI's config persistence issues.
+        Whenever valves are loaded or changed, they're saved to this file as backup.
+        
+        Args:
+            valves: The Valves object to persist
+            
+        Returns:
+            True if save was successful, False otherwise.
+        """
+        try:
+            # Use the mounted OpenWebUI data directory where the container has write access
+            valve_config_path = "/app/backend/data/valve_settings.json"
+            
+            # Convert Pydantic model to dict
+            valve_dict = valves.model_dump()
+            
+            os.makedirs(os.path.dirname(valve_config_path), exist_ok=True)
+            
+            with open(valve_config_path, 'w') as f:
+                json.dump(valve_dict, f, indent=2)
+            
+            logger.info(f"✓ Persisted valve settings to {valve_config_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving persisted valve settings: {e}")
+            return False
 
     def _get_embedding_model_tag(self) -> str:
         """Generate embedding model metadata tag based on configuration.
@@ -2909,16 +3002,43 @@ Analyze the following conversation and provide a concise summary.""",
         # Load valves early, handle potential errors
         try:
             # Reload global valves if OWUI injected config exists; otherwise keep current valves
+            # DEBUG: First, check if self.config attribute even exists and what it contains
+            has_config = hasattr(self, "config")
+            config_object = getattr(self, "config", None)
+            logger.debug(f"DEBUG valve loading - hasattr(self, 'config')={has_config}, config type={type(config_object)}, config keys={list(config_object.keys()) if isinstance(config_object, dict) else 'N/A'}")
+            
             loaded_config_valves = getattr(self, "config", {}).get("valves", None)
             if loaded_config_valves is not None:
+                logger.info(f"✓ Valves reloaded from open_webui.config - loaded_config_valves type={type(loaded_config_valves)}, keys={list(loaded_config_valves.keys()) if isinstance(loaded_config_valves, dict) else 'N/A'}")
                 self.valves = self.Valves(**loaded_config_valves)
-                logger.debug(
-                    f"✓ Valves reloaded from open_webui.config. vector_similarity_threshold={self.valves.vector_similarity_threshold}, top_n_memories={self.valves.top_n_memories}"
+                logger.info(
+                    f"✓ Valves successfully applied"
                 )
+                # BACKUP: Save to file in case OpenWebUI forgets these settings later
+                self._save_persisted_valve_settings(self.valves)
             else:
-                logger.debug(
-                    f"✓ Using current valves (config not set). vector_similarity_threshold={self.valves.vector_similarity_threshold}, top_n_memories={self.valves.top_n_memories}"
+                logger.info(
+                    f"⚠️ OpenWebUI did NOT inject valve config (self.config['valves'] is None/missing). Using current valves."
                 )
+                # Check if we have persisted settings to fall back to
+                persisted = self._load_persisted_valve_settings()
+                if persisted:
+                    try:
+                        self.valves = self.Valves(**persisted)
+                        logger.info(f"✓ Fell back to persisted valve settings from file")
+                    except Exception as e:
+                        logger.error(f"Error applying persisted settings: {e}")
+            
+            # Log critical valve values so user can verify settings are loaded
+            logger.info(
+                f"📋 VALVE STATUS - "
+                f"max_total_memories={self.valves.max_total_memories}, "
+                f"pruning_strategy={self.valves.pruning_strategy}, "
+                f"top_n_memories={self.valves.top_n_memories}, "
+                f"vector_similarity_threshold={self.valves.vector_similarity_threshold}, "
+                f"show_memories={self.valves.show_memories}, "
+                f"show_status={self.valves.show_status}"
+            )
             
             # SYNC: After valves are loaded, sync embedding config to Friday Memory System
             # This ensures both short-term and long-term memory use the same embedding model/dimension
@@ -4431,13 +4551,18 @@ Rate the relevance of EACH memory to the current user message."""
                                 None
                             )
                             
+                            promotion_verified = False
+                            promoted_friday_id = None
+                            
                             if memory_to_promote and FRIDAY_MEMORY_SYSTEM_AVAILABLE:
                                 try:
                                     memory_content = memory_to_promote.get("memory", "")
                                     if memory_content:
                                         from friday_memory_system import FridayMemorySystem
                                         memory_system = FridayMemorySystem()
-                                        await memory_system.create_memory(
+                                        
+                                        # Step 1: Promote to Friday
+                                        promoted_friday_id = await memory_system.create_memory(
                                             content=memory_content,
                                             importance_level=5,  # Default importance for pruned memories
                                             memory_type="archived",
@@ -4445,24 +4570,61 @@ Rate the relevance of EACH memory to the current user message."""
                                             tags=["promoted", "pruned", "archived"],
                                         )
                                         logger.debug(
-                                            f"Successfully promoted memory {memory_id_to_delete} to Friday Memory System before pruning"
+                                            f"Memory promotion returned ID: {promoted_friday_id}"
                                         )
+                                        
+                                        # Step 2: VERIFY promotion in Friday database
+                                        if promoted_friday_id:
+                                            try:
+                                                verify_result = await memory_system.ai_memory_db.execute_query(
+                                                    "SELECT memory_id FROM curated_memories WHERE memory_id = ?",
+                                                    (promoted_friday_id,)
+                                                )
+                                                if verify_result:
+                                                    promotion_verified = True
+                                                    logger.info(
+                                                        f"✅ VERIFIED: Memory {promoted_friday_id} confirmed in Friday Database"
+                                                    )
+                                                else:
+                                                    logger.warning(
+                                                        f"❌ VERIFICATION FAILED: Memory {promoted_friday_id} not found in Friday Database after promotion"
+                                                    )
+                                            except Exception as verify_error:
+                                                logger.error(
+                                                    f"Error verifying promotion in Friday Database: {verify_error}"
+                                                )
+                                        else:
+                                            logger.warning(
+                                                f"Promotion returned no memory_id for {memory_id_to_delete}"
+                                            )
                                 except Exception as promote_error:
-                                    logger.warning(
-                                        f"Could not promote memory {memory_id_to_delete} to Friday Memory System: {promote_error}"
+                                    logger.error(
+                                        f"Error promoting memory {memory_id_to_delete} to Friday Memory System: {promote_error}\n{traceback.format_exc()}"
                                     )
                             
-                            # Now delete the memory from OpenWebUI
-                            delete_op = MemoryOperation(
-                                operation="DELETE", id=memory_id_to_delete
-                            )
-                            await self._execute_memory_operation(delete_op, user)
-                            pruned_count += 1
+                            # Step 3: DELETE from OpenWebUI only if promotion was verified
+                            # OR if Friday system is not available (fallback to normal pruning)
+                            should_delete = promotion_verified or not FRIDAY_MEMORY_SYSTEM_AVAILABLE
+                            
+                            if should_delete:
+                                delete_op = MemoryOperation(
+                                    operation="DELETE", id=memory_id_to_delete
+                                )
+                                await self._execute_memory_operation(delete_op, user)
+                                pruned_count += 1
+                                if promotion_verified:
+                                    logger.info(
+                                        f"Deleted {memory_id_to_delete} from OpenWebUI (verified in Friday: {promoted_friday_id})"
+                                    )
+                            else:
+                                logger.warning(
+                                    f"⚠️ SKIPPED DELETION: Memory {memory_id_to_delete} promotion not verified. Keeping in OpenWebUI for safety."
+                                )
                         except Exception as e:
                             logger.error(
-                                f"Error pruning memory {memory_id_to_delete}: {e}"
+                                f"Error pruning memory {memory_id_to_delete}: {e}\n{traceback.format_exc()}"
                             )
-                    logger.info(f"Successfully pruned {pruned_count} memories.")
+                    logger.info(f"Successfully pruned {pruned_count} memories (with verification).")
                 else:
                     logger.warning(
                         "Pruning needed but no memory IDs identified for deletion."
