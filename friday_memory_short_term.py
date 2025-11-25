@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.9
+version: 0.0.10
 ---
 
 # Overview
