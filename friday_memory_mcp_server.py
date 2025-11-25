@@ -607,11 +607,17 @@ class FridayMemoryMCPServer:
 
 
 
-    async def get_reminders(self, limit=5, include_completed=False, days_ahead=30) -> Dict:
+    async def get_reminders(self, limit=5, include_completed=False, days_ahead=30, user_id=None, model_id=None) -> Dict:
         try:
+            # Set defaults for mandatory user/model tracking
+            if not user_id:
+                user_id = "Nate"
+            if not model_id:
+                model_id = "Friday"
+            
             if include_completed:
                 # For completed reminders, use memory system's method
-                result = await self.memory_system.get_completed_reminders(days=days_ahead)
+                result = await self.memory_system.get_completed_reminders(days=days_ahead, user_id=user_id, model_id=model_id)
                 if result["status"] == "success":
                     return {
                         "success": True,
@@ -627,7 +633,7 @@ class FridayMemoryMCPServer:
                     }
             else:
                 # For active reminders, use memory system's method
-                result = await self.memory_system.get_active_reminders(limit=limit, days_ahead=days_ahead)
+                result = await self.memory_system.get_active_reminders(limit=limit, days_ahead=days_ahead, user_id=user_id, model_id=model_id)
                 if result["status"] == "success":
                     return {
                         "success": True,
@@ -742,7 +748,9 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "reminder_id": {"type": "string", "description": "ID of the reminder to complete"}
+                        "reminder_id": {"type": "string", "description": "ID of the reminder to complete"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["reminder_id"]
                 }
@@ -754,7 +762,9 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of reminders to return", "default": 10},
-                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30}
+                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -796,7 +806,9 @@ class FridayMemoryMCPServer:
                         "query": {"type": "string", "description": "Search query"},
                         "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
                         "country": {"type": "string", "description": "Country code (e.g., 'US', 'CA')", "default": "US"},
-                        "language": {"type": "string", "description": "Language code (e.g., 'en', 'es')", "default": "en"}
+                        "language": {"type": "string", "description": "Language code (e.g., 'en', 'es')", "default": "en"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["query"]
                 }
@@ -810,7 +822,9 @@ class FridayMemoryMCPServer:
                         "query": {"type": "string", "description": "Search query (e.g., 'pizza near me')"},
                         "location": {"type": "string", "description": "Location to search around (e.g., 'New York, NY' or coordinates)"},
                         "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
-                        "radius": {"type": "integer", "description": "Search radius in meters", "default": 5000}
+                        "radius": {"type": "integer", "description": "Search radius in meters", "default": 5000},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["query"]
                 }
@@ -821,7 +835,9 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "days": {"type": "integer", "description": "Look back X days", "default": 7}
+                        "days": {"type": "integer", "description": "Look back X days", "default": 7},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -832,7 +848,9 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "reminder_id": {"type": "string", "description": "ID of the reminder"},
-                        "new_due_datetime": {"type": "string", "description": "New ISO datetime (e.g., 2025-08-03T14:00:00Z)"}
+                        "new_due_datetime": {"type": "string", "description": "New ISO datetime (e.g., 2025-08-03T14:00:00Z)"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["reminder_id", "new_due_datetime"]
                 }
@@ -843,7 +861,9 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "reminder_id": {"type": "string", "description": "ID of the reminder to delete"}
+                        "reminder_id": {"type": "string", "description": "ID of the reminder to delete"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["reminder_id"]
                 }
@@ -854,7 +874,9 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "appointment_id": {"type": "string", "description": "ID of the appointment to cancel"}
+                        "appointment_id": {"type": "string", "description": "ID of the appointment to cancel"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["appointment_id"]
                 }
@@ -865,7 +887,9 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "appointment_id": {"type": "string", "description": "ID of the appointment to complete"}
+                        "appointment_id": {"type": "string", "description": "ID of the appointment to complete"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["appointment_id"]
                 }
@@ -877,7 +901,9 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number to return", "default": 5},
-                        "days_ahead": {"type": "integer", "description": "Only show within X days", "default": 30}
+                        "days_ahead": {"type": "integer", "description": "Only show within X days", "default": 30},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -894,7 +920,9 @@ class FridayMemoryMCPServer:
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
                         "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
-                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search)"}
+                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search)"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "anyOf": [
                         {"required": ["query"]},
@@ -911,7 +939,9 @@ class FridayMemoryMCPServer:
                         "content": {"type": "string", "description": "Conversation content"},
                         "role": {"type": "string", "description": "Role (user/assistant)"},
                         "session_id": {"type": "string", "description": "Session identifier"},
-                        "metadata": {"type": "object", "description": "Additional metadata"}
+                        "metadata": {"type": "object", "description": "Additional metadata"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["content", "role"]
                 }
@@ -943,7 +973,9 @@ class FridayMemoryMCPServer:
                         "memory_id": {"type": "string", "description": "Memory ID to update"},
                         "content": {"type": "string", "description": "Updated content"},
                         "importance_level": {"type": "integer", "description": "Updated importance"},
-                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"}
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["memory_id"]
                 }
@@ -1005,7 +1037,9 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of reminders to return", "default": 5},
                         "include_completed": {"type": "boolean", "description": "Include completed reminders", "default": False},
-                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30}
+                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -1017,7 +1051,9 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of recent items", "default": 5},
                         "session_id": {"type": "string", "description": "Specific session ID"},
-                        "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7}
+                        "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -1153,6 +1189,18 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {},
+                    "additionalProperties": False
+                }
+            )
+            ,
+            Tool(
+                name="trigger_database_maintenance",
+                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 24-hour schedule",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True}
+                    },
                     "additionalProperties": False
                 }
             )
@@ -1454,9 +1502,11 @@ class FridayMemoryMCPServer:
         # ---------------------------------------------------------------------
         # Context Setup
         # ---------------------------------------------------------------------
+        # Extract user_id and model_id from context or arguments, with proper defaults
         user_id = (
             self.client_context.get("user_id")
             or arguments.get("user_id")
+            or "Nate"
         )
         model_id = (
             self.client_context.get("model_id")
@@ -1581,17 +1631,29 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.complete_appointment(**filtered_args))
             elif tool_name == "get_appointments":
                 # get_appointments accepts: limit, days_ahead, user_id, model_id
+                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # Only apply model_id default if model_id not explicitly provided as blank
+                if "model_id" not in arguments or arguments.get("model_id"):
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
+                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
+                    filtered_args.pop("model_id", None)  # Remove to query all models
                 result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
             elif tool_name == "get_upcoming_appointments":
                 # get_upcoming_appointments accepts: limit, days_ahead, user_id, model_id
+                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # Only apply model_id default if model_id not explicitly provided as blank
+                if "model_id" not in arguments or arguments.get("model_id"):
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
+                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
+                    filtered_args.pop("model_id", None)  # Remove to query all models
                 result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
             elif tool_name == "create_reminder":
                 # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
@@ -1614,17 +1676,29 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.complete_reminder(**filtered_args))
             elif tool_name == "get_active_reminders":
                 # get_active_reminders accepts: limit, days_ahead, user_id, model_id
+                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # Only apply model_id default if model_id not explicitly provided as blank
+                if "model_id" not in arguments or arguments.get("model_id"):
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
+                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
+                    filtered_args.pop("model_id", None)  # Remove to query all models
                 result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
             elif tool_name == "get_completed_reminders":
                 # get_completed_reminders accepts: days, user_id, model_id
+                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"days", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # Only apply model_id default if model_id not explicitly provided as blank
+                if "model_id" not in arguments or arguments.get("model_id"):
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
+                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
+                    filtered_args.pop("model_id", None)  # Remove to query all models
                 result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
             elif tool_name == "delete_reminder":
                 # delete_reminder accepts: reminder_id, user_id, model_id
@@ -1634,7 +1708,18 @@ class FridayMemoryMCPServer:
                 filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
                 result = await self._protected_tool_call(self.memory_system.delete_reminder(**filtered_args))
             elif tool_name == "get_reminders":
-                result = await self.get_reminders(**arguments)
+                # get_reminders accepts: limit, include_completed, days_ahead, user_id, model_id
+                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
+                allowed_args = {"limit", "include_completed", "days_ahead", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
+                # Only apply model_id default if model_id not explicitly provided as blank
+                if "model_id" not in arguments or arguments.get("model_id"):
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
+                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
+                    filtered_args.pop("model_id", None)  # Remove to query all models
+                result = await self.get_reminders(**filtered_args)
 
             # -----------------------------------------------------------------
             # Weather Tools (keep the override guard exactly as before)
@@ -1762,6 +1847,29 @@ class FridayMemoryMCPServer:
             # -----------------------------------------------------------------
             elif tool_name == "get_current_time":
                 result = await self.get_current_time_tool()
+
+            elif tool_name == "trigger_database_maintenance":
+                force = arguments.get("force", True)
+                logger.info(f"Database maintenance triggered manually (force={force})")
+                
+                try:
+                    await self.memory_system.db_maintenance.run_maintenance(force=force)
+                    result = {
+                        "status": "success",
+                        "message": "Database maintenance completed successfully",
+                        "details": {
+                            "archival": "Completed (session-based grouping applied)",
+                            "repairs": "Completed (archive links checked and repaired)",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    }
+                except Exception as e:
+                    logger.error(f"Error running database maintenance: {e}\n{traceback.format_exc()}")
+                    result = {
+                        "status": "error",
+                        "message": f"Database maintenance failed: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
+                    }
 
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")

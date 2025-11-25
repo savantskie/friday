@@ -431,39 +431,36 @@ class ConversationDatabase(DatabaseManager):
         }
     
     async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7, user_id: str = None, model_id: str = None) -> List[Dict]:
-        """Get recent messages, optionally filtered by session and within specified days"""
+        """Get recent messages, optionally filtered by session and within specified days.
+        If model_id is None, queries all models for that user (cross-model fallback).
+        """
         
-        # Set defaults for mandatory user/model tracking
+        # Set defaults for user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         # Calculate cutoff date
         from datetime import datetime, timedelta
         cutoff_date = datetime.now() - timedelta(days=days_back)
         cutoff_timestamp = cutoff_date.isoformat()
         
-        if session_id:
-            query = """
-                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
-                FROM messages m 
-                JOIN conversations c ON m.conversation_id = c.conversation_id
-                WHERE c.session_id = ? AND m.timestamp >= ? AND c.user_id = ? AND c.model_id = ?
-                ORDER BY m.timestamp DESC 
-                LIMIT ?
-            """
-            params = (session_id, cutoff_timestamp, user_id, model_id, limit)
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            if session_id:
+                query = "SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id FROM messages m JOIN conversations c ON m.conversation_id = c.conversation_id WHERE c.session_id = ? AND m.timestamp >= ? AND c.user_id = ? AND c.model_id = ? ORDER BY m.timestamp DESC LIMIT ?"
+                params = (session_id, cutoff_timestamp, user_id, model_id, limit)
+            else:
+                query = "SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id FROM messages m JOIN conversations c ON m.conversation_id = c.conversation_id WHERE m.timestamp >= ? AND c.user_id = ? AND c.model_id = ? ORDER BY m.timestamp DESC LIMIT ?"
+                params = (cutoff_timestamp, user_id, model_id, limit)
         else:
-            query = """
-                SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id 
-                FROM messages m 
-                JOIN conversations c ON m.conversation_id = c.conversation_id
-                WHERE m.timestamp >= ? AND c.user_id = ? AND c.model_id = ?
-                ORDER BY m.timestamp DESC 
-                LIMIT ?
-            """
-            params = (cutoff_timestamp, user_id, model_id, limit)
+            # Query all models for this user
+            if session_id:
+                query = "SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id FROM messages m JOIN conversations c ON m.conversation_id = c.conversation_id WHERE c.session_id = ? AND m.timestamp >= ? AND c.user_id = ? ORDER BY m.timestamp DESC LIMIT ?"
+                params = (session_id, cutoff_timestamp, user_id, limit)
+            else:
+                query = "SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id FROM messages m JOIN conversations c ON m.conversation_id = c.conversation_id WHERE m.timestamp >= ? AND c.user_id = ? ORDER BY m.timestamp DESC LIMIT ?"
+                params = (cutoff_timestamp, user_id, limit)
         
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
@@ -910,13 +907,15 @@ class AIMemoryDatabase(DatabaseManager):
 
 class ScheduleDatabase(DatabaseManager):
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
-        """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds."""
+        """Get upcoming appointments (today onward), normalizing mixed datetime types to epoch seconds.
         
-        # Set defaults for mandatory user/model tracking
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all appointments scheduled for today
@@ -926,29 +925,56 @@ class ScheduleDatabase(DatabaseManager):
         future_epoch = int(future.timestamp())
         
         try:
-            query = """
-                SELECT *
-                FROM appointments
-                WHERE user_id = ?
-                AND model_id = ?
-                AND
-                    CASE
-                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                    END >= ?
-                AND
-                    CASE
-                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                    END <= ?
-                ORDER BY
-                    CASE
-                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                    END ASC
-                LIMIT ?
-            """
-            rows = await self.execute_query(query, (user_id, model_id, start_of_today_epoch, future_epoch, limit))
+            # Build query based on whether model_id filtering is requested
+            if model_id is not None:
+                # Filter by specific model (even if empty string)
+                query = """
+                    SELECT *
+                    FROM appointments
+                    WHERE user_id = ?
+                    AND model_id = ?
+                    AND
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END >= ?
+                    AND
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END <= ?
+                    ORDER BY
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END ASC
+                    LIMIT ?
+                """
+                rows = await self.execute_query(query, (user_id, model_id, start_of_today_epoch, future_epoch, limit))
+            else:
+                # Query all models for this user
+                query = """
+                    SELECT *
+                    FROM appointments
+                    WHERE user_id = ?
+                    AND
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END >= ?
+                    AND
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END <= ?
+                    ORDER BY
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END ASC
+                    LIMIT ?
+                """
+                rows = await self.execute_query(query, (user_id, start_of_today_epoch, future_epoch, limit))
             
             if not rows:
                 return {
@@ -5114,22 +5140,34 @@ class FridayMemorySystem:
 
 
     async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
-        """Get active (not completed) reminders within the next X days"""
+        """Get active (not completed) reminders within the next X days.
         
-        # Set defaults for mandatory user/model tracking
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all reminders due today
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         cutoff = (now + timedelta(days=days_ahead)).isoformat()
-        rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? AND model_id = ? ORDER BY due_datetime LIMIT ?",
-            (start_of_today, cutoff, user_id, model_id, limit)
-        )
+        
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? AND model_id = ? ORDER BY due_datetime LIMIT ?",
+                (start_of_today, cutoff, user_id, model_id, limit)
+            )
+        else:
+            # Query all models for this user
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? ORDER BY due_datetime LIMIT ?",
+                (start_of_today, cutoff, user_id, limit)
+            )
         
         if not rows:
             return {
@@ -5153,19 +5191,31 @@ class FridayMemorySystem:
         }
 
     async def get_completed_reminders(self, days: int = 7, user_id: str = None, model_id: str = None) -> Dict:
-        """Get recently completed reminders"""
+        """Get recently completed reminders.
         
-        # Set defaults for mandatory user/model tracking
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
-        rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? AND model_id = ? ORDER BY completed_at DESC",
-            (cutoff, user_id, model_id)
-        )
+        
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? AND model_id = ? ORDER BY completed_at DESC",
+                (cutoff, user_id, model_id)
+            )
+        else:
+            # Query all models for this user
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? ORDER BY completed_at DESC",
+                (cutoff, user_id)
+            )
         
         if not rows:
             return {
@@ -5260,38 +5310,65 @@ class FridayMemorySystem:
             return {"status": "error", "message": "Appointment not found"}
 
     async def get_upcoming_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
-        """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes."""
+        """Get upcoming appointments (not cancelled), today onward. Handles ISO-text and integer-epoch datetimes.
         
-        # Set defaults for mandatory user/model tracking
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         now_local = datetime.now(get_local_timezone())
         cutoff_local = now_local + timedelta(days=days_ahead)
         now_epoch = int(now_local.timestamp())
         cutoff_epoch = int(cutoff_local.timestamp())
-        query = """
-            SELECT *
-            FROM appointments
-            WHERE status != 'cancelled'
-            AND user_id = ?
-            AND model_id = ?
-            AND (
+        
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            query = """
+                SELECT *
+                FROM appointments
+                WHERE status != 'cancelled'
+                AND user_id = ?
+                AND model_id = ?
+                AND (
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END
+                ) BETWEEN ? AND ?
+                ORDER BY
                     CASE
                         WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
                         ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                    END
-            ) BETWEEN ? AND ?
-            ORDER BY
-                CASE
-                    WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
-                    ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
-                END ASC
-            LIMIT ?
-        """
-        rows = await self.schedule_db.execute_query(query, (user_id, model_id, now_epoch, cutoff_epoch, limit))
+                    END ASC
+                LIMIT ?
+            """
+            rows = await self.schedule_db.execute_query(query, (user_id, model_id, now_epoch, cutoff_epoch, limit))
+        else:
+            # Query all models for this user
+            query = """
+                SELECT *
+                FROM appointments
+                WHERE status != 'cancelled'
+                AND user_id = ?
+                AND (
+                        CASE
+                            WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                            ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                        END
+                ) BETWEEN ? AND ?
+                ORDER BY
+                    CASE
+                        WHEN typeof(scheduled_datetime) = 'integer' THEN scheduled_datetime
+                        ELSE CAST(strftime('%s', scheduled_datetime) AS INTEGER)
+                    END ASC
+                LIMIT ?
+            """
+            rows = await self.schedule_db.execute_query(query, (user_id, now_epoch, cutoff_epoch, limit))
         
         if not rows:
             return {
@@ -6093,11 +6170,14 @@ class FridayMemorySystem:
     # AI Memory operations
     async def create_memory(self, content: str, memory_type: str = None,
                           importance_level: int = 5, tags: List[str] = None,
-                          source_conversation_id: str = None, user_id: str = None,
-                          model_id: str = None, wait_for_embedding: bool = False) -> Dict:
+                          source_conversation_id: str = None, memory_bank: str = "General",
+                          user_id: str = None, model_id: str = None, wait_for_embedding: bool = False) -> Dict:
         """Create a curated memory.
         
         Args:
+            memory_bank: Category for memory (General, Personal, Work, Context, Tasks)
+            user_id: User identifier
+            model_id: Model identifier
             wait_for_embedding: If True, waits for embedding to complete before returning.
                                If False, embeddings are generated in background.
                                Should be True when called from promotion to ensure embeddings complete.
@@ -6105,7 +6185,7 @@ class FridayMemorySystem:
         
         memory_id = await self.ai_memory_db.create_memory(
             content, memory_type, importance_level, tags, source_conversation_id,
-            user_id=user_id, model_id=model_id
+            memory_bank=memory_bank, user_id=user_id, model_id=model_id
         )
         
         if wait_for_embedding:
@@ -6501,12 +6581,25 @@ class FridayMemorySystem:
             "message": "Code context linked successfully"
         }
     
-    async def get_project_continuity(self, workspace_path: str = None, limit: int = 5) -> Dict:
-        """Get project continuity context"""
+    async def get_project_continuity(self, workspace_path: str = None, limit: int = 5, include_archives: bool = False) -> Dict:
+        """Get project continuity context from active and optionally archived databases.
+        
+        Args:
+            workspace_path: Optional workspace path to filter sessions. If provided, only sessions 
+                          from that workspace are returned (for VS Code isolation).
+            limit: Maximum number of items to return per category
+            include_archives: If True, also query archived databases and merge with active results
+        
+        Design notes:
+            - Sessions are workspace-scoped (only return sessions for the specified workspace)
+            - Conversations/insights are stored globally (Friday needs access without project context)
+            - Both are preserved as-is in active database for VS Code scope isolation
+            - Archives are full database dumps by date, preserving all relationships
+        """
         
         continuity_data = {}
         
-        # Get recent project sessions
+        # Get recent project sessions (workspace-scoped)
         if workspace_path:
             session_query = """
                 SELECT * FROM project_sessions 
@@ -6526,7 +6619,7 @@ class FridayMemorySystem:
         sessions = await self.vscode_db.execute_query(session_query, params)
         continuity_data["recent_sessions"] = [dict(row) for row in sessions]
         
-        # Get recent development conversations
+        # Get recent development conversations (global, not workspace-scoped)
         recent_conversations = await self.vscode_db.execute_query(
             """SELECT * FROM development_conversations 
                ORDER BY timestamp DESC 
@@ -6535,7 +6628,7 @@ class FridayMemorySystem:
         )
         continuity_data["recent_conversations"] = [dict(row) for row in recent_conversations]
         
-        # Get high-importance insights
+        # Get high-importance insights (global, not workspace-scoped)
         important_insights = await self.vscode_db.execute_query(
             """SELECT * FROM project_insights 
                WHERE importance_level >= 7 
@@ -6545,7 +6638,7 @@ class FridayMemorySystem:
         )
         continuity_data["important_insights"] = [dict(row) for row in important_insights]
         
-        # Get recent code context
+        # Get recent code context (workspace-scoped via session relationship)
         recent_context = await self.vscode_db.execute_query(
             """SELECT * FROM code_context 
                ORDER BY timestamp DESC 
@@ -6554,12 +6647,250 @@ class FridayMemorySystem:
         )
         continuity_data["recent_code_context"] = [dict(row) for row in recent_context]
         
+        # If requested, merge archived results with active database results
+        if include_archives:
+            try:
+                archived_data = await self._query_vscode_archives(workspace_path, limit)
+                
+                # Merge and re-sort by timestamp (active takes priority in case of duplicates)
+                all_sessions = continuity_data["recent_sessions"] + archived_data["recent_sessions"]
+                all_conversations = continuity_data["recent_conversations"] + archived_data["recent_conversations"]
+                all_insights = continuity_data["recent_insights"] + archived_data["recent_insights"]
+                all_code_context = continuity_data["recent_code_context"] + archived_data["recent_code_context"]
+                
+                # Re-sort merged lists and keep top N unique items
+                # Use dict to eliminate duplicates by ID (session_id, conversation_id, etc)
+                seen_sessions = {}
+                for s in all_sessions:
+                    if s.get("session_id") not in seen_sessions:
+                        seen_sessions[s["session_id"]] = s
+                continuity_data["recent_sessions"] = sorted(
+                    seen_sessions.values(),
+                    key=lambda x: x.get("start_timestamp", ""),
+                    reverse=True
+                )[:limit]
+                
+                # For conversations/insights/code_context, no unique ID enforced, just take top N
+                continuity_data["recent_conversations"] = sorted(
+                    all_conversations,
+                    key=lambda x: x.get("timestamp", ""),
+                    reverse=True
+                )[:limit]
+                
+                continuity_data["recent_insights"] = sorted(
+                    all_insights,
+                    key=lambda x: x.get("timestamp_updated", ""),
+                    reverse=True
+                )[:limit]
+                
+                continuity_data["recent_code_context"] = sorted(
+                    all_code_context,
+                    key=lambda x: x.get("timestamp", ""),
+                    reverse=True
+                )[:limit]
+                
+            except Exception as e:
+                logger.error(f"Error querying archives in get_project_continuity: {e}")
+                # Continue without archives if there's an error
+        
         return {
             "status": "success",
             "workspace_path": workspace_path,
-            "continuity_data": continuity_data
+            "continuity_data": continuity_data,
+            "includes_archives": include_archives
         }
     
+    async def _query_vscode_archives(self, workspace_path: str = None, limit: int = 5) -> Dict:
+        """Query archived vscode_project databases and return merged results.
+        
+        Archives are stored in memory_data/archives/ with naming pattern: vscode_project_YYYYMM.db
+        This method opens archived databases, queries them with the same filters, and merges results
+        while preserving original timestamps for proper ordering.
+        
+        Returns a dict with the same structure as get_project_continuity's continuity_data.
+        """
+        import sqlite3
+        from pathlib import Path
+        
+        archive_dir = self.data_dir / "archives"
+        if not archive_dir.exists():
+            logger.debug(f"Archive directory not found: {archive_dir}")
+            return {
+                "recent_sessions": [],
+                "recent_conversations": [],
+                "recent_insights": [],
+                "recent_code_context": []
+            }
+        
+        archive_data = {
+            "recent_sessions": [],
+            "recent_conversations": [],
+            "recent_insights": [],
+            "recent_code_context": []
+        }
+        
+        # Find all vscode_project_*.db archive files
+        vscode_archives = sorted(
+            archive_dir.glob("vscode_project_*.db"),
+            reverse=True  # Newest first
+        )
+        
+        if not vscode_archives:
+            logger.debug("No vscode_project archives found")
+            return archive_data
+        
+        logger.debug(f"Found {len(vscode_archives)} vscode_project archives to query")
+        
+        # Query each archive (newest first for efficiency)
+        for archive_path in vscode_archives:
+            try:
+                conn = sqlite3.connect(str(archive_path))
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # Query sessions (workspace-scoped if needed)
+                if workspace_path:
+                    cursor.execute(
+                        "SELECT * FROM project_sessions WHERE workspace_path = ? ORDER BY start_timestamp DESC LIMIT ?",
+                        (workspace_path, limit)
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM project_sessions ORDER BY start_timestamp DESC LIMIT ?",
+                        (limit,)
+                    )
+                archive_data["recent_sessions"].extend([dict(row) for row in cursor.fetchall()])
+                
+                # Query conversations (global)
+                cursor.execute(
+                    "SELECT * FROM development_conversations ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                )
+                archive_data["recent_conversations"].extend([dict(row) for row in cursor.fetchall()])
+                
+                # Query insights (global, importance >= 7)
+                cursor.execute(
+                    "SELECT * FROM project_insights WHERE importance_level >= 7 ORDER BY timestamp_updated DESC LIMIT ?",
+                    (limit,)
+                )
+                archive_data["recent_insights"].extend([dict(row) for row in cursor.fetchall()])
+                
+                # Query code context
+                cursor.execute(
+                    "SELECT * FROM code_context ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                )
+                archive_data["recent_code_context"].extend([dict(row) for row in cursor.fetchall()])
+                
+                conn.close()
+                
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Could not query archive {archive_path.name}: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error querying archive {archive_path.name}: {e}")
+                continue
+        
+        # Sort merged results by timestamp (preserving archive data)
+        archive_data["recent_sessions"].sort(
+            key=lambda x: x.get("start_timestamp", ""),
+            reverse=True
+        )
+        archive_data["recent_conversations"].sort(
+            key=lambda x: x.get("timestamp", ""),
+            reverse=True
+        )
+        archive_data["recent_insights"].sort(
+            key=lambda x: x.get("timestamp_updated", ""),
+            reverse=True
+        )
+        archive_data["recent_code_context"].sort(
+            key=lambda x: x.get("timestamp", ""),
+            reverse=True
+        )
+        
+        return archive_data
+
+    async def _diagnose_archive_links(self, archive_name: str = None) -> Dict:
+        """Diagnostic method to check link validity in archives.
+        
+        This helps identify whether session_id foreign key relationships are preserved
+        during the archival/dump process. 
+        
+        Args:
+            archive_name: Specific archive to check (e.g., "vscode_project_202509.db"). 
+                         If None, checks all archives.
+        
+        Returns:
+            Dict with link integrity diagnostics for each archive
+        """
+        import sqlite3
+        from pathlib import Path
+        
+        archive_dir = self.data_dir / "archives"
+        if not archive_dir.exists():
+            return {"error": "Archive directory not found"}
+        
+        diagnostics = {}
+        
+        if archive_name:
+            archives = [archive_dir / archive_name]
+        else:
+            archives = sorted(archive_dir.glob("vscode_project_*.db"), reverse=True)[:5]  # Check 5 newest
+        
+        for archive_path in archives:
+            try:
+                conn = sqlite3.connect(str(archive_path))
+                cursor = conn.cursor()
+                
+                # Count records
+                cursor.execute("SELECT COUNT(*) FROM project_sessions")
+                session_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM development_conversations")
+                conversation_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM project_insights")
+                insights_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM code_context")
+                context_count = cursor.fetchone()[0]
+                
+                # Check orphaned relationships
+                cursor.execute("""
+                    SELECT COUNT(*) FROM development_conversations 
+                    WHERE session_id NOT IN (SELECT session_id FROM project_sessions)
+                """)
+                orphaned_conversations = cursor.fetchone()[0]
+                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM code_context 
+                    WHERE session_id IS NOT NULL 
+                    AND session_id NOT IN (SELECT session_id FROM project_sessions)
+                """)
+                orphaned_context = cursor.fetchone()[0]
+                
+                conn.close()
+                
+                diagnostics[archive_path.name] = {
+                    "sessions": session_count,
+                    "conversations": conversation_count,
+                    "insights": insights_count,
+                    "code_context": context_count,
+                    "orphaned_conversations": orphaned_conversations,
+                    "orphaned_context": orphaned_context,
+                    "link_integrity": {
+                        "conversations_linked": conversation_count - orphaned_conversations,
+                        "conversation_orphan_ratio": f"{(orphaned_conversations/conversation_count*100):.1f}%" if conversation_count > 0 else "0%",
+                        "context_linked": context_count - orphaned_context,
+                        "context_orphan_ratio": f"{(orphaned_context/context_count*100):.1f}%" if context_count > 0 else "0%"
+                    }
+                }
+            except Exception as e:
+                diagnostics[archive_path.name] = {"error": str(e)}
+        
+        return diagnostics
+
         # Search operations
     async def search_memories(
         self, query: str = None, limit: int = 10, database_filter: str = "all",

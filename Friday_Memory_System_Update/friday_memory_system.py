@@ -4442,16 +4442,35 @@ class FridayMemorySystem:
 
 
 
-    async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30) -> Dict:
-        """Get active (not completed) reminders within the next X days"""
+    async def get_active_reminders(self, limit: int = 10, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
+        """Get active (not completed) reminders within the next X days.
+        
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
+        if not user_id:
+            user_id = "Nate"
+        
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all reminders due today
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         cutoff = (now + timedelta(days=days_ahead)).isoformat()
-        rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? ORDER BY due_datetime LIMIT ?",
-            (start_of_today, cutoff, limit)
-        )
+        
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? AND model_id = ? ORDER BY due_datetime LIMIT ?",
+                (start_of_today, cutoff, user_id, model_id, limit)
+            )
+        else:
+            # Query all models for this user
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? ORDER BY due_datetime LIMIT ?",
+                (start_of_today, cutoff, user_id, limit)
+            )
         
         if not rows:
             return {
@@ -4474,13 +4493,32 @@ class FridayMemorySystem:
             ]
         }
 
-    async def get_completed_reminders(self, days: int = 7) -> Dict:
-        """Get recently completed reminders"""
+    async def get_completed_reminders(self, days: int = 7, user_id: str = None, model_id: str = None) -> Dict:
+        """Get recently completed reminders.
+        
+        If model_id is None, queries all models for that user (cross-model fallback).
+        If model_id is provided (even empty string), filters to that specific model.
+        """
+        
+        # Set defaults for user tracking
+        if not user_id:
+            user_id = "Nate"
+        
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
-        rows = await self.schedule_db.execute_query(
-            "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? ORDER BY completed_at DESC",
-            (cutoff,)
-        )
+        
+        # Build query based on whether model_id filtering is requested
+        if model_id is not None:
+            # Filter by specific model (even if empty string)
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? AND model_id = ? ORDER BY completed_at DESC",
+                (cutoff, user_id, model_id)
+            )
+        else:
+            # Query all models for this user
+            rows = await self.schedule_db.execute_query(
+                "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? ORDER BY completed_at DESC",
+                (cutoff, user_id)
+            )
         
         if not rows:
             return {
@@ -5207,11 +5245,19 @@ class FridayMemorySystem:
     # AI Memory operations
     async def create_memory(self, content: str, memory_type: str = None,
                           importance_level: int = 5, tags: List[str] = None,
-                          source_conversation_id: str = None) -> Dict:
-        """Create a curated memory"""
+                          source_conversation_id: str = None, memory_bank: str = "General",
+                          user_id: str = None, model_id: str = None) -> Dict:
+        """Create a curated memory
+        
+        Args:
+            memory_bank: Category for memory (General, Personal, Work, Context, Tasks)
+            user_id: User identifier
+            model_id: Model identifier
+        """
         
         memory_id = await self.ai_memory_db.create_memory(
-            content, memory_type, importance_level, tags, source_conversation_id
+            content, memory_type, importance_level, tags, source_conversation_id,
+            memory_bank=memory_bank, user_id=user_id, model_id=model_id
         )
         
         # Generate and store embedding asynchronously

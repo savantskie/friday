@@ -678,17 +678,25 @@ class DatabaseMaintenance:
         
         return groups
     
-    async def _insert_records_batch(self, target_db_path: str, db_type: str, records: List, batch_size: int = 1000):
+    async def _insert_records_batch(self, target_db_path: str, db_type: str, records: List, table_name: str = None, batch_size: int = 1000):
         """Insert records into target database in batches to avoid memory issues
         
         Records can be Row objects (from source with row_factory) or tuples.
         We convert Row objects to tuples for insertion.
+        
+        Args:
+            target_db_path: Path to target database
+            db_type: Type of database (used to determine table if table_name not provided)
+            records: List of records to insert
+            table_name: Optional explicit table name. If None, uses _get_main_table(db_type)
+            batch_size: Batch size for inserts
         """
         try:
             conn = sqlite3.connect(target_db_path)
             cursor = conn.cursor()
             
-            main_table = self._get_main_table(db_type)
+            if table_name is None:
+                table_name = self._get_main_table(db_type)
             
             # Convert Row objects to tuples if needed
             record_tuples = []
@@ -714,7 +722,7 @@ class DatabaseMaintenance:
                 batch = record_tuples[i:i+batch_size]
                 try:
                     cursor.executemany(
-                        f"INSERT INTO {main_table} VALUES ({placeholders})",
+                        f"INSERT INTO {table_name} VALUES ({placeholders})",
                         batch
                     )
                     conn.commit()
@@ -724,7 +732,8 @@ class DatabaseMaintenance:
                     raise
             
             conn.close()
-            logger.debug(f"Inserted {len(record_tuples)} records into {Path(target_db_path).name}")
+            logger.debug(f"Inserted {len(record_tuples)} records into {table_name} in {Path(target_db_path).name}")
+            
             
         except Exception as e:
             logger.error(f"Error inserting records: {e}")
@@ -772,48 +781,119 @@ class DatabaseMaintenance:
                 # Step 1: Read all data from main folder DB (cache in memory)
                 source_conn = sqlite3.connect(db_path)
                 source_conn.row_factory = sqlite3.Row
-                main_table = self._get_main_table(db_type)
                 
-                source_cursor = source_conn.execute(f"SELECT * FROM {main_table}")
-                all_records = source_cursor.fetchall()
-                total_records = len(all_records)
+                # Special handling for databases with foreign key relationships
+                if db_type == "vscode_project":
+                    # For vscode_project, we need both tables to preserve foreign keys
+                    sessions_cursor = source_conn.execute("SELECT * FROM project_sessions")
+                    sessions = sessions_cursor.fetchall()
+                    
+                    conversations_cursor = source_conn.execute("SELECT * FROM development_conversations")
+                    conversations = conversations_cursor.fetchall()
+                    
+                    total_records = len(sessions) + len(conversations)
+                    logger.info(f"  Cached {len(sessions)} sessions + {len(conversations)} conversations")
+                    
+                    # Create a map of session_id -> session for quick lookup
+                    session_map = {s['session_id']: s for s in sessions}
+                    
+                    # Group by session, keeping conversations with their parent sessions
+                    grouped_records = self._group_vscode_records_for_archiving(db_type, conversations, sessions, session_map)
+                    logger.info(f"  Grouped into {len(grouped_records)} archive groups by session")
                 
-                if total_records == 0:
-                    logger.info(f"  ℹ️  No records in {db_type}, skipping")
-                    source_conn.close()
-                    continue
+                elif db_type == "conversations":
+                    # For conversations DB, we have a 3-level hierarchy: sessions -> conversations -> messages
+                    # Must archive all three tables together to preserve foreign keys
+                    sessions_cursor = source_conn.execute("SELECT * FROM sessions")
+                    sessions = sessions_cursor.fetchall()
+                    
+                    conversations_cursor = source_conn.execute("SELECT * FROM conversations")
+                    conversations = conversations_cursor.fetchall()
+                    
+                    messages_cursor = source_conn.execute("SELECT * FROM messages")
+                    messages = messages_cursor.fetchall()
+                    
+                    total_records = len(sessions) + len(conversations) + len(messages)
+                    logger.info(f"  Cached {len(sessions)} sessions + {len(conversations)} conversations + {len(messages)} messages")
+                    
+                    # Create maps for quick lookup
+                    session_map = {s['session_id']: s for s in sessions}
+                    conversation_map = {c['conversation_id']: c for c in conversations}
+                    
+                    # Group all three tables together, preserving FK relationships
+                    grouped_records = self._group_conversation_records_for_archiving(db_type, sessions, conversations, messages, session_map, conversation_map)
+                    logger.info(f"  Grouped into {len(grouped_records)} archive groups")
                 
-                logger.info(f"  Cached {total_records} records from {db_type}")
-                
-                # Step 2: Group records by date or pre-timestamp
-                timestamp_col = self._get_timestamp_column(db_type)
-                grouped_records = self._group_records_for_archiving(db_type, all_records, timestamp_col)
-                
-                logger.info(f"  Grouped into {len(grouped_records)} archive groups")
+                else:
+                    # For other DBs: standard timestamp-based grouping
+                    main_table = self._get_main_table(db_type)
+                    
+                    source_cursor = source_conn.execute(f"SELECT * FROM {main_table}")
+                    all_records = source_cursor.fetchall()
+                    total_records = len(all_records)
+                    
+                    if total_records == 0:
+                        logger.info(f"  ℹ️  No records in {db_type}, skipping")
+                        source_conn.close()
+                        continue
+                    
+                    logger.info(f"  Cached {total_records} records from {db_type}")
+                    
+                    # Group records by timestamp
+                    timestamp_col = self._get_timestamp_column(db_type)
+                    grouped_records = self._group_records_for_archiving(db_type, all_records, timestamp_col)
+                    logger.info(f"  Grouped into {len(grouped_records)} archive groups")
                 
                 # Step 3 & 4: Create archive files and migrate data
                 migrated_count = 0
                 archive_files_created = []
                 
-                for group_key, group_records in grouped_records.items():
+                for group_key, group_data in grouped_records.items():
                     try:
                         # Create archive filename based on group key
-                        # group_key format: "2025-08" (date) or "pre_timestamp_data" or "conversation_id"
                         archive_filename = f"{db_type}_{group_key}.db"
                         archive_path = archives_folder / archive_filename
                         
-                        logger.info(f"    Creating {archive_filename} ({len(group_records)} records)")
+                        # For vscode_project, group_data is dict with 'sessions' and 'conversations' keys
+                        # For conversations DB, group_data is dict with 'sessions', 'conversations', and 'messages' keys
+                        # For other DBs, group_data is a list of records
+                        if db_type == "vscode_project":
+                            total_in_group = len(group_data.get('sessions', [])) + len(group_data.get('conversations', []))
+                            logger.info(f"    Creating {archive_filename} ({len(group_data.get('sessions', []))} sessions, {len(group_data.get('conversations', []))} conversations)")
+                        elif db_type == "conversations":
+                            total_in_group = len(group_data.get('sessions', [])) + len(group_data.get('conversations', [])) + len(group_data.get('messages', []))
+                            logger.info(f"    Creating {archive_filename} ({len(group_data.get('sessions', []))} sessions, {len(group_data.get('conversations', []))} conversations, {len(group_data.get('messages', []))} messages)")
+                        else:
+                            total_in_group = len(group_data)
+                            logger.info(f"    Creating {archive_filename} ({total_in_group} records)")
                         
                         # Create new archive DB with schema
                         await self._create_new_db_with_schema(archive_path, db_path, db_type)
                         
-                        # Insert records, preserving conversation-memory links
-                        await self._insert_records_batch(str(archive_path), db_type, group_records)
+                        # Insert records, handling multi-table DBs specially
+                        if db_type == "vscode_project":
+                            # For vscode, insert sessions first (parents), then conversations
+                            if group_data.get('sessions'):
+                                await self._insert_records_batch(str(archive_path), db_type, group_data['sessions'], table_name="project_sessions")
+                            if group_data.get('conversations'):
+                                await self._insert_records_batch(str(archive_path), db_type, group_data['conversations'], table_name="development_conversations")
+                        elif db_type == "conversations":
+                            # For conversations DB, insert in order: sessions -> conversations -> messages
+                            # This ensures all FK constraints are satisfied
+                            if group_data.get('sessions'):
+                                await self._insert_records_batch(str(archive_path), db_type, group_data['sessions'], table_name="sessions")
+                            if group_data.get('conversations'):
+                                await self._insert_records_batch(str(archive_path), db_type, group_data['conversations'], table_name="conversations")
+                            if group_data.get('messages'):
+                                await self._insert_records_batch(str(archive_path), db_type, group_data['messages'], table_name="messages")
+                        else:
+                            # Standard insert
+                            await self._insert_records_batch(str(archive_path), db_type, group_data)
                         
                         # Safety check: ensure archive has all required tables (especially linking tables)
                         await self._ensure_archive_tables(str(archive_path), db_type)
                         
-                        migrated_count += len(group_records)
+                        migrated_count += total_in_group
                         archive_files_created.append(str(archive_path))
                         logger.info(f"    ✓ Migrated to {archive_filename}")
                         
@@ -885,6 +965,246 @@ class DatabaseMaintenance:
         
         logger.warning(f"\n✅ Archive rotation complete")
         return results
+    
+    def _group_vscode_records_for_archiving(self, db_type: str, conversations: List, sessions: List, session_map: Dict) -> Dict[str, Dict]:
+        """
+        Group vscode_project records for archiving by session_id.
+        
+        This ensures conversations and their parent sessions archive together,
+        preserving foreign key relationships.
+        
+        Args:
+            db_type: "vscode_project"
+            conversations: List of development_conversation Row objects
+            sessions: List of project_session Row objects
+            session_map: Dict mapping session_id to session Row object for quick lookup
+        
+        Returns:
+            Dict mapping session_id to dict with 'sessions' and 'conversations' lists
+        """
+        groups = {}
+        
+        # First, group sessions (using their start_timestamp for archive filename)
+        for session in sessions:
+            try:
+                # Convert sqlite3.Row to dict for .get() compatibility
+                session = dict(session)
+                session_id = session['session_id']
+                start_ts = session.get('start_timestamp', '')
+                
+                # Extract year-month from timestamp
+                if start_ts:
+                    try:
+                        date_part = start_ts.split("T")[0]
+                        year_month = date_part[:7]
+                    except:
+                        year_month = "pre_timestamp"
+                else:
+                    year_month = "pre_timestamp"
+                
+                # Use year_month as group key (all sessions in a month go together)
+                group_key = year_month
+                
+                if group_key not in groups:
+                    groups[group_key] = {'sessions': [], 'conversations': []}
+                
+                groups[group_key]['sessions'].append(session)
+                
+            except Exception as e:
+                logger.error(f"Error grouping session for archiving: {e}")
+        
+        # Now add conversations, ensuring they go with their parent sessions
+        for conversation in conversations:
+            try:
+                # Convert sqlite3.Row to dict for .get() compatibility
+                conversation = dict(conversation)
+                session_id = conversation.get('session_id')
+                
+                # Find which group this session belongs to
+                target_group = None
+                if session_id and session_id in session_map:
+                    session = dict(session_map[session_id])
+                    start_ts = session.get('start_timestamp', '')
+                    if start_ts:
+                        try:
+                            date_part = start_ts.split("T")[0]
+                            year_month = date_part[:7]
+                            target_group = year_month
+                        except:
+                            target_group = "pre_timestamp"
+                    else:
+                        target_group = "pre_timestamp"
+                else:
+                    # Orphaned conversation (no parent session), use its own timestamp
+                    timestamp_str = conversation.get('timestamp', '')
+                    if timestamp_str:
+                        try:
+                            date_part = timestamp_str.split("T")[0]
+                            target_group = date_part[:7]
+                        except:
+                            target_group = "pre_timestamp"
+                    else:
+                        target_group = "pre_timestamp"
+                
+                if target_group:
+                    if target_group not in groups:
+                        groups[target_group] = {'sessions': [], 'conversations': []}
+                    groups[target_group]['conversations'].append(conversation)
+                
+            except Exception as e:
+                logger.error(f"Error grouping conversation for archiving: {e}")
+        
+        return groups
+    
+    def _group_conversation_records_for_archiving(self, db_type: str, sessions: List, conversations: List, messages: List, session_map: Dict, conversation_map: Dict) -> Dict[str, Dict]:
+        """
+        Group conversation DB records for archiving by session_id.
+        
+        This ensures sessions, conversations, and messages archive together,
+        preserving the 3-level FK relationship hierarchy:
+        - sessions (parent)
+        - conversations -> sessions (child FK)
+        - messages -> conversations (child FK)
+        
+        Args:
+            db_type: "conversations"
+            sessions: List of session Row objects
+            conversations: List of conversation Row objects
+            messages: List of message Row objects
+            session_map: Dict mapping session_id to session Row
+            conversation_map: Dict mapping conversation_id to conversation Row
+        
+        Returns:
+            Dict mapping session_id to dict with 'sessions', 'conversations', and 'messages' lists
+        """
+        groups = {}
+        
+        # First, group sessions (using their start_timestamp for archive filename)
+        for session in sessions:
+            try:
+                # Convert sqlite3.Row to dict for .get() compatibility
+                session = dict(session)
+                session_id = session['session_id']
+                start_ts = session.get('start_timestamp', '')
+                
+                # Extract year-month from timestamp
+                if start_ts:
+                    try:
+                        date_part = start_ts.split("T")[0]
+                        year_month = date_part[:7]
+                    except:
+                        year_month = "pre_timestamp"
+                else:
+                    year_month = "pre_timestamp"
+                
+                # Use year_month as group key
+                group_key = year_month
+                
+                if group_key not in groups:
+                    groups[group_key] = {'sessions': [], 'conversations': [], 'messages': []}
+                
+                groups[group_key]['sessions'].append(session)
+                
+            except Exception as e:
+                logger.error(f"Error grouping session for archiving: {e}")
+        
+        # Now add conversations, ensuring they go with their parent sessions
+        for conversation in conversations:
+            try:
+                # Convert sqlite3.Row to dict for .get() compatibility
+                conversation = dict(conversation)
+                session_id = conversation.get('session_id')
+                
+                # Find which group this session belongs to
+                target_group = None
+                if session_id and session_id in session_map:
+                    session = dict(session_map[session_id])
+                    start_ts = session.get('start_timestamp', '')
+                    if start_ts:
+                        try:
+                            date_part = start_ts.split("T")[0]
+                            year_month = date_part[:7]
+                            target_group = year_month
+                        except:
+                            target_group = "pre_timestamp"
+                    else:
+                        target_group = "pre_timestamp"
+                else:
+                    # Orphaned conversation (no parent session), use its own timestamp
+                    timestamp_str = conversation.get('start_timestamp', '')
+                    if timestamp_str:
+                        try:
+                            date_part = timestamp_str.split("T")[0]
+                            target_group = date_part[:7]
+                        except:
+                            target_group = "pre_timestamp"
+                    else:
+                        target_group = "pre_timestamp"
+                
+                if target_group:
+                    if target_group not in groups:
+                        groups[target_group] = {'sessions': [], 'conversations': [], 'messages': []}
+                    groups[target_group]['conversations'].append(conversation)
+                
+            except Exception as e:
+                logger.error(f"Error grouping conversation for archiving: {e}")
+        
+        # Finally, add messages, ensuring they go with their parent conversations
+        for message in messages:
+            try:
+                # Convert sqlite3.Row to dict for .get() compatibility
+                message = dict(message)
+                conversation_id = message.get('conversation_id')
+                
+                # Find which group this conversation belongs to
+                target_group = None
+                if conversation_id and conversation_id in conversation_map:
+                    conversation = dict(conversation_map[conversation_id])
+                    session_id = conversation.get('session_id')
+                    if session_id and session_id in session_map:
+                        session = dict(session_map[session_id])
+                        start_ts = session.get('start_timestamp', '')
+                        if start_ts:
+                            try:
+                                date_part = start_ts.split("T")[0]
+                                year_month = date_part[:7]
+                                target_group = year_month
+                            except:
+                                target_group = "pre_timestamp"
+                        else:
+                            target_group = "pre_timestamp"
+                    else:
+                        # Orphaned conversation, use conversation's timestamp
+                        timestamp_str = conversation.get('start_timestamp', '')
+                        if timestamp_str:
+                            try:
+                                date_part = timestamp_str.split("T")[0]
+                                target_group = date_part[:7]
+                            except:
+                                target_group = "pre_timestamp"
+                        else:
+                            target_group = "pre_timestamp"
+                else:
+                    # Orphaned message (no parent conversation), use its own timestamp
+                    timestamp_str = message.get('timestamp', '')
+                    if timestamp_str:
+                        try:
+                            date_part = timestamp_str.split("T")[0]
+                            target_group = date_part[:7]
+                        except:
+                            target_group = "pre_timestamp"
+                    else:
+                        target_group = "pre_timestamp"
+                
+                if target_group:
+                    if target_group not in groups:
+                        groups[target_group] = {'sessions': [], 'conversations': [], 'messages': []}
+                    groups[target_group]['messages'].append(message)
+                
+            except Exception as e:
+                logger.error(f"Error grouping message for archiving: {e}")
+        
+        return groups
     
     def _group_records_for_archiving(self, db_type: str, records: List, timestamp_col: str) -> Dict[str, List]:
         """
@@ -971,6 +1291,481 @@ class DatabaseMaintenance:
                 results[db_type] = result
             else:
                 logger.info(f"  ℹ️  {db_type} database not found, skipping")
+        
+        return results
+    
+    async def repair_archive_links(self) -> Dict[str, Dict]:
+        """
+        Repair broken foreign key relationships in existing archives.
+        
+        Scans all vscode_project and conversations archives and fixes orphaned records by:
+        1. Finding parent records in active DB or other archives
+        2. Copying parent records to repair archives
+        3. Verifying all FK relationships are now valid
+        
+        Handles both 2-level hierarchy (vscode_project) and 3-level hierarchy (conversations)
+        
+        Returns:
+            Dict with repair results for each archive:
+            {
+                "vscode_project": {
+                    "archives_repaired": int,
+                    "records_migrated": int,
+                    "links_fixed": int,
+                    "details": [...]
+                },
+                "conversations": {
+                    "archives_repaired": int,
+                    "records_migrated": int,
+                    "links_fixed": int,
+                    "details": [...]
+                }
+            }
+        """
+        logger.warning("🔧 Starting archive link repair process...")
+        
+        results = {
+            "vscode_project": {
+                "archives_repaired": 0,
+                "records_migrated": 0,
+                "links_fixed": 0,
+                "details": []
+            },
+            "conversations": {
+                "archives_repaired": 0,
+                "records_migrated": 0,
+                "links_fixed": 0,
+                "details": []
+            }
+        }
+        
+        archives_folder = self.memory_data_path / "archives"
+        if not archives_folder.exists():
+            logger.warning("No archives folder found, nothing to repair")
+            return results
+        
+        # Get list of active database connections for parent lookups
+        active_dbs = {
+            "vscode_project": self.memory_system.vscode_db.db_path,
+            "conversations": self.memory_system.conversations_db.db_path
+        }
+        
+        # Repair vscode_project archives
+        logger.warning("\n📊 Repairing vscode_project archives...")
+        vscode_repair = await self._repair_vscode_archives(archives_folder, active_dbs["vscode_project"])
+        results["vscode_project"] = vscode_repair
+        
+        # Repair conversations archives
+        logger.warning("\n💬 Repairing conversations archives...")
+        conv_repair = await self._repair_conversation_archives(archives_folder, active_dbs["conversations"])
+        results["conversations"] = conv_repair
+        
+        logger.warning(f"✅ Archive repair complete")
+        return results
+    
+    async def _repair_vscode_archives(self, archives_folder: Path, active_db_path: str) -> Dict:
+        """
+        Repair vscode_project archives by fixing orphaned development_conversations.
+        
+        For orphaned conversations (no matching session):
+        1. Try to find session in active DB or other archives
+        2. If not found, create minimal stub session to satisfy FK constraint
+        3. Preserves all conversation data - no deletion
+        """
+        results = {
+            "archives_repaired": 0,
+            "records_migrated": 0,
+            "links_fixed": 0,
+            "details": []
+        }
+        
+        try:
+            # Get all vscode_project archives
+            vscode_archives = list(archives_folder.glob("vscode_project_*.db"))
+            
+            if not vscode_archives:
+                logger.info("  No vscode_project archives found")
+                return results
+            
+            logger.info(f"  Found {len(vscode_archives)} vscode_project archives to scan")
+            
+            # Load active database sessions for lookup
+            active_conn = sqlite3.connect(active_db_path)
+            active_conn.row_factory = sqlite3.Row
+            active_sessions = {}
+            try:
+                cursor = active_conn.execute("SELECT * FROM project_sessions")
+                for row in cursor.fetchall():
+                    active_sessions[row['session_id']] = row
+            except:
+                pass
+            active_conn.close()
+            
+            # Process each archive
+            for archive_path in vscode_archives:
+                archive_name = archive_path.name
+                logger.info(f"  Processing {archive_name}...")
+                
+                try:
+                    # Check for orphaned conversations
+                    archive_conn = sqlite3.connect(str(archive_path))
+                    archive_conn.row_factory = sqlite3.Row
+                    
+                    # Find conversations with missing sessions
+                    cursor = archive_conn.execute("""
+                        SELECT dc.* FROM development_conversations dc
+                        WHERE dc.session_id NOT IN (SELECT session_id FROM project_sessions)
+                    """)
+                    orphaned_convs = cursor.fetchall()
+                    
+                    if orphaned_convs:
+                        logger.info(f"    Found {len(orphaned_convs)} orphaned conversations")
+                        
+                        # Collect missing session IDs
+                        missing_session_ids = set(c['session_id'] for c in orphaned_convs if c['session_id'])
+                        
+                        # Try to find sessions in active DB or other archives
+                        sessions_to_add = []
+                        sessions_found_active = 0
+                        sessions_found_archive = 0
+                        stub_sessions_created = 0
+                        
+                        for session_id in missing_session_ids:
+                            session_found = False
+                            
+                            # Check active DB first
+                            if session_id in active_sessions:
+                                sessions_to_add.append(active_sessions[session_id])
+                                sessions_found_active += 1
+                                session_found = True
+                            else:
+                                # Search other archives
+                                if not session_found:
+                                    for other_archive in vscode_archives:
+                                        if other_archive == archive_path:
+                                            continue
+                                        try:
+                                            other_conn = sqlite3.connect(str(other_archive))
+                                            other_conn.row_factory = sqlite3.Row
+                                            cursor = other_conn.execute(
+                                                "SELECT * FROM project_sessions WHERE session_id = ?",
+                                                (session_id,)
+                                            )
+                                            session = cursor.fetchone()
+                                            if session:
+                                                sessions_to_add.append(session)
+                                                sessions_found_archive += 1
+                                                session_found = True
+                                            other_conn.close()
+                                            if session_found:
+                                                break
+                                        except:
+                                            other_conn.close()
+                            
+                            # If not found anywhere, create stub session
+                            if not session_found:
+                                # Create stub session with minimal fields to satisfy FK and NOT NULL constraints
+                                stub_session = {
+                                    'session_id': session_id,
+                                    'start_timestamp': None,  # Will get from conversation if available
+                                    'end_timestamp': None,
+                                    'workspace_path': '[STUB]',  # Required NOT NULL field
+                                    'active_files': None,
+                                    'git_branch': None,
+                                    'git_commit_hash': None,
+                                    'session_summary': '[RECONSTRUCTED STUB SESSION]',
+                                    'embedding': None,
+                                    'created_at': datetime.now().isoformat()
+                                }
+                                
+                                # Try to populate start_timestamp from one of the orphaned conversations
+                                for conv in orphaned_convs:
+                                    if conv['session_id'] == session_id and conv.get('timestamp'):
+                                        stub_session['start_timestamp'] = conv['timestamp']
+                                        break
+                                
+                                # If still no timestamp, use current time
+                                if not stub_session['start_timestamp']:
+                                    stub_session['start_timestamp'] = datetime.now().isoformat()
+                                
+                                sessions_to_add.append(stub_session)
+                                stub_sessions_created += 1
+                                session_found = True
+                        
+                        # Insert sessions into archive
+                        if sessions_to_add:
+                            await self._insert_records_batch(str(archive_path), "vscode_project", sessions_to_add, table_name="project_sessions")
+                            logger.info(f"    ✓ Added {sessions_found_active} from active DB, {sessions_found_archive} from other archives, {stub_sessions_created} stub sessions created")
+                            results["records_migrated"] += len(sessions_to_add)
+                            results["links_fixed"] += len(orphaned_convs)
+                            results["details"].append({
+                                "archive": archive_name,
+                                "orphaned_conversations": len(orphaned_convs),
+                                "sessions_restored": sessions_found_active + sessions_found_archive,
+                                "stub_sessions_created": stub_sessions_created
+                            })
+                    
+                    archive_conn.close()
+                    results["archives_repaired"] += 1
+                    
+                except Exception as e:
+                    logger.error(f"    ❌ Error repairing {archive_name}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error in vscode archive repair: {e}")
+        
+        return results
+    
+    async def _repair_conversation_archives(self, archives_folder: Path, active_db_path: str) -> Dict:
+        """
+        Repair conversations archives by fixing orphaned messages and conversations.
+        
+        For each orphaned record:
+        - If conversation missing session: find session or create stub
+        - If message missing conversation: find conversation or create stub + parent session stub
+        
+        Preserves all data - no deletion of orphaned records
+        """
+        results = {
+            "archives_repaired": 0,
+            "records_migrated": 0,
+            "links_fixed": 0,
+            "details": []
+        }
+        
+        try:
+            # Get all conversations archives
+            conv_archives = list(archives_folder.glob("conversations_*.db"))
+            
+            if not conv_archives:
+                logger.info("  No conversations archives found")
+                return results
+            
+            logger.info(f"  Found {len(conv_archives)} conversations archives to scan")
+            
+            # Load active database records for lookup
+            active_conn = sqlite3.connect(active_db_path)
+            active_conn.row_factory = sqlite3.Row
+            active_sessions = {}
+            active_conversations = {}
+            try:
+                cursor = active_conn.execute("SELECT * FROM sessions")
+                for row in cursor.fetchall():
+                    active_sessions[row['session_id']] = row
+                cursor = active_conn.execute("SELECT * FROM conversations")
+                for row in cursor.fetchall():
+                    active_conversations[row['conversation_id']] = row
+            except:
+                pass
+            active_conn.close()
+            
+            # Process each archive
+            for archive_path in conv_archives:
+                archive_name = archive_path.name
+                logger.info(f"  Processing {archive_name}...")
+                
+                try:
+                    archive_conn = sqlite3.connect(str(archive_path))
+                    archive_conn.row_factory = sqlite3.Row
+                    
+                    records_to_add = []
+                    details = {
+                        "archive": archive_name,
+                        "orphaned_conversations": 0,
+                        "orphaned_messages": 0,
+                        "sessions_restored": 0,
+                        "conversations_restored": 0,
+                        "stub_sessions_created": 0,
+                        "stub_conversations_created": 0
+                    }
+                    
+                    # Find conversations with missing sessions
+                    cursor = archive_conn.execute("""
+                        SELECT c.* FROM conversations c
+                        WHERE c.session_id NOT IN (SELECT session_id FROM sessions)
+                    """)
+                    orphaned_convs = cursor.fetchall()
+                    
+                    if orphaned_convs:
+                        logger.info(f"    Found {len(orphaned_convs)} orphaned conversations")
+                        details["orphaned_conversations"] = len(orphaned_convs)
+                        
+                        # Collect missing sessions and create stubs as needed
+                        for conv in orphaned_convs:
+                            session_id = conv['session_id']
+                            session_found = False
+                            
+                            if session_id in active_sessions:
+                                records_to_add.append((active_sessions[session_id], "sessions"))
+                                details["sessions_restored"] += 1
+                                session_found = True
+                            else:
+                                # Search other archives
+                                for other_archive in conv_archives:
+                                    if other_archive == archive_path:
+                                        continue
+                                    try:
+                                        other_conn = sqlite3.connect(str(other_archive))
+                                        other_conn.row_factory = sqlite3.Row
+                                        cursor = other_conn.execute(
+                                            "SELECT * FROM sessions WHERE session_id = ?",
+                                            (session_id,)
+                                        )
+                                        session = cursor.fetchone()
+                                        if session:
+                                            records_to_add.append((session, "sessions"))
+                                            details["sessions_restored"] += 1
+                                            session_found = True
+                                        other_conn.close()
+                                        if session_found:
+                                            break
+                                    except:
+                                        other_conn.close()
+                            
+                            # If not found, create stub session
+                            if not session_found:
+                                stub_session = {
+                                    'session_id': session_id,
+                                    'start_timestamp': conv.get('start_timestamp') or datetime.now().isoformat(),
+                                    'end_timestamp': None,
+                                    'context': '[RECONSTRUCTED STUB SESSION]',
+                                    'embedding': None,
+                                    'created_at': datetime.now().isoformat()
+                                }
+                                records_to_add.append((stub_session, "sessions"))
+                                details["stub_sessions_created"] += 1
+                    
+                    # Find messages with missing conversations
+                    cursor = archive_conn.execute("""
+                        SELECT m.* FROM messages m
+                        WHERE m.conversation_id NOT IN (SELECT conversation_id FROM conversations)
+                    """)
+                    orphaned_msgs = cursor.fetchall()
+                    
+                    if orphaned_msgs:
+                        logger.info(f"    Found {len(orphaned_msgs)} orphaned messages")
+                        details["orphaned_messages"] = len(orphaned_msgs)
+                        
+                        # Collect missing conversations and their parent sessions
+                        for msg in orphaned_msgs:
+                            conv_id = msg['conversation_id']
+                            conv_found = False
+                            
+                            if conv_id in active_conversations:
+                                conv = active_conversations[conv_id]
+                                records_to_add.append((conv, "conversations"))
+                                details["conversations_restored"] += 1
+                                conv_found = True
+                                
+                                # Also add parent session if not already there
+                                session_id = conv['session_id']
+                                if session_id in active_sessions:
+                                    records_to_add.append((active_sessions[session_id], "sessions"))
+                                    details["sessions_restored"] += 1
+                            else:
+                                # Search other archives
+                                for other_archive in conv_archives:
+                                    if other_archive == archive_path:
+                                        continue
+                                    try:
+                                        other_conn = sqlite3.connect(str(other_archive))
+                                        other_conn.row_factory = sqlite3.Row
+                                        cursor = other_conn.execute(
+                                            "SELECT * FROM conversations WHERE conversation_id = ?",
+                                            (conv_id,)
+                                        )
+                                        conv = cursor.fetchone()
+                                        if conv:
+                                            records_to_add.append((conv, "conversations"))
+                                            details["conversations_restored"] += 1
+                                            conv_found = True
+                                            
+                                            # Also add parent session
+                                            session_id = conv['session_id']
+                                            cursor = other_conn.execute(
+                                                "SELECT * FROM sessions WHERE session_id = ?",
+                                                (session_id,)
+                                            )
+                                            session = cursor.fetchone()
+                                            if session:
+                                                records_to_add.append((session, "sessions"))
+                                                details["sessions_restored"] += 1
+                                        other_conn.close()
+                                        if conv_found:
+                                            break
+                                    except:
+                                        other_conn.close()
+                            
+                            # If not found, create stub conversation + stub session
+                            if not conv_found:
+                                session_id = None
+                                # Try to extract session_id from message metadata if available
+                                if msg.get('source_metadata'):
+                                    try:
+                                        import json
+                                        metadata = json.loads(msg['source_metadata'])
+                                        session_id = metadata.get('session_id')
+                                    except:
+                                        pass
+                                
+                                # Create stub session first
+                                if session_id:
+                                    stub_session = {
+                                        'session_id': session_id,
+                                        'start_timestamp': msg.get('timestamp') or datetime.now().isoformat(),
+                                        'end_timestamp': None,
+                                        'context': '[RECONSTRUCTED STUB SESSION]',
+                                        'embedding': None,
+                                        'created_at': datetime.now().isoformat()
+                                    }
+                                    records_to_add.append((stub_session, "sessions"))
+                                    details["stub_sessions_created"] += 1
+                                else:
+                                    session_id = 'unknown-session'
+                                
+                                # Create stub conversation
+                                stub_conv = {
+                                    'conversation_id': conv_id,
+                                    'session_id': session_id,
+                                    'start_timestamp': msg.get('timestamp') or datetime.now().isoformat(),
+                                    'end_timestamp': None,
+                                    'topic_summary': '[RECONSTRUCTED STUB CONVERSATION]',
+                                    'embedding': None,
+                                    'created_at': datetime.now().isoformat()
+                                }
+                                records_to_add.append((stub_conv, "conversations"))
+                                details["stub_conversations_created"] += 1
+                    
+                    # Insert all records in correct order (sessions first, then conversations, then messages)
+                    if records_to_add:
+                        # Sort by table name to insert in correct order
+                        records_by_table = {}
+                        for record, table_name in records_to_add:
+                            if table_name not in records_by_table:
+                                records_by_table[table_name] = []
+                            # Avoid duplicates
+                            pk_col = 'session_id' if table_name == 'sessions' else 'conversation_id'
+                            if not any(r[pk_col] == record[pk_col] for r in records_by_table[table_name]):
+                                records_by_table[table_name].append(record)
+                        
+                        # Insert in order
+                        for table_name in ['sessions', 'conversations', 'messages']:
+                            if table_name in records_by_table:
+                                await self._insert_records_batch(str(archive_path), "conversations", records_by_table[table_name], table_name=table_name)
+                        
+                        logger.info(f"    ✓ Added {details['sessions_restored']} sessions, {details['conversations_restored']} conversations, created {details['stub_sessions_created']} stub sessions, {details['stub_conversations_created']} stub conversations")
+                        results["records_migrated"] += len(records_to_add)
+                        results["links_fixed"] += len(orphaned_convs) + len(orphaned_msgs)
+                        results["details"].append(details)
+                    
+                    archive_conn.close()
+                    results["archives_repaired"] += 1
+                    
+                except Exception as e:
+                    logger.error(f"    ❌ Error repairing {archive_name}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error in conversations archive repair: {e}")
         
         return results
     
