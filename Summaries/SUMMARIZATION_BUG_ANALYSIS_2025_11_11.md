@@ -188,7 +188,7 @@ This approach:
 ## Implementation Plan
 
 ### Step 1: Add Markers to Summary Injection
-**File**: `Adaptive_Memory_v3.py` line 2118  
+**File**: `friday_memory_short_term.py` line 2118  
 **Change**: Add markers around injection
 
 ```python
@@ -200,7 +200,7 @@ injection = (
 ```
 
 ### Step 2: Skip Marked Content in Memory Extraction
-**File**: `Adaptive_Memory_v3.py` in `identify_memories()`  
+**File**: `friday_memory_short_term.py` in `identify_memories()`  
 **Change**: Strip summary markers before processing
 
 ```python
@@ -215,7 +215,7 @@ logger.debug(f"Stripped summary markers from context before memory analysis")
 ```
 
 ### Step 3: Add Logging
-**File**: `Adaptive_Memory_v3.py` in `identify_memories()`  
+**File**: `friday_memory_short_term.py` in `identify_memories()`  
 **Change**: Log before/after
 
 ```python

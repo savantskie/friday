@@ -175,11 +175,11 @@ SEARCH: Semantic Query Across All Memory
 
 | Point | Files | Type | Direction | Trigger |
 |-------|-------|------|-----------|---------|
-| **Extraction→Storage** | Adaptive_Memory_v3.py (outlet) → OpenWebUI memory.add_memory() | Direct call | Async/Non-blocking | After LLM response |
-| **Retrieval→Injection** | Adaptive_Memory_v3.py (inlet) → memory.query_memory() | Direct call | Sync/Blocking | Before LLM processes message |
+| **Extraction→Storage** | friday_memory_short_term.py (outlet) → OpenWebUI memory.add_memory() | Direct call | Async/Non-blocking | After LLM response |
+| **Retrieval→Injection** | friday_memory_short_term.py (inlet) → memory.query_memory() | Direct call | Sync/Blocking | Before LLM processes message |
 | **MCP Access** | VS Code/LM Studio → friday_memory_mcp_server.py | MCP protocol (stdio) | Request/Response | Tool call from AI |
-| **Embedding Gen** | Adaptive_Memory_v3.py / friday_memory_system.py → LM Studio | HTTP REST /v1/embeddings | Async | When creating/searching memory |
-| **Config Sync** | Adaptive_Memory_v3.py valve → embedding_config.json | File write | One-way | When embedding_model valve changes (PROPOSED) |
+| **Embedding Gen** | friday_memory_short_term.py / friday_memory_system.py → LM Studio | HTTP REST /v1/embeddings | Async | When creating/searching memory |
+| **Config Sync** | friday_memory_short_term.py valve → embedding_config.json | File write | One-way | When embedding_model valve changes (PROPOSED) |
 | **Promotion** | POST /api/memories/promote → FridayMemorySystem.create_memory() | HTTP API | Sync with async embedding | User/system decision (PROPOSED) |
 
 ---
@@ -188,7 +188,7 @@ SEARCH: Semantic Query Across All Memory
 
 ### 2.1 Adaptive Memory v3: The Short-Term Extraction Engine
 
-**Location**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (OpenWebUI plugin)  
+**Location**: `/media/nate/Friday/Friday/friday_memory_short_term.py` (OpenWebUI plugin)  
 **Runs**: Inside Docker container  
 **Scope**: Active during conversations, max 200 memories  
 **Purpose**: Extract and manage conversation-relevant memories in real-time  

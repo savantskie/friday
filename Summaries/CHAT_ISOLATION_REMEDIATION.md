@@ -174,7 +174,7 @@ The remediation service returns:
 
 ## Integration with Phase 2
 
-### Real-time (Adaptive_Memory_v3)
+### Real-time (friday_memory_short_term)
 - Captures `body['model']` on every request ✅
 - Uses `conversation_id = f"{user_id}_{model}"` ✅
 - New memories are properly isolated ✅
@@ -186,7 +186,7 @@ The remediation service returns:
 
 ### Result
 Per-user, per-model isolation is now consistent across:
-- ✅ Real-time conversations (Adaptive_Memory_v3)
+- ✅ Real-time conversations (friday_memory_short_term)
 - ✅ Imported chat history (Fixed import)
 - ✅ Existing retroactively imported chats (Remediation service)
 

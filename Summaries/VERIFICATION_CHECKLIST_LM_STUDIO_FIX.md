@@ -7,7 +7,7 @@
 ## Code Changes Verification
 
 ### ✅ Fix #1: JSON Prefix (Line 4224)
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`  
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`  
 **Verified**: YES
 
 ```python
@@ -22,7 +22,7 @@ combined_prompt = f"{json_prefix}{system_prompt_with_date}\n\n{user_prompt}"
 ---
 
 ### ✅ Fix #2: Format Validation (Lines 4333-4341)
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`  
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`  
 **Verified**: YES
 
 ```python
@@ -42,7 +42,7 @@ if content:
 ---
 
 ### ✅ Fix #3: Empty Response Detection & Retry (Lines 4344-4355)
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`  
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`  
 **Verified**: YES
 
 ```python
@@ -65,7 +65,7 @@ if provider_type == "openai_compatible" and ":1234" in api_url:
 ---
 
 ### ✅ Fix #4: Graceful Fallback with Neutral Scores (Lines 3704-3714)
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`  
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`  
 **Verified**: YES
 
 ```python

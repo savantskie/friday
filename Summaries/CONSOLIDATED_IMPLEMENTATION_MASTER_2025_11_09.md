@@ -8,7 +8,7 @@
 
 ## Document Purpose
 
-This master document consolidates all previous summary files and verifies each implemented feature against actual code in `friday_memory_system.py` and `Adaptive_Memory_v3.py`. Each section includes exact file paths, line numbers, and implementation status.
+This master document consolidates all previous summary files and verifies each implemented feature against actual code in `friday_memory_system.py` and `friday_memory_short_term.py`. Each section includes exact file paths, line numbers, and implementation status.
 
 ---
 
@@ -72,7 +72,7 @@ This master document consolidates all previous summary files and verifies each i
 ### Layer 2: Memory Linking Integration
 **Status**: ✅ **FULLY IMPLEMENTED IN ADAPTIVE_MEMORY_V3**
 
-#### NEW Memory Linking (Adaptive_Memory_v3.py)
+#### NEW Memory Linking (friday_memory_short_term.py)
 **Verified**: Lines 3510-3536
 
 When a memory is created in OpenWebUI:
@@ -88,7 +88,7 @@ When a memory is created in OpenWebUI:
 - Error handling: Non-blocking, logs warning if Friday unavailable
 - Status: ✅ Implemented and tested
 
-#### UPDATE Memory Linking (Adaptive_Memory_v3.py)
+#### UPDATE Memory Linking (friday_memory_short_term.py)
 **Verified**: Lines 3576-3609
 
 When a memory is updated in OpenWebUI:
@@ -97,7 +97,7 @@ When a memory is updated in OpenWebUI:
   - metadata includes: previous_id for tracking lineage
 - Status: ✅ Implemented and tested
 
-#### Friday Import in Adaptive_Memory_v3 (Adaptive_Memory_v3.py)
+#### Friday Import in friday_memory_short_term (friday_memory_short_term.py)
 **Verified**: Lines 198-210
 
 ```python
@@ -229,7 +229,7 @@ if mem_emb is None:
 ### User + Model Isolation
 **Status**: ✅ **FULLY IMPLEMENTED**
 
-#### Real-Time Memory Creation (Adaptive_Memory_v3.py)
+#### Real-Time Memory Creation (friday_memory_short_term.py)
 **Verified**: Lines 1645, 3523-3534
 
 Process:
@@ -335,14 +335,14 @@ New verify_and_remediate_chat_isolation() function:
 |-------|-----------|-------|-------|--------|
 | **1** | Database Infrastructure | friday_memory_system.py | 303-348 | ✅ Complete |
 | **1** | Linking Methods | friday_memory_system.py | 459-658 | ✅ Complete |
-| **1** | Adaptive Memory Integration | Adaptive_Memory_v3.py | 198-210 | ✅ Complete |
-| **1** | NEW/UPDATE Linking | Adaptive_Memory_v3.py | 3510-3609 | ✅ Complete |
-| **2** | Async LM Studio Function | Adaptive_Memory_v3.py | 351-400 | ✅ Complete |
-| **2** | Retroactive Embedding | Adaptive_Memory_v3.py | 2135-2217 | ✅ Complete |
-| **2** | Dimension Tracking | Adaptive_Memory_v3.py | 1044-1053 | ✅ Complete |
-| **2** | Smart Validation | Adaptive_Memory_v3.py | 3439-3507 | ✅ Complete |
+| **1** | Adaptive Memory Integration | friday_memory_short_term.py | 198-210 | ✅ Complete |
+| **1** | NEW/UPDATE Linking | friday_memory_short_term.py | 3510-3609 | ✅ Complete |
+| **2** | Async LM Studio Function | friday_memory_short_term.py | 351-400 | ✅ Complete |
+| **2** | Retroactive Embedding | friday_memory_short_term.py | 2135-2217 | ✅ Complete |
+| **2** | Dimension Tracking | friday_memory_short_term.py | 1044-1053 | ✅ Complete |
+| **2** | Smart Validation | friday_memory_short_term.py | 3439-3507 | ✅ Complete |
 | **2** | Embedding Config | embedding_config.json | All | ✅ Complete |
-| **3** | Real-Time Isolation | Adaptive_Memory_v3.py | 1645,3523-3534 | ✅ Complete |
+| **3** | Real-Time Isolation | friday_memory_short_term.py | 1645,3523-3534 | ✅ Complete |
 | **3** | Historical Import | friday_memory_system.py | 4477-4591 | ✅ Complete |
 | **3** | Remediation | friday_memory_system.py | 4593-4728 | ✅ Complete |
 | **4** | Phase 1 Tests | Tests/ | Multiple | ✅ Passed |
@@ -430,7 +430,7 @@ verify_and_remediate_chat_isolation() [Lines 4593-4728]
 
 ### Database Locations
 - Friday Memory System: `/media/nate/Friday/Friday/friday_memory_system.py`
-- Adaptive Memory v3: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- Adaptive Memory v3: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 - OpenWebUI Chat DB: `/media/nate/OpenWebUI/data/webui.db`
 - Friday Data: `/media/nate/Friday/Friday/memory_data/`
 
@@ -508,7 +508,7 @@ Planned features:
 
 ### Key Implementation Files
 - `/media/nate/Friday/Friday/friday_memory_system.py` (7,247 lines)
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (4,664 lines)
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` (4,664 lines)
 - `/media/nate/Friday/Friday/embedding_config.json`
 - `/media/nate/Friday/Friday/Tests/test_adaptive_memory_phase1.py`
 

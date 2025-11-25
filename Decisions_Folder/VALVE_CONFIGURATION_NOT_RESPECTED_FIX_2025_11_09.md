@@ -6,7 +6,7 @@ User had valve settings configured to 0.5 for similarity thresholds, but the inl
 
 ## Root Cause
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`, Line 1776
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`, Line 1776
 
 **Buggy Code**:
 ```python
@@ -33,7 +33,7 @@ Shows that:
 
 ## The Fix
 
-**Location**: Line 1771-1783 in `Adaptive_Memory_v3.py`
+**Location**: Line 1771-1783 in `friday_memory_short_term.py`
 
 **New Logic**:
 ```python
@@ -77,7 +77,7 @@ The default thresholds of 0.7 are CORRECT for the code logic. The issue was neve
 
 ## Files Modified
 
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- `/media/nate/Friday/Friday/friday_memory_short_term.py`
   - Lines 1771-1783: Fixed valve reloading logic to check for None instead of defaulting to empty dict
 
 ## Testing

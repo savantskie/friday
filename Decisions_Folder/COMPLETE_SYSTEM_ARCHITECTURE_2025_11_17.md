@@ -107,7 +107,7 @@ Understanding the distinction is critical for integrations.
 │  │     ├── primary: lmstudio, model, base_url                       │    │
 │  │     └── fallback: ollama, model, base_url                        │    │
 │  │                                                                 │    │
-│  │ /media/nate/Friday/Friday/Adaptive_Memory_v3.py                  │    │
+│  │ /media/nate/Friday/Friday/friday_memory_short_term.py                  │    │
 │  │ └── OpenWebUI Plugin (also on Linux, imported by container)      │    │
 │  │     ├── Uses OpenWebUI's built-in memory system                  │    │
 │  │     ├── Embedding model: text-embedding-nomic-embed-text-v1.5   │    │
@@ -149,7 +149,7 @@ Understanding the distinction is critical for integrations.
 6. Generates embeddings asynchronously
 
 **Key File**: 
-- Adaptive_Memory_v3.py lines 2792-2900 (outlet function)
+- friday_memory_short_term.py lines 2792-2900 (outlet function)
 - Uses OpenWebUI import: `from open_webui.routers.memories import Memories`
 
 ---
@@ -182,7 +182,7 @@ Understanding the distinction is critical for integrations.
 ---
 
 ### 2C. Adaptive Memory v3 Extraction Engine (ACTIVE PROCESSING)
-**Location**: /media/nate/Friday/Friday/Adaptive_Memory_v3.py (plugin in Docker)  
+**Location**: /media/nate/Friday/Friday/friday_memory_short_term.py (plugin in Docker)  
 **Purpose**: Intelligent memory extraction and embedding
 
 **Key Features**:
@@ -364,12 +364,12 @@ curated_memories (
 ## 8. INTEGRATION POINTS (Where Code Talks)
 
 ### Point 1: Extraction → Storage
-**Files**: Adaptive_Memory_v3.py (outlet) → OpenWebUI memory.add_memory()
+**Files**: friday_memory_short_term.py (outlet) → OpenWebUI memory.add_memory()
 **Type**: Direct function call (inside same Docker container)
 **Direction**: Async, non-blocking
 
 ### Point 2: Retrieval → Injection
-**Files**: Adaptive_Memory_v3.py (inlet) → memory.query_memory()
+**Files**: friday_memory_short_term.py (inlet) → memory.query_memory()
 **Type**: Direct function call
 **Direction**: Sync, blocking (happens before LLM call)
 
@@ -379,12 +379,12 @@ curated_memories (
 **Direction**: Request/Response, blocking
 
 ### Point 4: Embedding Generation
-**Files**: Adaptive_Memory_v3.py / friday_memory_system.py → LM Studio (192.168.1.50:1234)
+**Files**: friday_memory_short_term.py / friday_memory_system.py → LM Studio (192.168.1.50:1234)
 **Type**: HTTP REST (OpenAI-compatible /v1/embeddings)
 **Direction**: Async, with fallback to Ollama
 
 ### Point 5: Configuration Sync (PROPOSED)
-**Files**: Adaptive_Memory_v3.py → embedding_config.json
+**Files**: friday_memory_short_term.py → embedding_config.json
 **Type**: File system write
 **Direction**: One-way (Adaptive Memory → File → Friday System reads)
 **Trigger**: When embedding valve changes
@@ -408,7 +408,7 @@ curated_memories (
 
 | File | Purpose | Type |
 |------|---------|------|
-| Adaptive_Memory_v3.py | Memory extraction & management | Plugin/Filter |
+| friday_memory_short_term.py | Memory extraction & management | Plugin/Filter |
 | friday_memory_system.py | Long-term memory storage & search | Core System |
 | friday_memory_mcp_server.py | MCP protocol interface | Server |
 | embedding_config.json | Embedding provider configuration | Config |
@@ -444,7 +444,7 @@ curated_memories (
 ## 12. TROUBLESHOOTING CHECKLIST
 
 **Problem**: Memories not extracting
-- Check: Adaptive_Memory_v3.py outlet function (line 2792)
+- Check: friday_memory_short_term.py outlet function (line 2792)
 - Check: User has memory enabled in valves
 - Check: OpenWebUI memory API available
 

@@ -15,7 +15,7 @@ Implemented a **three-step verification process** before any deletion:
 
 ## The Fix (In Detail)
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`  
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`  
 **Lines**: 4423-4504
 
 ### Before (❌ UNSAFE)

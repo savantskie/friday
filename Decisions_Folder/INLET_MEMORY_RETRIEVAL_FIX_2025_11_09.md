@@ -122,7 +122,7 @@ With the new 0.5 threshold:
 
 ## Files Modified
 
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- `/media/nate/Friday/Friday/friday_memory_short_term.py`
   - Lines 76-82: Updated documentation
   - Line 619: Changed `relevance_threshold` default from 0.7 to 0.5
   - Line 629: Changed `vector_similarity_threshold` default from 0.7 to 0.5

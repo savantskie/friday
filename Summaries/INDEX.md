@@ -186,7 +186,7 @@ ARCHIVE/
 
 All documentation points to these implementation files:
 - `/media/nate/Friday/Friday/friday_memory_system.py` (7,247 lines)
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (4,664 lines)
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` (4,664 lines)
 - `/media/nate/Friday/Friday/embedding_config.json`
 - `/media/nate/Friday/Friday/Decisions_Folder/COMPREHENSIVE_IMPLEMENTATION_FINDINGS_2025_11_09.md`
 

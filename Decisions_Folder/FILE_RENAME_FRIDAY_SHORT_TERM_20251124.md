@@ -1,4 +1,4 @@
-# File Rename: Adaptive_Memory_v3.py → friday_memory_short_term.py
+# File Rename: friday_memory_short_term.py → friday_memory_short_term.py
 
 **Date**: November 24, 2025  
 **Status**: COMPLETED  
@@ -9,9 +9,9 @@
 ## What Changed
 
 ### File System
-- **Old**: `Adaptive_Memory_v3.py` (335 KB)
+- **Old**: `friday_memory_short_term.py` (335 KB)
 - **New**: `friday_memory_short_term.py` (335 KB, same content)
-- **Backup**: `Adaptive_Memory_v3_original.py` (kept for reference)
+- **Backup**: `friday_memory_short_term_original.py` (kept for reference)
 
 ### Code Structure
 - **Class names unchanged**: Still has `Filter`, `JsonFormatter`, `MemoryOperation`, `ImageManager` classes
@@ -51,7 +51,7 @@
 2. Go to **Admin** → **Functions**
 3. Find the filter: `"Adaptive Memory v3"` or similar
 4. Edit the filter:
-   - **Old filename reference**: `Adaptive_Memory_v3`
+   - **Old filename reference**: `friday_memory_short_term`
    - **New filename reference**: `friday_memory_short_term`
    - **Keep the class name**: `Filter` (unchanged)
 5. Save and reload
@@ -81,12 +81,12 @@ If something breaks after OpenWebUI update:
 ```bash
 # Rename file back
 cd /media/nate/Friday/Friday
-mv friday_memory_short_term.py Adaptive_Memory_v3.py
+mv friday_memory_short_term.py friday_memory_short_term.py
 
 # Revert IMPLEMENTATION_CHECKLIST changes
 git checkout tools/IMPLEMENTATION_CHECKLIST.py
 
-# In OpenWebUI: Change filename reference back to "Adaptive_Memory_v3"
+# In OpenWebUI: Change filename reference back to "friday_memory_short_term"
 ```
 
 ---

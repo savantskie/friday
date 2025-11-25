@@ -189,7 +189,7 @@ No retries, no disconnects in the middle of processing.
 
 ## Files Modified
 
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (lines 3316-3333)
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` (lines 3316-3333)
   - Removed: `asyncio.create_task()` 
   - Changed to: Direct `await` of `_process_user_memories()`
   - Added: Better logging and error handling

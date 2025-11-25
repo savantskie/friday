@@ -2,7 +2,7 @@
 
 **Date**: November 9, 2025  
 **Issue**: LLM returning empty or malformed JSON during memory relevance scoring  
-**Affected Component**: `Adaptive_Memory_v3.py` memory relevance scoring flow
+**Affected Component**: `friday_memory_short_term.py` memory relevance scoring flow
 
 ---
 

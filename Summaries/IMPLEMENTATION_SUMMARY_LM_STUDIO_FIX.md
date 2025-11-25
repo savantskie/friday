@@ -1,7 +1,7 @@
 # LM Studio JSON Format Fix - Implementation Summary
 **Date**: November 9, 2025  
 **Status**: ✅ COMPLETED & TESTED  
-**File Modified**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+**File Modified**: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 ---
 
@@ -222,7 +222,7 @@ All of these should be relatively rare after fix deployment.
 
 ## Files Modified
 
-- ✅ `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- ✅ `/media/nate/Friday/Friday/friday_memory_short_term.py`
   - Lines 4211: Added JSON prefix
   - Lines 4318-4323: Added format validation
   - Lines 4325-4337: Added empty response detection

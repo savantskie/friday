@@ -7,7 +7,7 @@
 ## Problem Analysis
 
 ### Root Cause
-In `_execute_memory_operation()` function (lines 6054-6176 of `Adaptive_Memory_v3.py`), the code was calling `add_memory()` **twice** for each new memory:
+In `_execute_memory_operation()` function (lines 6054-6176 of `friday_memory_short_term.py`), the code was calling `add_memory()` **twice** for each new memory:
 
 1. **First call (line ~6054)**: Create the memory with initial content
 2. **Second call (line ~6166)**: Attempt to "tag" the memory with the embedding model tag
@@ -79,7 +79,7 @@ Move the embedding model tag into the **initial `add_memory()` call** metadata, 
 - `embedding_similarity_threshold` = 0.97
 
 ## Code References
-- File: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- File: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 - Function: `_execute_memory_operation()`
 - Lines changed: 6045-6176
 

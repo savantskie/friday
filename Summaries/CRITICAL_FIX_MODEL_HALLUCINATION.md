@@ -93,7 +93,7 @@ When hallucination is detected:
 
 ## Files Modified
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 | Line Range | Change | Reason |
 |-----------|--------|--------|

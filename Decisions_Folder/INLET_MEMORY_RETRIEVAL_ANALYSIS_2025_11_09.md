@@ -6,7 +6,7 @@ Memories are saving correctly to the outlet (after fixes), but the inlet side is
 ## Code Flow Analysis
 
 ### Inlet Function Entry Point
-**Location**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`, Line 1742
+**Location**: `/media/nate/Friday/Friday/friday_memory_short_term.py`, Line 1742
 
 The inlet function should:
 1. Extract user ID from `__user__`
@@ -130,7 +130,7 @@ Result: User embedding = `None` → Function returns `[]` → No memories inject
 
 ## Comparison with Original
 
-**Original Code** (Adaptive_Memory_v3_original.md, line 2971):
+**Original Code** (friday_memory_short_term_original.md, line 2971):
 ```python
 if self.embedding_model:
     user_embedding = self.embedding_model.encode(
@@ -165,7 +165,7 @@ Uses async LM Studio embedding with hardcoded IP.
 
 ## Files to Investigate
 
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` - Main file with inlet/outlet
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` - Main file with inlet/outlet
   - Line 351: `get_nomic_embedding()` function
   - Line 1742: `inlet()` function
   - Line 1954: Memory retrieval in inlet

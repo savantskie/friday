@@ -122,7 +122,7 @@ This is PERFECT JSON wrapped in backticks! But extraction couldn't find it due t
 
 ## Files Modified
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 | Line Range | Change | Reason |
 |-----------|--------|--------|

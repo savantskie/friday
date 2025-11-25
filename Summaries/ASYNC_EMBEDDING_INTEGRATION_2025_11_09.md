@@ -1,6 +1,6 @@
 # Async LM Studio Embedding Integration - Summary
 **Date**: November 9, 2025  
-**System**: Adaptive_Memory_v3.py (OpenWebUI Short-Term Memory)  
+**System**: friday_memory_short_term.py (OpenWebUI Short-Term Memory)  
 **Component**: Memory Embedding and Relevance Filtering  
 **Status**: ✅ Implemented and Deployed
 
@@ -205,7 +205,7 @@ if mem_emb is None:
 
 ## Files Modified
 
-### `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+### `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 **Lines Changed**: ~150 lines modified/added
 

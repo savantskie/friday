@@ -149,7 +149,7 @@ async def verify_and_remediate_chat_isolation(self, webui_db_path=None):
 
 Now complete for ALL sources:
 
-1. **Real-time (Adaptive_Memory_v3)** ✅
+1. **Real-time (friday_memory_short_term)** ✅
    - Captures body['model']
    - Uses "{user_id}_{model}" format
 

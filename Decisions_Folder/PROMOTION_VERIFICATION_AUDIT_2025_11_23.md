@@ -10,7 +10,7 @@
 
 #### ✅ GOOD: Max Total Memories Valve IS Respected
 
-**Location**: `Adaptive_Memory_v3.py` line 4249
+**Location**: `friday_memory_short_term.py` line 4249
 ```python
 max_memories = self.valves.max_total_memories  # Uses YOUR 3000 setting
 ```
@@ -27,7 +27,7 @@ The system reads from `self.valves.max_total_memories` directly, so your 3000 se
 
 #### ⚠️ PROBLEM: Deletion Happens Without Verification
 
-**Location**: `Adaptive_Memory_v3.py` lines 4434-4460
+**Location**: `friday_memory_short_term.py` lines 4434-4460
 
 **Current Flow (WRONG)**:
 ```python
@@ -258,7 +258,7 @@ retry_promotion = True  # Try again on next cycle
 
 ## Files That Need Changes
 
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (lines 4434-4460)
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` (lines 4434-4460)
   - Add verification before deletion
   - Capture and check return value from create_memory()
   - Query Friday DB to verify

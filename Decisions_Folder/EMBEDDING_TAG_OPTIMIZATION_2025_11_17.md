@@ -65,7 +65,7 @@ if fresh_emb.shape[0] != cached_emb.shape[0]:  # 768D != 384D
 
 ## Changes Made
 
-### **File:** `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+### **File:** `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 #### **Change 1: `_retroactively_embed_all_memories()` (Line ~2590)**
 - Added tag checking at start of loop

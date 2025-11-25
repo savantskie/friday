@@ -29,7 +29,7 @@ Your Docker command has the correct mounts:
 
 ```
 /media/nate/Friday/Friday/
-├── friday_short_term.py          ← Renamed from Adaptive_Memory_v3.py
+├── friday_memory_short_term.py          ← Renamed from friday_memory_short_term.py
 │   ├── class Filter (line 442)
 │   ├── async def inlet() (line 2969)
 │   └── async def outlet() (line 3509)
@@ -52,14 +52,14 @@ Your Docker command has the correct mounts:
 
 ### One-Way Dependency
 ```
-friday_short_term.py
+friday_memory_short_term.py
     ↓ imports
 friday_memory_system.py (no reverse dependency)
 ```
 
 **Inside Container Path Resolution:**
-1. OpenWebUI loads `/media/nate/Friday/Friday/friday_short_term.py`
-2. `friday_short_term.py` executes: `from friday_memory_system import ...`
+1. OpenWebUI loads `/media/nate/Friday/Friday/friday_memory_short_term.py`
+2. `friday_memory_short_term.py` executes: `from friday_memory_system import ...`
 3. Python looks in same directory: `/media/nate/Friday/Friday/friday_memory_system.py`
 4. ✅ Import succeeds (file is there via Docker mount)
 
@@ -99,7 +99,7 @@ Persistent database (/media/nate/Friday/Friday/data/memories.db)
    - Go to **Admin** → **Functions**
    - Find filter: `"Adaptive Memory v3"` or similar
    - **Edit the filter:**
-     - Change filename from: `Adaptive_Memory_v3`
+     - Change filename from: `friday_memory_short_term`
      - To: `friday_short_term`
      - Keep class name: `Filter` (unchanged)
    - Save
@@ -110,7 +110,7 @@ Persistent database (/media/nate/Friday/Friday/data/memories.db)
 
 ## Deployment Checklist
 
-- [x] File renamed: `Adaptive_Memory_v3.py` → `friday_short_term.py`
+- [x] File renamed: `friday_memory_short_term.py` → `friday_memory_short_term.py`
 - [x] Syntax valid: Python compilation successful
 - [x] Core structures intact: Filter class, inlet(), outlet()
 - [x] Imports verified: friday_memory_system accessible
@@ -131,7 +131,7 @@ Persistent database (/media/nate/Friday/Friday/data/memories.db)
 
 ### "Filter class not found"
 - **Cause**: Filename in OpenWebUI doesn't match actual file
-- **Check**: Is the filter set to `friday_short_term` (not `Adaptive_Memory_v3`)?
+- **Check**: Is the filter set to `friday_short_term` (not `friday_memory_short_term`)?
 - **Fix**: Update filter configuration in OpenWebUI Admin
 
 ### "Cannot import ConversationDatabase"
@@ -145,7 +145,7 @@ Persistent database (/media/nate/Friday/Friday/data/memories.db)
 
 After rename, your Friday system is now organized as three clear layers:
 
-**Layer 1: Session Memory** (`friday_short_term.py`)
+**Layer 1: Session Memory** (`friday_memory_short_term.py`)
 - Real-time extraction and injection (inlet/outlet)
 - DeduplicationOCR, summarization
 - Temporary context within a conversation

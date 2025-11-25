@@ -586,7 +586,7 @@ Result: Natural flow from ephemeral → curated → permanent
 |------|-------|---------|
 | `friday_memory_system.py` | 7,253 | Core Friday Memory System (all databases, embedding service, FridayMemorySystem coordinator) |
 | `friday_memory_mcp_server.py` | 1,865 | MCP interface (tool registration, routing, execution) |
-| `Adaptive_Memory_v3.py` | ~3,500 | OpenWebUI plugin (inlet/outlet filters, pruning, embedding) |
+| `friday_memory_short_term.py` | ~3,500 | OpenWebUI plugin (inlet/outlet filters, pruning, embedding) |
 | `embedding_config.json` | Small | Embedding provider configuration |
 | `embeddings_completed.log` | Log file | Tracks retroactive embedding completion (prevents re-embedding) |
 | `database_maintenance.py` | ~500 | Database optimization and cleanup |
@@ -596,7 +596,7 @@ Result: Natural flow from ephemeral → curated → permanent
 Priority order for code investigation:
 1. `friday_memory_system.py` - Core system (understand create_memory, search_memories, async patterns)
 2. `friday_memory_mcp_server.py` - Tool interface (understand _execute_tool, argument filtering)
-3. `Adaptive_Memory_v3.py` - Pruning logic (understand FIFO/least_relevant, importance filtering)
+3. `friday_memory_short_term.py` - Pruning logic (understand FIFO/least_relevant, importance filtering)
 
 ---
 

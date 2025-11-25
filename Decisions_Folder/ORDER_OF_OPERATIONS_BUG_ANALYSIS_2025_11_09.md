@@ -13,7 +13,7 @@ The conversation summarization feature was added between command handling and me
 
 ## Detailed Analysis
 
-### Original Inlet Function Flow (from Adaptive_Memory_v3_original.md)
+### Original Inlet Function Flow (from friday_memory_short_term_original.md)
 
 **Lines 1576-1616:**
 ```
@@ -38,7 +38,7 @@ The conversation summarization feature was added between command handling and me
 
 ---
 
-### Current Inlet Function Flow (Adaptive_Memory_v3.py)
+### Current Inlet Function Flow (friday_memory_short_term.py)
 
 **Lines 1944-2302:**
 ```
@@ -117,13 +117,13 @@ This is approximately 2-4 seconds of additional LLM work happening **before** th
 ## Evidence This is New Code
 
 ### Not in Original
-Searched Adaptive_Memory_v3_original.md for:
+Searched friday_memory_short_term_original.md for:
 - `enable_conversation_summarization` - **NOT FOUND**
 - `_check_and_summarize_conversation` - **NOT FOUND**
 - `conversation_summarization_threshold` - **NOT FOUND**
 
 ### Only in Current
-Searched current Adaptive_Memory_v3.py:
+Searched current friday_memory_short_term.py:
 - `enable_conversation_summarization` - **FOUND** (Line 971, valve definition)
 - `_check_and_summarize_conversation` - **FOUND** (Line 1212, function definition)
 - Called in inlet - **FOUND** (Line 2254, calling code)

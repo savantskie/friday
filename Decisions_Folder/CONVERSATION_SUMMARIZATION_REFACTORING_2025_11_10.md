@@ -179,7 +179,7 @@ system_prompt = model_info.params.get("system")
 4. Monitor that system prompt is correctly injected
 
 ## Files Modified
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- `/media/nate/Friday/Friday/friday_memory_short_term.py`
   - Deleted: `_check_and_summarize_conversation()` (lines 1212-1350)
   - Added: `_should_summarize_now()` (line 1218)
   - Added: `_generate_conversation_summary()` (line 1259)

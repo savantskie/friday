@@ -3,7 +3,7 @@
 **Status:** CRITICAL STRUCTURAL ISSUES IDENTIFIED
 
 ## Summary
-Your modified version (`Adaptive_Memory_v3.py`) has **broken the initialization order** compared to the original (`Adaptive_Memory_v3_original.py`). This causes the plugin to fail because dependencies are initialized in the wrong sequence.
+Your modified version (`friday_memory_short_term.py`) has **broken the initialization order** compared to the original (`friday_memory_short_term_original.py`). This causes the plugin to fail because dependencies are initialized in the wrong sequence.
 
 ---
 
@@ -55,8 +55,8 @@ In the original, `Filter` class starts at line 209.
 ## CRITICAL ISSUE #2: Duplicate `Filter` Class Definition
 
 The file shows TWO `class Filter:` definitions:
-1. Line 413 in main Adaptive_Memory_v3.py
-2. Line 221 in short term candidates/Adaptive_Memory_v3.py
+1. Line 413 in main friday_memory_short_term.py
+2. Line 221 in short term candidates/friday_memory_short_term.py
 
 This suggests a merge conflict or incomplete refactor where code wasn't properly consolidated.
 
@@ -212,8 +212,8 @@ This restores the **correct order of operations** while keeping all your new LM 
 ---
 
 ## Files Affected
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (Current broken version)
-- Should mirror the structure of `Adaptive_Memory_v3_original.py` with your enhancements integrated properly
+- `/media/nate/Friday/Friday/friday_memory_short_term.py` (Current broken version)
+- Should mirror the structure of `friday_memory_short_term_original.py` with your enhancements integrated properly
 
 ## Next Steps
 1. Remove EmbeddingCache and get_nomic_embedding() from top level

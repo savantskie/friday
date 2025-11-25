@@ -156,7 +156,7 @@ async def create_memory(
 1. OpenWebUI is using a cached/compiled version of the code
 2. There's a wrapper layer intercepting calls
 3. The code was modified after OpenWebUI loaded it
-4. The actual method being called is different (possibly from `Adaptive_Memory_v3.py` or another wrapper)
+4. The actual method being called is different (possibly from `friday_memory_short_term.py` or another wrapper)
 
 ### Files Involved
 - `/media/nate/Friday/Friday/friday_memory_system.py` line 787 (create_memory implementation)

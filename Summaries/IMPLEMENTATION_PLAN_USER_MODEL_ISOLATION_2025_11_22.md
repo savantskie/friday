@@ -202,7 +202,7 @@ UPDATE messages SET user_id = 'Nate', model_id = 'Friday' WHERE user_id IS NULL;
 
 4. **Permissions**: Any other files I should check/update?
    - persistent-ai-memory repo?
-   - Adaptive_Memory_v3.py?
+   - friday_memory_short_term.py?
    - Other plugins?
 
 ---

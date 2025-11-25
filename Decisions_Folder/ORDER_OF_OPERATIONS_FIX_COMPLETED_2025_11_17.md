@@ -3,7 +3,7 @@
 **Status:** ✅ SUCCESSFULLY RESOLVED
 
 ## Summary
-Successfully reorganized `Adaptive_Memory_v3.py` to restore the correct initialization order while keeping all new LM Studio embedding features.
+Successfully reorganized `friday_memory_short_term.py` to restore the correct initialization order while keeping all new LM Studio embedding features.
 
 ---
 
@@ -205,7 +205,7 @@ Traceback:
 ---
 
 ## File Changed
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 ## Next Steps
 1. Test with OpenWebUI to verify plugin loads correctly

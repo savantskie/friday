@@ -95,11 +95,11 @@ SEARCH: Semantic Query Across All Memory
 
 | Point | Files | Type | Direction | Trigger |
 |-------|-------|------|-----------|---------|
-| **Extraction→Storage** | Adaptive_Memory_v3.py (outlet) → OpenWebUI memory.add_memory() | Direct call | Async/Non-blocking | After LLM response |
-| **Retrieval→Injection** | Adaptive_Memory_v3.py (inlet) → memory.query_memory() | Direct call | Sync/Blocking | Before LLM processes message |
+| **Extraction→Storage** | friday_memory_short_term.py (outlet) → OpenWebUI memory.add_memory() | Direct call | Async/Non-blocking | After LLM response |
+| **Retrieval→Injection** | friday_memory_short_term.py (inlet) → memory.query_memory() | Direct call | Sync/Blocking | Before LLM processes message |
 | **MCP Access** | VS Code/LM Studio → friday_memory_mcp_server.py | MCP protocol (stdio) | Request/Response | Tool call from AI |
-| **Embedding Gen** | Adaptive_Memory_v3.py / friday_memory_system.py → LM Studio | HTTP REST /v1/embeddings | Async | When creating/searching memory |
-| **Config Sync** | Adaptive_Memory_v3.py valve → embedding_config.json | File write | One-way | When embedding_model valve changes (PROPOSED) |
+| **Embedding Gen** | friday_memory_short_term.py / friday_memory_system.py → LM Studio | HTTP REST /v1/embeddings | Async | When creating/searching memory |
+| **Config Sync** | friday_memory_short_term.py valve → embedding_config.json | File write | One-way | When embedding_model valve changes (PROPOSED) |
 | **Promotion** | POST /api/memories/promote → FridayMemorySystem.create_memory() | HTTP API | Sync with async embedding | User/system decision (PROPOSED) |
 
 ---
@@ -108,7 +108,7 @@ SEARCH: Semantic Query Across All Memory
 
 ### 2.1 Adaptive Memory v3: The Short-Term Extraction Engine
 
-**Location**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (OpenWebUI plugin)  
+**Location**: `/media/nate/Friday/Friday/friday_memory_short_term.py` (OpenWebUI plugin)  
 **Runs**: Inside Docker container  
 **Scope**: Active during conversations, max 200 memories  
 **Purpose**: Extract and manage conversation-relevant memories in real-time
@@ -770,7 +770,7 @@ Result: Natural flow from ephemeral → curated → permanent
 |------|-------|---------|
 | `friday_memory_system.py` | 7,253 | Core Friday Memory System (all databases, embedding service, coordinator) |
 | `friday_memory_mcp_server.py` | 1,865 | MCP interface (tool registration, routing, execution) |
-| `Adaptive_Memory_v3.py` | ~3,500 | OpenWebUI plugin (inlet/outlet filters, pruning, embedding) |
+| `friday_memory_short_term.py` | ~3,500 | OpenWebUI plugin (inlet/outlet filters, pruning, embedding) |
 | `embedding_config.json` | Small | Embedding provider configuration |
 | `embeddings_completed.log` | Log | Tracks retroactive embedding completion |
 | `database_maintenance.py` | ~500 | Database optimization and cleanup |
@@ -780,7 +780,7 @@ Result: Natural flow from ephemeral → curated → permanent
 Priority order:
 1. `friday_memory_system.py` - Understand create_memory(), search_memories(), async patterns
 2. `friday_memory_mcp_server.py` - Understand _execute_tool(), argument filtering
-3. `Adaptive_Memory_v3.py` - Understand FIFO/least_relevant pruning, importance filtering
+3. `friday_memory_short_term.py` - Understand FIFO/least_relevant pruning, importance filtering
 
 ---
 

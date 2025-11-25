@@ -22,7 +22,7 @@ This was **INCORRECT**. The actual implementation uses **90 days**.
 
 ### Layer 2: Automatic Promotion After 90 Days
 
-**What Actually Happens** (per `Adaptive_Memory_v3.py` line 2519+):
+**What Actually Happens** (per `friday_memory_short_term.py` line 2519+):
 
 ```python
 # Every periodic interval, the _promote_old_memories_loop() checks:

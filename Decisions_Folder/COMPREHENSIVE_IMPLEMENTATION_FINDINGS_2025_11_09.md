@@ -283,7 +283,7 @@ Replace synchronous SentenceTransformer embeddings in Adaptive Memory v3 with as
 
 ### Implementation Verification
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 #### ✅ New Async Function: `get_nomic_embedding()`
 **Status**: IMPLEMENTED - Verified at Line 351-400
@@ -390,7 +390,7 @@ Optimize repeated embedding checks by tracking dimension changes and only valida
 
 ### Implementation Verification
 
-**File**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+**File**: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 
 #### ✅ Dimension Tracking Variables
 **Status**: IMPLEMENTED - Verified at Line 1044-1053
@@ -501,7 +501,7 @@ Call the Friday Memory System linking methods from Adaptive Memory v3 to actuall
 - ✅ `queue_conversation_for_processing()` - Ready at Line 529
 
 **Required Integration Point**:
-- File: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- File: `/media/nate/Friday/Friday/friday_memory_short_term.py`
 - Function: Where memories are created/extracted
 - Action: Call `friday_memory_system.link_memory_to_conversation()` to create links
 
@@ -602,12 +602,12 @@ Implement background job processor to extract memories from historical conversat
 | **1** | Link Methods (6 total) | ✅ Complete | friday_memory_system.py | 459-658 | All implemented |
 | **2** | Embedding Config | ✅ Complete | embedding_config.json | All | LM Studio + Ollama |
 | **2** | Embedding Preservation | ✅ Complete | Both files | N/A | 14,878 embeddings preserved |
-| **3** | Async Function | ✅ Complete | Adaptive_Memory_v3.py | 351-400 | get_nomic_embedding() |
-| **3** | Retroactive Embedding | ✅ Complete | Adaptive_Memory_v3.py | 2135-2217 | 165 memories regenerated |
-| **3** | Message Integration | ✅ Complete | Adaptive_Memory_v3.py | 3372-3507 | Async embedding in relevance |
-| **4** | Dimension Tracking Vars | ✅ Complete | Adaptive_Memory_v3.py | 1044-1053 | Initialization added |
-| **4** | Smart Validation Logic | ✅ Complete | Adaptive_Memory_v3.py | 3439-3467 | Conditional checks |
-| **5** | Memory Linking Calls | ⏳ Pending | Adaptive_Memory_v3.py | TBD | Needs integration |
+| **3** | Async Function | ✅ Complete | friday_memory_short_term.py | 351-400 | get_nomic_embedding() |
+| **3** | Retroactive Embedding | ✅ Complete | friday_memory_short_term.py | 2135-2217 | 165 memories regenerated |
+| **3** | Message Integration | ✅ Complete | friday_memory_short_term.py | 3372-3507 | Async embedding in relevance |
+| **4** | Dimension Tracking Vars | ✅ Complete | friday_memory_short_term.py | 1044-1053 | Initialization added |
+| **4** | Smart Validation Logic | ✅ Complete | friday_memory_short_term.py | 3439-3467 | Conditional checks |
+| **5** | Memory Linking Calls | ⏳ Pending | friday_memory_short_term.py | TBD | Needs integration |
 | **6** | Background Processing | ⏳ Pending | New file needed | TBD | Worker implementation |
 | **7** | Advanced Features | ⏳ Planning | TBD | TBD | Future enhancements |
 
@@ -766,7 +766,7 @@ Implement background job processor to extract memories from historical conversat
 
 ### Primary Implementation Files
 - **Friday Memory System**: `/media/nate/Friday/Friday/friday_memory_system.py` (7,247 lines)
-- **Adaptive Memory v3**: `/media/nate/Friday/Friday/Adaptive_Memory_v3.py` (4,664 lines)
+- **Adaptive Memory v3**: `/media/nate/Friday/Friday/friday_memory_short_term.py` (4,664 lines)
 - **Embedding Config**: `/media/nate/Friday/Friday/embedding_config.json`
 
 ### Documentation Files

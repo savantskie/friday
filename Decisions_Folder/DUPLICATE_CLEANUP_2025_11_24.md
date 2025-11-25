@@ -46,7 +46,7 @@ When `process_memories()` is called:
 ## Implementation Details
 
 ### Function: `_cleanup_tagged_duplicates()`
-- **Location**: `Adaptive_Memory_v3.py` after `process_memories()`
+- **Location**: `friday_memory_short_term.py` after `process_memories()`
 - **When Called**: During `process_memories()` initialization, if deduplication is enabled
 - **Non-blocking**: Errors don't stop memory processing
 - **User Retrieval**: Gets user object for delete operations
@@ -137,7 +137,7 @@ Together they:
 3. ✅ Preserve metadata (keeps tagged versions)
 
 ## Files Modified
-- `/media/nate/Friday/Friday/Adaptive_Memory_v3.py`
+- `/media/nate/Friday/Friday/friday_memory_short_term.py`
   - Added `_cleanup_tagged_duplicates()` function
   - Modified `process_memories()` to call cleanup on initialization
 
