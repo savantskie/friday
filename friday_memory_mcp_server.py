@@ -612,8 +612,6 @@ class FridayMemoryMCPServer:
             # Set defaults for mandatory user/model tracking
             if not user_id:
                 user_id = "Nate"
-            if not model_id:
-                model_id = "Friday"
             
             if include_completed:
                 # For completed reminders, use memory system's method
@@ -1502,11 +1500,11 @@ class FridayMemoryMCPServer:
         # ---------------------------------------------------------------------
         # Context Setup
         # ---------------------------------------------------------------------
-        # Extract user_id and model_id from context or arguments, with proper defaults
+        # Extract user_id and model_id from context or arguments
+        # NOTE: user_id should be provided explicitly - no defaults to avoid querying wrong user
         user_id = (
             self.client_context.get("user_id")
             or arguments.get("user_id")
-            or "Nate"
         )
         model_id = (
             self.client_context.get("model_id")
@@ -1516,6 +1514,39 @@ class FridayMemoryMCPServer:
 
         # Store context for logging but don't modify arguments yet
         client_id = self.client_context.get("current_client", "unknown")
+
+        def _ensure_user_id(args: Dict[str, Any]) -> None:
+            # Only add user_id if it was explicitly provided
+            if user_id:
+                args["user_id"] = args.get("user_id") or user_id
+
+        def _clean_appointment(appt: Dict[str, Any]) -> Dict[str, Any]:
+            """Return only essential appointment fields, no embeddings"""
+            return {
+                "appointment_id": appt.get("appointment_id"),
+                "title": appt.get("title"),
+                "scheduled_datetime": appt.get("scheduled_datetime"),
+                "duration_minutes": appt.get("duration_minutes"),
+                "description": appt.get("description")
+            }
+
+        def _apply_model_filter(args: Dict[str, Any], allow_blank_all_models: bool = False) -> None:
+            has_model_arg = "model_id" in arguments
+            explicit_model = arguments.get("model_id")
+
+            if has_model_arg:
+                if explicit_model:
+                    args["model_id"] = explicit_model
+                elif allow_blank_all_models:
+                    args.pop("model_id", None)
+                else:
+                    args["model_id"] = model_id
+                return
+
+            if allow_blank_all_models:
+                args.pop("model_id", None)
+            else:
+                args.setdefault("model_id", model_id)
 
         start_time = time.perf_counter()
 
@@ -1527,8 +1558,10 @@ class FridayMemoryMCPServer:
                 # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id, user_id, model_id
                 allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
@@ -1541,24 +1574,28 @@ class FridayMemoryMCPServer:
                 # update_memory accepts: memory_id, content, importance_level, tags, user_id, model_id
                 allowed_args = {"memory_id", "content", "importance_level", "tags", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
 
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
                 # get_recent_context accepts: limit, session_id, days_back, user_id, model_id
                 allowed_args = {"limit", "session_id", "days_back", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
 
             elif tool_name == "store_conversation":
                 # store_conversation accepts: content, role, session_id, metadata, user_id, model_id
                 allowed_args = {"content", "role", "session_id", "metadata", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.store_conversation(**filtered_args))
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
@@ -1619,42 +1656,40 @@ class FridayMemoryMCPServer:
                 # cancel_appointment accepts: appointment_id, user_id, model_id
                 allowed_args = {"appointment_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.cancel_appointment(**filtered_args))
             elif tool_name == "complete_appointment":
                 # complete_appointment accepts: appointment_id, user_id, model_id
                 allowed_args = {"appointment_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.complete_appointment(**filtered_args))
             elif tool_name == "get_appointments":
                 # get_appointments accepts: limit, days_ahead, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                # Only apply model_id default if model_id not explicitly provided as blank
-                if "model_id" not in arguments or arguments.get("model_id"):
-                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
-                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
-                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
-                    filtered_args.pop("model_id", None)  # Remove to query all models
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
+                # Clean appointment data - remove embeddings and internal fields
+                if result.get("status") == "success" and "appointments" in result:
+                    result["appointments"] = [_clean_appointment(appt) for appt in result["appointments"]]
             elif tool_name == "get_upcoming_appointments":
                 # get_upcoming_appointments accepts: limit, days_ahead, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                # Only apply model_id default if model_id not explicitly provided as blank
-                if "model_id" not in arguments or arguments.get("model_id"):
-                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
-                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
-                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
-                    filtered_args.pop("model_id", None)  # Remove to query all models
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
+                # Clean appointment data - remove embeddings and internal fields
+                if result.get("status") == "success" and "appointments" in result:
+                    result["appointments"] = [_clean_appointment(appt) for appt in result["appointments"]]
             elif tool_name == "create_reminder":
                 # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
                 allowed_args = {"content", "due_datetime", "priority_level", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
@@ -1664,61 +1699,49 @@ class FridayMemoryMCPServer:
                 # reschedule_reminder accepts: reminder_id, new_due_datetime, user_id, model_id
                 allowed_args = {"reminder_id", "new_due_datetime", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.reschedule_reminder(**filtered_args))
             elif tool_name == "complete_reminder":
                 # complete_reminder accepts: reminder_id, user_id, model_id
                 allowed_args = {"reminder_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.complete_reminder(**filtered_args))
             elif tool_name == "get_active_reminders":
                 # get_active_reminders accepts: limit, days_ahead, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                # Only apply model_id default if model_id not explicitly provided as blank
-                if "model_id" not in arguments or arguments.get("model_id"):
-                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
-                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
-                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
-                    filtered_args.pop("model_id", None)  # Remove to query all models
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
             elif tool_name == "get_completed_reminders":
                 # get_completed_reminders accepts: days, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"days", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                # Only apply model_id default if model_id not explicitly provided as blank
-                if "model_id" not in arguments or arguments.get("model_id"):
-                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
-                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
-                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
-                    filtered_args.pop("model_id", None)  # Remove to query all models
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
             elif tool_name == "delete_reminder":
                 # delete_reminder accepts: reminder_id, user_id, model_id
                 allowed_args = {"reminder_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.delete_reminder(**filtered_args))
             elif tool_name == "get_reminders":
                 # get_reminders accepts: limit, include_completed, days_ahead, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
                 allowed_args = {"limit", "include_completed", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                filtered_args["user_id"] = filtered_args.get("user_id") or user_id or "Nate"
-                # Only apply model_id default if model_id not explicitly provided as blank
-                if "model_id" not in arguments or arguments.get("model_id"):
-                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id or "Friday"
-                # If model_id ends up being None/empty and user_id was explicitly provided, leave it as None (query all models)
-                if filtered_args.get("user_id") and not filtered_args.get("model_id"):
-                    filtered_args.pop("model_id", None)  # Remove to query all models
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
                 result = await self.get_reminders(**filtered_args)
 
             # -----------------------------------------------------------------
@@ -1769,8 +1792,8 @@ class FridayMemoryMCPServer:
             elif tool_name == "brave_web_search":
                 # brave_web_search only accepts: query, count, country, language
                 # Extract user_id and model_id for logging, don't pass to tool
-                search_user_id = arguments.get("user_id") or user_id or "Nate"
-                search_model_id = arguments.get("model_id") or model_id or "Friday"
+                search_user_id = arguments.get("user_id") or user_id
+                search_model_id = arguments.get("model_id") or model_id
                 logger.info(f"Brave web search requested by user={search_user_id}, model={search_model_id}")
                 
                 allowed_args = {"query", "count", "country", "language"}
@@ -1780,8 +1803,8 @@ class FridayMemoryMCPServer:
             elif tool_name == "brave_local_search":
                 # brave_local_search only accepts: query, location, count, radius
                 # Extract user_id and model_id for logging, don't pass to tool
-                search_user_id = arguments.get("user_id") or user_id or "Nate"
-                search_model_id = arguments.get("model_id") or model_id or "Friday"
+                search_user_id = arguments.get("user_id") or user_id
+                search_model_id = arguments.get("model_id") or model_id
                 logger.info(f"Brave local search requested by user={search_user_id}, model={search_model_id}")
                 
                 allowed_args = {"query", "location", "count", "radius"}

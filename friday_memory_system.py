@@ -445,8 +445,8 @@ class ConversationDatabase(DatabaseManager):
         cutoff_timestamp = cutoff_date.isoformat()
         
         # Build query based on whether model_id filtering is requested
-        if model_id is not None:
-            # Filter by specific model (even if empty string)
+        if model_id:
+            # Filter by specific model
             if session_id:
                 query = "SELECT m.message_id, m.conversation_id, m.timestamp, m.role, m.content, m.metadata, c.session_id FROM messages m JOIN conversations c ON m.conversation_id = c.conversation_id WHERE c.session_id = ? AND m.timestamp >= ? AND c.user_id = ? AND c.model_id = ? ORDER BY m.timestamp DESC LIMIT ?"
                 params = (session_id, cutoff_timestamp, user_id, model_id, limit)
@@ -926,8 +926,8 @@ class ScheduleDatabase(DatabaseManager):
         
         try:
             # Build query based on whether model_id filtering is requested
-            if model_id is not None:
-                # Filter by specific model (even if empty string)
+            if model_id:
+                # Filter by specific model
                 query = """
                     SELECT *
                     FROM appointments
@@ -4768,11 +4768,9 @@ class FridayMemorySystem:
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get recent appointments from the schedule database"""
         
-        # Set defaults for mandatory user/model tracking
+        # Set defaults for mandatory user tracking
         if not user_id:
             user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
         
         result = await self.schedule_db.get_appointments(limit, days_ahead, user_id, model_id)
         
@@ -5156,8 +5154,8 @@ class FridayMemorySystem:
         cutoff = (now + timedelta(days=days_ahead)).isoformat()
         
         # Build query based on whether model_id filtering is requested
-        if model_id is not None:
-            # Filter by specific model (even if empty string)
+        if model_id:
+            # Filter by specific model
             rows = await self.schedule_db.execute_query(
                 "SELECT * FROM reminders WHERE completed = 0 AND due_datetime >= ? AND due_datetime <= ? AND user_id = ? AND model_id = ? ORDER BY due_datetime LIMIT ?",
                 (start_of_today, cutoff, user_id, model_id, limit)
@@ -5204,8 +5202,8 @@ class FridayMemorySystem:
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
         
         # Build query based on whether model_id filtering is requested
-        if model_id is not None:
-            # Filter by specific model (even if empty string)
+        if model_id:
+            # Filter by specific model
             rows = await self.schedule_db.execute_query(
                 "SELECT * FROM reminders WHERE completed = 1 AND completed_at >= ? AND user_id = ? AND model_id = ? ORDER BY completed_at DESC",
                 (cutoff, user_id, model_id)
@@ -5326,8 +5324,8 @@ class FridayMemorySystem:
         cutoff_epoch = int(cutoff_local.timestamp())
         
         # Build query based on whether model_id filtering is requested
-        if model_id is not None:
-            # Filter by specific model (even if empty string)
+        if model_id:
+            # Filter by specific model
             query = """
                 SELECT *
                 FROM appointments
