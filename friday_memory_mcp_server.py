@@ -21,6 +21,7 @@ import sqlite3
 import threading
 import requests
 import aiohttp
+import traceback
 from zoneinfo import ZoneInfo
 import os
 import numpy as np
@@ -1056,7 +1057,10 @@ class FridayMemoryMCPServer:
                 description="Get comprehensive system health, statistics, and database status",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
                     "additionalProperties": False
                 }
             ),
@@ -1069,7 +1073,9 @@ class FridayMemoryMCPServer:
                         "mode": {"type": "string", "description": "Mode: 'usage' (default) for statistics or 'documentation' for tool descriptions", "default": "usage"},
                         "tool_name": {"type": "string", "description": "Optional: specific tool name to document (only with mode='documentation')"},
                         "days": {"type": "integer", "description": "For usage mode: Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"}
+                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -1080,7 +1086,9 @@ class FridayMemoryMCPServer:
                     "type": "object", 
                     "properties": {
                         "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"}
+                        "client_id": {"type": "string", "description": "Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             ),
@@ -1092,7 +1100,9 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of insights", "default": 5},
                         "insight_type": {"type": "string", "description": "Type of insight to filter"},
-                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"}
+                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     }
                 }
             )
@@ -1130,7 +1140,9 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
-                        }
+                        },
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["content"],
                     "additionalProperties": False
@@ -1170,7 +1182,9 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
-                        }
+                        },
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["content"],
                     "additionalProperties": False
@@ -1497,7 +1511,8 @@ class FridayMemoryMCPServer:
         # Context Setup
         # ---------------------------------------------------------------------
         # Extract user_id and model_id from context or arguments
-        # NOTE: user_id should be provided explicitly - no defaults to avoid querying wrong user
+        # NOTE: model_id MUST be provided explicitly by the client
+        # It should come from the client's own instructions (e.g., "Eddie", "Claude", etc.)
         user_id = (
             self.client_context.get("user_id")
             or arguments.get("user_id")
@@ -1505,8 +1520,21 @@ class FridayMemoryMCPServer:
         model_id = (
             self.client_context.get("model_id")
             or arguments.get("model_id")
-            or os.getenv("FRIDAY_DEFAULT_MODEL", "Friday")
         )
+        
+        # VALIDATION: model_id is required for proper audit logging
+        if not model_id:
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=f"ERROR: model_id parameter is required for tool '{tool_name}'. "
+                        f"You must pass your model name (e.g., 'Eddie', 'Claude', 'Friday') as the model_id parameter. "
+                        f"Add this to your system instructions: pass model_id with your model name when calling tools."
+                    )
+                ],
+                isError=True
+            )
 
         # Store context for logging but don't modify arguments yet
         client_id = self.client_context.get("current_client", "unknown")
@@ -1525,24 +1553,6 @@ class FridayMemoryMCPServer:
                 "duration_minutes": appt.get("duration_minutes"),
                 "description": appt.get("description")
             }
-
-        def _apply_model_filter(args: Dict[str, Any], allow_blank_all_models: bool = False) -> None:
-            has_model_arg = "model_id" in arguments
-            explicit_model = arguments.get("model_id")
-
-            if has_model_arg:
-                if explicit_model:
-                    args["model_id"] = explicit_model
-                elif allow_blank_all_models:
-                    args.pop("model_id", None)
-                else:
-                    args["model_id"] = model_id
-                return
-
-            if allow_blank_all_models:
-                args.pop("model_id", None)
-            else:
-                args.setdefault("model_id", model_id)
 
         start_time = time.perf_counter()
 
@@ -1581,7 +1591,8 @@ class FridayMemoryMCPServer:
                 allowed_args = {"limit", "session_id", "days_back", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
 
             elif tool_name == "store_conversation":
@@ -1596,27 +1607,31 @@ class FridayMemoryMCPServer:
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 try:
-                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days
-                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days"}
+                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days, user_id, model_id
+                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days", "user_id", "model_id"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                    logger.info(f"Storing AI reflection from user={user_id}, model={model_id}")
                     reflection_id = await self._protected_tool_call(self.memory_system.mcp_db.store_ai_reflection(**filtered_args))
                     result = {"status": "success", "reflection_id": reflection_id}
-                except TypeError as e:
-                    if "unexpected keyword argument 'user_id'" in str(e):
-                        logger.warning(f"store_ai_reflection tool temporarily disabled due to user/model separation work in progress: {e}")
-                        result = {"status": "temporarily_disabled", "message": "AI reflection storage is temporarily disabled while implementing user/model separation. This will be restored tomorrow."}
-                    else:
-                        raise  # Re-raise other TypeErrors
                 except Exception as e:
                     logger.error(f"Error storing AI reflection: {e}")
                     result = {"status": "error", "message": f"Failed to store AI reflection: {str(e)}"}
 
             elif tool_name == "get_ai_insights":
                 try:
-                    # get_ai_insights accepts: limit, insight_type, query
-                    allowed_args = {"limit", "insight_type", "query"}
+                    # get_ai_insights accepts: limit, insight_type, query, user_id, model_id
+                    allowed_args = {"limit", "insight_type", "query", "user_id", "model_id"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                     query = arguments.get("query", "").lower()
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                    logger.info(f"Getting AI insights for user={user_id}, model={model_id}")
                     result = await self._protected_tool_call(self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"}))
                     
                     # Filter results if query is provided
@@ -1671,7 +1686,8 @@ class FridayMemoryMCPServer:
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
                 # Clean appointment data - remove embeddings and internal fields
                 if result.get("status") == "success" and "appointments" in result:
@@ -1681,7 +1697,8 @@ class FridayMemoryMCPServer:
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
                 # Clean appointment data - remove embeddings and internal fields
                 if result.get("status") == "success" and "appointments" in result:
@@ -1714,14 +1731,16 @@ class FridayMemoryMCPServer:
                 allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
             elif tool_name == "get_completed_reminders":
                 # get_completed_reminders accepts: days, user_id, model_id
                 allowed_args = {"days", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
             elif tool_name == "delete_reminder":
                 # delete_reminder accepts: reminder_id, user_id, model_id
@@ -1737,7 +1756,8 @@ class FridayMemoryMCPServer:
                 allowed_args = {"limit", "include_completed", "days_ahead", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 _ensure_user_id(filtered_args)
-                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self.get_reminders(**filtered_args)
 
             # -----------------------------------------------------------------
@@ -1811,7 +1831,9 @@ class FridayMemoryMCPServer:
             # Project / System Tools
             # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
-                result = await self._protected_tool_call(self.memory_system.get_system_health())
+                # get_system_health accepts: user_id, model_id
+                logger.info(f"System health check requested by user={user_id}, model={model_id}")
+                result = await self._protected_tool_call(self.memory_system.get_system_health(user_id=user_id, model_id=model_id))
             elif tool_name == "save_development_session":
                 # save_development_session accepts: workspace_path, active_files, git_branch, session_summary
                 allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary"}
@@ -1838,17 +1860,18 @@ class FridayMemoryMCPServer:
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.get_project_continuity(**filtered_args))
             elif tool_name == "get_tool_information":
-                # get_tool_information accepts: mode, tool_name, days, client_id
-                # Detects client type automatically
-                allowed_args = {"mode", "tool_name", "days", "client_id"}
+                # get_tool_information accepts: mode, tool_name, days, client_id, user_id, model_id
+                allowed_args = {"mode", "tool_name", "days", "client_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                logger.info(f"Tool information requested by user={user_id}, model={model_id}")
                 # Add detected client type
                 client_type = self._detect_client_type()
                 result = await self._protected_tool_call(self.memory_system.get_tool_information(client_type=client_type, **filtered_args))
             elif tool_name == "reflect_on_tool_usage":
-                # reflect_on_tool_usage accepts: days, client_id
-                allowed_args = {"days", "client_id"}
+                # reflect_on_tool_usage accepts: days, client_id, user_id, model_id
+                allowed_args = {"days", "client_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                logger.info(f"Tool usage reflection requested by user={user_id}, model={model_id}")
                 result = await self._protected_tool_call(self.memory_system.reflect_on_tool_usage(**filtered_args))
             elif tool_name == "store_roleplay_memory":
                 # store_roleplay_memory accepts: character_name, event_description, importance_level, tags
@@ -1869,7 +1892,7 @@ class FridayMemoryMCPServer:
 
             elif tool_name == "trigger_database_maintenance":
                 force = arguments.get("force", True)
-                logger.info(f"Database maintenance triggered manually (force={force})")
+                logger.info(f"Database maintenance triggered by user={user_id}, model={model_id} (force={force})")
                 
                 try:
                     await self.memory_system.db_maintenance.run_maintenance(force=force)
