@@ -908,24 +908,20 @@ class FridayMemoryMCPServer:
             
             Tool(
                 name="search_memories",
-                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup",
+                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup. Either 'query' or 'memory_id' must be provided.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "Search query"},
+                        "query": {"type": "string", "description": "Search query (required if memory_id not provided)"},
                         "limit": {"type": "integer", "description": "Max results", "default": 10},
                         "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
                         "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
-                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search)"},
+                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "anyOf": [
-                        {"required": ["query"]},
-                        {"required": ["memory_id"]}
-                    ]
+                    }
                 }
             ),
             Tool(
@@ -1193,7 +1189,7 @@ class FridayMemoryMCPServer:
             ,
             Tool(
                 name="trigger_database_maintenance",
-                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 24-hour schedule",
+                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 6-hour schedule",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -1997,7 +1993,7 @@ class FridayMemoryMCPServer:
                         f.write(f"[{datetime.now().isoformat()}] Maintenance error: {e}\n{tb}\n\n")
                 except Exception as file_err:
                     logger.error(f"Could not write maintenance error log: {file_err}")
-            await asyncio.sleep(3 * 60 * 60)
+            await asyncio.sleep(6 * 60 * 60)
     
     async def cleanup(self):
         """Cleanup resources when server stops"""

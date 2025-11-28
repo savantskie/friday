@@ -55,7 +55,7 @@ class DatabaseMaintenance:
                 "preserve_important": True  # Keep all memories (no pruning)
             },
             "schedule": {
-                "max_age_days": 30,  # Keep old appointments/reminders for 1 month
+                "max_age_days": 90,  # Keep old appointments/reminders for 3 months
                 "cleanup_completed": True  # Remove completed items
             },
             "mcp_tool_calls": {
@@ -67,7 +67,7 @@ class DatabaseMaintenance:
                 "cleanup_orphaned": True  # Remove links to deleted memories/conversations (only orphaned)
             },
             "memory_processing_queue": {
-                "max_age_days": 30,  # Keep processed queue entries for 1 month
+                "max_age_days": 90,  # Keep processed queue entries for 3 months
                 "cleanup_completed": True  # Remove completed processing records
             },
             "memory_processing_log": {
