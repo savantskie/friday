@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timezone
 import time
 import warnings
+import traceback
 from pathlib import Path
 
 # Get the base directory dynamically - works on both Windows and Linux
@@ -750,7 +751,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id"]
+                    "required": ["reminder_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -921,7 +922,8 @@ class FridayMemoryMCPServer:
                         "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -937,7 +939,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content", "role"]
+                    "required": ["content", "role", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -955,7 +957,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content"]
+                    "required": ["content", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -971,7 +973,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["memory_id"]
+                    "required": ["memory_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -990,7 +992,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["title", "scheduled_datetime"]
+                    "required": ["title", "scheduled_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1020,7 +1022,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content", "due_datetime"]
+                    "required": ["content", "due_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1034,7 +1036,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1048,7 +1051,8 @@ class FridayMemoryMCPServer:
                         "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1056,7 +1060,11 @@ class FridayMemoryMCPServer:
                 description="Get comprehensive system health, statistics, and database status",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             ),
@@ -1069,8 +1077,11 @@ class FridayMemoryMCPServer:
                         "mode": {"type": "string", "description": "Mode: 'usage' (default) for statistics or 'documentation' for tool descriptions", "default": "usage"},
                         "tool_name": {"type": "string", "description": "Optional: specific tool name to document (only with mode='documentation')"},
                         "days": {"type": "integer", "description": "For usage mode: Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"}
-                    }
+                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1080,8 +1091,11 @@ class FridayMemoryMCPServer:
                     "type": "object", 
                     "properties": {
                         "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"}
-                    }
+                        "client_id": {"type": "string", "description": "Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1092,8 +1106,11 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of insights", "default": 5},
                         "insight_type": {"type": "string", "description": "Type of insight to filter"},
-                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"}
-                    }
+                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             )
             ,
@@ -1132,7 +1149,7 @@ class FridayMemoryMCPServer:
                             "description": "Days of data this reflection summarizes"
                         }
                     },
-                    "required": ["content"],
+                    "required": ["content", "user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -1172,7 +1189,7 @@ class FridayMemoryMCPServer:
                             "description": "Days of data this reflection summarizes"
                         }
                     },
-                    "required": ["content"],
+                    "required": ["content", "user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -1182,7 +1199,11 @@ class FridayMemoryMCPServer:
                 description="Get the current server time in ISO format (UTC and local)",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -1193,8 +1214,11 @@ class FridayMemoryMCPServer:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True}
+                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -1206,8 +1230,11 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of appointments to return", "default": 5},
-                        "days_ahead": {"type": "integer", "description": "Only show appointments scheduled within X days", "default": 30}
-                    }
+                        "days_ahead": {"type": "integer", "description": "Only show appointments scheduled within X days", "default": 30},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             )
         ]
@@ -1226,9 +1253,11 @@ class FridayMemoryMCPServer:
                         "workspace_path": {"type": "string", "description": "Workspace path"},
                         "active_files": {"type": "array", "items": {"type": "string"}, "description": "Active files"},
                         "git_branch": {"type": "string", "description": "Current git branch"},
-                        "session_summary": {"type": "string", "description": "Session summary"}
+                        "session_summary": {"type": "string", "description": "Session summary"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["workspace_path"]
+                    "required": ["workspace_path", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1240,9 +1269,11 @@ class FridayMemoryMCPServer:
                         "insight_type": {"type": "string", "description": "Type of insight"},
                         "content": {"type": "string", "description": "Insight content"},
                         "related_files": {"type": "array", "items": {"type": "string"}, "description": "Related files"},
-                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5}
+                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content"]
+                    "required": ["content", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1252,9 +1283,11 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Search query"},
-                        "limit": {"type": "integer", "description": "Max results", "default": 10}
+                        "limit": {"type": "integer", "description": "Max results", "default": 10},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["query"]
+                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1266,9 +1299,11 @@ class FridayMemoryMCPServer:
                         "file_path": {"type": "string", "description": "File path"},
                         "function_name": {"type": "string", "description": "Function name"},
                         "description": {"type": "string", "description": "Context description"},
-                        "conversation_id": {"type": "string", "description": "Related conversation ID"}
+                        "conversation_id": {"type": "string", "description": "Related conversation ID"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["file_path", "description"]
+                    "required": ["file_path", "description", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1278,8 +1313,11 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "workspace_path": {"type": "string", "description": "Workspace path"},
-                        "limit": {"type": "integer", "description": "Context items", "default": 5}
-                    }
+                        "limit": {"type": "integer", "description": "Context items", "default": 5},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["workspace_path", "user_id", "model_id"]
                 }
             )
         ]
@@ -1297,9 +1335,11 @@ class FridayMemoryMCPServer:
                             "properties": {
                                 "character_name": {"type": "string", "description": "Character name to search for"},
                                 "context_type": {"type": "string", "description": "Type of context (personality, relationships, history)"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 5}
+                                "limit": {"type": "integer", "description": "Max results", "default": 5},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["character_name"]
+                            "required": ["character_name", "user_id", "model_id"]
                         }
                     ),
                     Tool(
@@ -1311,9 +1351,11 @@ class FridayMemoryMCPServer:
                                 "character_name": {"type": "string", "description": "Character involved"},
                                 "event_description": {"type": "string", "description": "What happened"},
                                 "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
-                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"}
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["character_name", "event_description"]
+                            "required": ["character_name", "event_description", "user_id", "model_id"]
                         }
                     ),
                     Tool(
@@ -1324,9 +1366,11 @@ class FridayMemoryMCPServer:
                             "properties": {
                                 "query": {"type": "string", "description": "Search query"},
                                 "character_name": {"type": "string", "description": "Focus on specific character"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 10}
+                                "limit": {"type": "integer", "description": "Max results", "default": 10},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["query"]
+                            "required": ["query", "user_id", "model_id"]
                         }
                     )
                 ]
@@ -1480,6 +1524,50 @@ class FridayMemoryMCPServer:
         import time
 
         # ---------------------------------------------------------------------
+        # MANDATORY PARAMETER VALIDATION: user_id and model_id REQUIRED
+        # ---------------------------------------------------------------------
+        # ALL tools must have both user_id and model_id for tracking and debugging
+        user_id = arguments.get("user_id")
+        model_id = arguments.get("model_id")
+        
+        if not user_id:
+            error_msg = (
+                "❌ MISSING REQUIRED PARAMETER: user_id\n\n"
+                "ALL Friday Memory System tools REQUIRE both user_id and model_id for:\n"
+                "  • Memory system separation (different users = different memory spaces)\n"
+                "  • Model tracking (knowing which model made which changes)\n"
+                "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
+                "Please provide user_id in your tool call.\n"
+                "Example: { \"user_id\": \"Nate\", \"model_id\": \"Eddie\", ... }"
+            )
+            logger.error(error_msg)
+            return {
+                "content": [{"type": "text", "text": error_msg}],
+                "success": False,
+                "isError": True,
+            }
+        
+        if not model_id:
+            error_msg = (
+                "❌ MISSING REQUIRED PARAMETER: model_id\n\n"
+                "ALL Friday Memory System tools REQUIRE both user_id and model_id for:\n"
+                "  • Memory system separation (different users = different memory spaces)\n"
+                "  • Model tracking (knowing which model made which changes)\n"
+                "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
+                "Please provide model_id in your tool call.\n"
+                "Example: { \"user_id\": \"Nate\", \"model_id\": \"Eddie\", ... }"
+            )
+            logger.error(error_msg)
+            return {
+                "content": [{"type": "text", "text": error_msg}],
+                "success": False,
+                "isError": True,
+            }
+
+        # Log the incoming call with user/model info
+        logger.info(f"🔧 Tool called: {tool_name} | user_id={user_id} | model_id={model_id}")
+
+        # ---------------------------------------------------------------------
         # LOG ALL INCOMING TOOL CALLS (for debugging)
         # ---------------------------------------------------------------------
         try:
@@ -1488,29 +1576,16 @@ class FridayMemoryMCPServer:
             with open(log_dir / "tool_calls.log", "a", encoding="utf-8") as _lf:
                 import json
                 _lf.write(f"{datetime.now().isoformat()} - Tool called: {tool_name}\n")
+                _lf.write(f"  user_id: {user_id} | model_id: {model_id}\n")
                 _lf.write(f"  Arguments: {json.dumps(arguments, indent=2)}\n")
                 _lf.write("-" * 80 + "\n")
         except Exception:
             pass  # best-effort logging
 
-        # ---------------------------------------------------------------------
-        # Context Setup
-        # ---------------------------------------------------------------------
-        # Extract user_id and model_id from context or arguments
-        # NOTE: user_id should be provided explicitly - no defaults to avoid querying wrong user
-        user_id = (
-            self.client_context.get("user_id")
-            or arguments.get("user_id")
-        )
-        model_id = (
-            self.client_context.get("model_id")
-            or arguments.get("model_id")
-            or os.getenv("FRIDAY_DEFAULT_MODEL", "Friday")
-        )
+        # Store context for client tracking
+        client_id = self.client_context.get("current_client", f"{user_id}_{model_id}")
 
         # Store context for logging but don't modify arguments yet
-        client_id = self.client_context.get("current_client", "unknown")
-
         def _ensure_user_id(args: Dict[str, Any]) -> None:
             # Only add user_id if it was explicitly provided
             if user_id:

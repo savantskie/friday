@@ -25,6 +25,7 @@ import os
 import re
 import time
 import socket
+import traceback
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
@@ -349,11 +350,11 @@ class ConversationDatabase(DatabaseManager):
                           conversation_id: str = None, metadata: Dict = None, user_id: str = None, model_id: str = None) -> Dict[str, str]:
         """Store a message and auto-manage sessions/conversations with duplicate detection"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         timestamp = datetime.now(get_local_timezone()).isoformat()
         message_id = str(uuid.uuid4())
@@ -435,9 +436,11 @@ class ConversationDatabase(DatabaseManager):
         If model_id is None, queries all models for that user (cross-model fallback).
         """
         
-        # Set defaults for user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         # Calculate cutoff date
         from datetime import datetime, timedelta
@@ -825,11 +828,11 @@ class AIMemoryDatabase(DatabaseManager):
                           importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None) -> bool:
         """Update an existing memory"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         timestamp = get_current_timestamp()
         updates = ["timestamp_updated = ?"]
@@ -858,12 +861,10 @@ class AIMemoryDatabase(DatabaseManager):
     
     async def delete_memory(self, memory_id: str, user_id: str = None, model_id: str = None) -> bool:
         """Delete a memory by ID"""
+        if not user_id or not model_id:
+            logger.error("MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults.")
+            return False
         try:
-            # Set defaults for mandatory user/model tracking
-            if not user_id:
-                user_id = "Nate"
-            if not model_id:
-                model_id = "Friday"
             
             await self.execute_update(
                 "DELETE FROM curated_memories WHERE memory_id = ? AND user_id = ? AND model_id = ?",
@@ -878,11 +879,9 @@ class AIMemoryDatabase(DatabaseManager):
     async def get_memories(self, limit: int = 10, memory_type: str = None, user_id: str = None, model_id: str = None) -> List[Dict]:
         """Get memories, optionally filtered by type, user, and model"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            logger.error("MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults.")
+            return []
         
         if memory_type:
             query = """
@@ -913,9 +912,11 @@ class ScheduleDatabase(DatabaseManager):
         If model_id is provided (even empty string), filters to that specific model.
         """
         
-        # Set defaults for user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all appointments scheduled for today
@@ -4768,9 +4769,11 @@ class FridayMemorySystem:
     async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
         """Get recent appointments from the schedule database"""
         
-        # Set defaults for mandatory user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.schedule_db.get_appointments(limit, days_ahead, user_id, model_id)
         
@@ -5042,11 +5045,11 @@ class FridayMemorySystem:
         import sqlite3
         import asyncio
 
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
 
         # Use dynamic path based on workspace
         db_path = self.data_dir / "schedule.db"
@@ -5144,9 +5147,11 @@ class FridayMemorySystem:
         If model_id is provided (even empty string), filters to that specific model.
         """
         
-        # Set defaults for user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         now = datetime.now(get_local_timezone())
         # Use start of today instead of current time to include all reminders due today
@@ -5195,9 +5200,11 @@ class FridayMemorySystem:
         If model_id is provided (even empty string), filters to that specific model.
         """
         
-        # Set defaults for user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         cutoff = (datetime.now(get_local_timezone()) - timedelta(days=days)).isoformat()
         
@@ -5238,11 +5245,11 @@ class FridayMemorySystem:
     async def reschedule_reminder(self, reminder_id: str, new_due_datetime: str, user_id: str = None, model_id: str = None) -> Dict:
         """Reschedule a reminder to a new due datetime"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.schedule_db.execute_update(
             "UPDATE reminders SET due_datetime = ? WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
@@ -5255,11 +5262,11 @@ class FridayMemorySystem:
 
     async def delete_reminder(self, reminder_id: str, user_id: str = None, model_id: str = None) -> Dict:
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.schedule_db.execute_update(
             "DELETE FROM reminders WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
@@ -5274,11 +5281,11 @@ class FridayMemorySystem:
     async def cancel_appointment(self, appointment_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Cancel an appointment"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.schedule_db.execute_update(
             "UPDATE appointments SET status = 'cancelled', cancelled_at = ? WHERE appointment_id = ? AND user_id = ? AND model_id = ?",
@@ -5292,11 +5299,11 @@ class FridayMemorySystem:
     async def complete_appointment(self, appointment_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Mark an appointment as completed"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.schedule_db.execute_update(
             "UPDATE appointments SET status = 'completed', completed_at = ? WHERE appointment_id = ? AND user_id = ? AND model_id = ?",
@@ -5314,9 +5321,11 @@ class FridayMemorySystem:
         If model_id is provided (even empty string), filters to that specific model.
         """
         
-        # Set defaults for user tracking
-        if not user_id:
-            user_id = "Nate"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         now_local = datetime.now(get_local_timezone())
         cutoff_local = now_local + timedelta(days=days_ahead)
@@ -6107,11 +6116,11 @@ class FridayMemorySystem:
                                conversation_id: str = None, metadata: Dict = None, user_id: str = None, model_id: str = None) -> Dict:
         """Store a conversation message"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         result = await self.conversations_db.store_message(
             content, role, session_id, conversation_id, metadata, user_id, model_id
@@ -6216,11 +6225,11 @@ class FridayMemorySystem:
                           importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None) -> Dict:
         """Update an existing memory"""
         
-        # Set defaults for mandatory user/model tracking
-        if not user_id:
-            user_id = "Nate"
-        if not model_id:
-            model_id = "Friday"
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         
         success = await self.ai_memory_db.update_memory(memory_id, content, importance_level, tags, user_id, model_id)
         
@@ -6235,12 +6244,12 @@ class FridayMemorySystem:
     
     async def delete_memory(self, memory_id: str, user_id: str = None, model_id: str = None) -> Dict:
         """Delete a memory by ID"""
+        if not user_id or not model_id:
+            return {
+                "status": "error",
+                "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
+            }
         try:
-            # Set defaults for mandatory user/model tracking
-            if not user_id:
-                user_id = "Nate"
-            if not model_id:
-                model_id = "Friday"
             
             success = await self.ai_memory_db.delete_memory(memory_id, user_id, model_id)
             return {
