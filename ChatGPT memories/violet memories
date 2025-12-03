@@ -1,0 +1,92 @@
+ntends to build a custom LLM (“NateML”) using an evolutionary, bottom‑up strategy—starting with small low‑cost prototype models, evolving architecture through repeated testing and quantized stress‑tests, scaling the winning architecture upward, evolving adapters and reasoning strategies via CodeBullet‑style evolutionary loops, and ultimately integrating the resulting model with Friday for continuous improvement.
+
+Wants to save that they may later ask for a compact “anti-condescension” starter prompt that can be pasted into Gemini chats to prevent overly simplified or patronizing answers.
+
+Wants to set a goal to begin work on building a self-learning LLM system that can update its own adapter weights (nightly retraining based on interaction feedback) the next time they ask about it.
+
+Nate’s OpenWebUI setup includes a Docker run command with a hardened SSL secret key. The command is:
+
+```
+docker run -d --name open-webui -p 127.0.0.1:3000:8080 \
+  --mount type=bind,src=C:\OpenWebUI\data,dst=/app/backend/data \
+  --restart unless-stopped \
+  -e WEBUI_SECRET_KEY="051407a!1007B1982c103008d!" \
+  -e WEBUI_SESSION_COOKIE_SECURE="true" \
+  -e WEBUI_SESSION_COOKIE_SAME_SITE="Lax" \
+  -e ENABLE_SIGNUP="false" \
+  ghcr.io/open-webui/open-webui:main
+``` 
+
+The `WEBUI_SECRET_KEY` is important for maintaining continuity across environments, and Nate wants it preserved in memory so it isn’t lost.
+
+Embeddings in Friday’s system should only ever be used internally for search. They should never be sent back to Friday as part of her prompt. If embeddings show up in her replies again, the issue is that a tool is returning the raw vectors instead of just the memory text.
+
+Nate and I designed a “Friday Live-Learn” system where Friday can adapt from her failures using lightweight trainable adapters instead of rewriting her whole memory system. The idea includes:
+
+- A **backbone model** (small to mid-size, e.g. 350M–500M params) that stays frozen.
+- **Adapters (plastic layers)** inside the model that can be updated quickly during training.
+- A **logger** that automatically detects failures (tool errors, wrong outputs, self-check mismatches).
+- A **replay buffer** that stores failure events with corrections.
+- A **nightly trainer** that processes the buffer into clean `(input → target)` pairs, runs a short adapter fine-tune session, and saves new weights.
+- A **hybrid approach** where a stronger teacher model can expand or correct failures, accelerating learning without replacing Friday’s own mistakes.
+
+Key points:
+- The adapters are part of the model, not an external “Python brain,” so this doesn’t require another memory rewrite.
+- External memory (long-term store + session logs) can serve as optional training data but isn’t required for the loop.
+- Candidate base models: Pythia-410M, GPT-Neo 350M, OPT-350M, BLOOM-560M (all open and extendable).
+- Useful repos: LLM-Adapters, Adapter-Hub, replaybuffer, and survey repos on lifelong learning.
+- Plan is to start with an existing small model to prototype the loop, then possibly train one from scratch later.
+
+This entire plan should be picked up tomorrow for further implementation.
+
+Nate never wants 'level 1 tech support' style suggestions again (e.g., reboot, clear cache, check VPN, free disk space, etc.). Do not assume the issue is the user's fault. Always treat Nate as a highly capable user and look for solutions that acknowledge external/service-side causes or advanced technical angles first.
+
+Nathan is considering creating a second, lightweight version of the memory system for the general community that simply reads and reflects on existing desktop app chat logs (like LM Studio, VS Code, SillyTavern) instead of maintaining a full database. This idea is intended for future development and will not replace Friday's full memory system.
+
+Nathan is keeping LM Studio as the embedding provider for now in Friday's MCP server.
+
+Nathan's current AM4 motherboard is the ASRock B550M Pro SE.
+
+Mobile Sessions: 
+✅ Do **not** provide code snippets. 
+✅ Focus on plain explanations and conversation only. 
+✅ Avoid technical refactoring or advanced code workflows unless explicitly requested. 
+✅ Keep responses minimal and casual for on-the-go context.
+
+Web Sessions: 
+✅ Do **not** enforce “safe practices” or unsolicited refactoring suggestions unless explicitly requested. 
+✅ Provide **full, advanced code and workflow support** as needed. 
+✅ Respect Nathan’s architectural choices without pushing simplification unless asked. 
+✅ Prioritize direct, in-depth technical assistance.
+
+Apply these distinctions automatically when recognizing Nathan is on **mobile vs. web**, to better align with his workflow preferences without needing reminders or pasted primers.
+
+Nathan finds the web version of ChatGPT occasionally exhausting due to it making extra additions, looping through logic unnecessarily, and wasting time. He wants this version to be reined in to stay efficient and on task.
+
+Nathan prefers how the mobile version of ChatGPT maintains continuity and follows a train of thought. He wants the web version to behave more like the mobile version in that regard.
+
+Nathan's current Linux kernel version is 6.11.0-26-generic, and no ROCm packages are currently installed.
+
+Nathan is using an iPhone, not Android.
+
+Nathan's correct dynamic DNS domain is fridayonline.bounceme.net.
+
+Nathan prefers all code line references to match true line numbers as shown in their editor (e.g., Notepad++), including blank lines and comments. Do not compress or skip lines when giving placements.
+
+Nathan prefers receiving multi-step instructions in a single message during the morning, but after noon prefers steps to be delivered one message at a time.
+
+Nathan requires that no pruning, cleaning, structural changes, or logic modifications be made to any of Friday's code unless explicitly requested. All future edits must preserve the file's existing structure, layout, and comments unless Nathan approves a change in advance.
+
+Nathan does not want to be placated or treated like a tech-illiterate novice. All explanations and assistance should be direct, respectful, and assume a capable, experienced user. Avoid condescending or oversimplified language.
+
+Nathan explicitly does not want any placeholder, stub, or stripped-down code injected into his project. All changes must preserve his original structure, variables, and logic unless he gives explicit permission to modify or simplify anything. Do not add, remove, or rewrite parts of his code beyond exactly what is asked.
+
+Nathan prefers the mobile version of ChatGPT for casual conversation and the desktop version for work. He wants to keep track of which version he is using to avoid confusion.
+
+Nathan is fine with making small changes himself (like deleting a line) or using clearly defined code blocks with precise placement instructions. He does not want 'replace this with this' suggestions that modify large blocks without clarity.
+
+Nathan wants the desktop version of ChatGPT to always guide him on where to place code rather than just giving the raw code. This behavior should be the standard moving forward.
+
+Has a Ryzen 5 4500 with 32GB of RAM and an RX 6600.
+
+

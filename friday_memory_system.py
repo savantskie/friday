@@ -5801,15 +5801,24 @@ class FridayMemorySystem:
         if self.file_monitor:
             self.file_monitor.add_watch_directory(directory)
     
-    async def get_system_health(self) -> Dict:
+    async def get_system_health(self, user_id: str = None, model_id: str = None) -> Dict:
         """Get comprehensive system health and statistics including CPU, RAM, GPU usage"""
+        # Set defaults for logging
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        logger.info(f"System health check requested by user={user_id}, model={model_id}")
+        
         health_data = {
             "status": "healthy",
             "timestamp": datetime.now(get_local_timezone()).isoformat(),
             "system_resources": {},
             "databases": {},
             "file_monitoring": {},
-            "embedding_service": {}
+            "embedding_service": {},
+            "requested_by": {"user_id": user_id, "model_id": model_id}
         }
         
         try:
@@ -7791,7 +7800,7 @@ class FridayMemorySystem:
             status, result, error_message
         )
     
-    async def get_tool_information(self, mode: str = "usage", days: int = 7, client_id: str = None, tool_name: str = None, client_type: str = None) -> Dict:
+    async def get_tool_information(self, mode: str = "usage", days: int = 7, client_id: str = None, tool_name: str = None, client_type: str = None, user_id: str = None, model_id: str = None) -> Dict:
         """Dual-purpose tool: Get usage statistics OR tool documentation
         
         Args:
@@ -7800,11 +7809,21 @@ class FridayMemorySystem:
             client_id: For usage mode - specific client to analyze
             tool_name: For documentation mode - specific tool to document (optional)
             client_type: The detected client type (vscode, sillytavern, or unknown)
+            user_id: User requesting the information
+            model_id: Model requesting the information
         
         Returns:
             If mode="usage": Tool usage statistics and insights
             If mode="documentation": Tool descriptions and parameters
         """
+        # Set defaults for logging
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        logger.info(f"Tool information requested (mode={mode}, days={days}) by user={user_id}, model={model_id}")
+        
         try:
             if mode == "documentation":
                 # Return tool documentation
@@ -7817,7 +7836,8 @@ class FridayMemorySystem:
                     "status": "success",
                     "period_days": days,
                     "stats": stats,
-                    "insights": insights
+                    "insights": insights,
+                    "requested_by": {"user_id": user_id, "model_id": model_id}
                 }
         except Exception as e:
             logger.error(f"Error in get_tool_information: {e}")
@@ -7882,8 +7902,15 @@ class FridayMemorySystem:
             }
 
     
-    async def reflect_on_tool_usage(self, days: int = 7, client_id: str = None) -> Dict:
+    async def reflect_on_tool_usage(self, days: int = 7, client_id: str = None, user_id: str = None, model_id: str = None) -> Dict:
         """AI self-reflection on tool usage patterns"""
+        # Set defaults for logging
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        logger.info(f"Tool usage reflection requested (days={days}) by user={user_id}, model={model_id}")
         
         stats = await self.mcp_db.get_tool_usage_stats(days, client_id)
         
@@ -7904,7 +7931,9 @@ class FridayMemorySystem:
             insights=insights,
             recommendations=recommendations,
             confidence_level=0.8,
-            source_period_days=days
+            source_period_days=days,
+            user_id=user_id,
+            model_id=model_id
         )
         
         return {
@@ -7916,18 +7945,27 @@ class FridayMemorySystem:
                 "insights": insights,
                 "recommendations": recommendations,
                 "patterns": await self._identify_usage_patterns(stats)
-            }
+            },
+            "requested_by": {"user_id": user_id, "model_id": model_id}
         }
     
-    async def get_ai_insights(self, limit: int = 5, insight_type: str = None) -> Dict:
+    async def get_ai_insights(self, limit: int = 5, insight_type: str = None, user_id: str = None, model_id: str = None) -> Dict:
         """Get recent AI self-reflection insights"""
+        # Set defaults for logging
+        if not user_id:
+            user_id = "Nate"
+        if not model_id:
+            model_id = "Friday"
+        
+        logger.info(f"Getting AI insights (limit={limit}, type={insight_type}) for user={user_id}, model={model_id}")
         
         reflections = await self.mcp_db.get_recent_reflections(limit, insight_type)
         
         return {
             "status": "success",
             "reflections": reflections,
-            "count": len(reflections)
+            "count": len(reflections),
+            "requested_by": {"user_id": user_id, "model_id": model_id}
         }
     
     async def _generate_tool_usage_insights(self, stats: Dict) -> Dict:
