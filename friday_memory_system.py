@@ -1034,8 +1034,8 @@ class ScheduleDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        user_id TEXT,
-                        model_id TEXT
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1070,8 +1070,8 @@ class ScheduleDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        user_id TEXT,
-                        model_id TEXT
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
 
@@ -1106,8 +1106,8 @@ class ScheduleDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        user_id TEXT,
-                        model_id TEXT
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1143,8 +1143,8 @@ class ScheduleDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        user_id TEXT,
-                        model_id TEXT
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
             conn.commit()
@@ -1392,7 +1392,8 @@ class VSCodeProjectDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR PROJECT_SESSIONS TABLE ---
             sessions_expected = [
                 'session_id', 'start_timestamp', 'end_timestamp', 'workspace_path', 'active_files',
-                'git_branch', 'git_commit_hash', 'session_summary', 'embedding', 'created_at'
+                'git_branch', 'git_commit_hash', 'session_summary', 'embedding', 'created_at',
+                'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(project_sessions)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1417,7 +1418,9 @@ class VSCodeProjectDatabase(DatabaseManager):
                         git_commit_hash TEXT,
                         session_summary TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1445,7 +1448,9 @@ class VSCodeProjectDatabase(DatabaseManager):
                         git_commit_hash TEXT,
                         session_summary TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
 
@@ -1514,7 +1519,8 @@ class VSCodeProjectDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR PROJECT_INSIGHTS TABLE ---
             insights_expected = [
                 'insight_id', 'timestamp_created', 'timestamp_updated', 'insight_type', 'content',
-                'related_files', 'source_conversation_id', 'importance_level', 'embedding', 'created_at'
+                'related_files', 'source_conversation_id', 'importance_level', 'embedding', 'created_at',
+                'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(project_insights)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1539,7 +1545,9 @@ class VSCodeProjectDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         importance_level INTEGER DEFAULT 5,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1569,7 +1577,9 @@ class VSCodeProjectDatabase(DatabaseManager):
                         source_conversation_id TEXT,
                         importance_level INTEGER DEFAULT 5,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
 
@@ -1600,7 +1610,9 @@ class VSCodeProjectDatabase(DatabaseManager):
                         purpose TEXT,
                         related_insights TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1627,25 +1639,33 @@ class VSCodeProjectDatabase(DatabaseManager):
                         purpose TEXT,
                         related_insights TEXT,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
             conn.commit()
     
     async def save_development_session(self, workspace_path: str, active_files: List[str] = None,
-                                     git_branch: str = None, session_summary: str = None) -> str:
-        """Save a development session"""
+                                     git_branch: str = None, session_summary: str = None,
+                                     user_id: str = None, model_id: str = None) -> str:
+        """Save a development session, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         session_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
         
         await self.execute_update(
             """INSERT INTO project_sessions 
-               (session_id, start_timestamp, workspace_path, active_files, git_branch, session_summary) 
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (session_id, start_timestamp, workspace_path, active_files, git_branch, session_summary, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (session_id, timestamp, workspace_path, 
              json.dumps(active_files) if active_files else None,
-             git_branch, session_summary)
+             git_branch, session_summary, user_id, model_id)
         )
         
         return session_id
@@ -1686,8 +1706,14 @@ class VSCodeProjectDatabase(DatabaseManager):
 
     async def store_project_insight(self, content: str, insight_type: str = None,
                                   related_files: List[str] = None, importance_level: int = 5,
-                                  source_conversation_id: str = None) -> str:
-        """Store a project development insight"""
+                                  source_conversation_id: str = None, user_id: str = None,
+                                  model_id: str = None) -> str:
+        """Store a project development insight, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         insight_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
@@ -1695,11 +1721,11 @@ class VSCodeProjectDatabase(DatabaseManager):
         await self.execute_update(
             """INSERT INTO project_insights 
                (insight_id, timestamp_created, timestamp_updated, insight_type, content, 
-                related_files, source_conversation_id, importance_level) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                related_files, source_conversation_id, importance_level, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (insight_id, timestamp, timestamp, insight_type, content,
              json.dumps(related_files) if related_files else None,
-             source_conversation_id, importance_level)
+             source_conversation_id, importance_level, user_id, model_id)
         )
         
         return insight_id
@@ -1840,7 +1866,8 @@ class MCPToolCallDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR AI_REFLECTIONS TABLE ---
             reflections_expected = [
                 'reflection_id', 'timestamp_created', 'reflection_type', 'content', 'insights',
-                'recommendations', 'confidence_level', 'source_period_days', 'embedding', 'created_at'
+                'recommendations', 'confidence_level', 'source_period_days', 'embedding', 'created_at',
+                'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(ai_reflections)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1865,7 +1892,9 @@ class MCPToolCallDatabase(DatabaseManager):
                         confidence_level REAL DEFAULT 0.5,
                         source_period_days INTEGER,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
                 for row in old_rows:
@@ -1895,7 +1924,9 @@ class MCPToolCallDatabase(DatabaseManager):
                         confidence_level REAL DEFAULT 0.5,
                         source_period_days INTEGER,
                         embedding BLOB,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT NOT NULL DEFAULT 'unknown',
+                        model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
             conn.commit()
@@ -2037,8 +2068,15 @@ class MCPToolCallDatabase(DatabaseManager):
     
     async def store_ai_reflection(self, reflection_type: str, content: str,
                                 insights: List[str] = None, recommendations: List[str] = None,
-                                confidence_level: float = 0.5, source_period_days: int = None) -> str:
-        """Store AI self-reflection analysis"""
+                                confidence_level: float = 0.5, source_period_days: int = None,
+                                user_id: str = None, model_id: str = None) -> str:
+        """Store AI self-reflection analysis with user/model tracking"""
+        
+        # Provide defaults if not specified
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         reflection_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
@@ -2046,34 +2084,44 @@ class MCPToolCallDatabase(DatabaseManager):
         await self.execute_update(
             """INSERT INTO ai_reflections 
                (reflection_id, timestamp_created, reflection_type, content, insights, 
-                recommendations, confidence_level, source_period_days) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                recommendations, confidence_level, source_period_days, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (reflection_id, timestamp, reflection_type, content,
              json.dumps(insights) if insights else None,
              json.dumps(recommendations) if recommendations else None,
-             confidence_level, source_period_days)
+             confidence_level, source_period_days, user_id, model_id)
         )
         
         return reflection_id
     
-    async def get_recent_reflections(self, limit: int = 5, reflection_type: str = None) -> List[Dict]:
-        """Get recent AI reflections"""
+    async def get_recent_reflections(self, limit: int = 5, reflection_type: str = None, user_id: str = None, model_id: str = None) -> List[Dict]:
+        """Get recent AI reflections, optionally filtered by user/model"""
+        
+        # Build WHERE clause conditionally
+        where_parts = []
+        params = []
         
         if reflection_type:
-            query = """
-                SELECT * FROM ai_reflections 
-                WHERE reflection_type = ? 
-                ORDER BY timestamp_created DESC 
-                LIMIT ?
-            """
-            params = (reflection_type, limit)
-        else:
-            query = """
-                SELECT * FROM ai_reflections 
-                ORDER BY timestamp_created DESC 
-                LIMIT ?
-            """
-            params = (limit,)
+            where_parts.append("reflection_type = ?")
+            params.append(reflection_type)
+        
+        if user_id:
+            where_parts.append("user_id = ?")
+            params.append(user_id)
+        
+        if model_id:
+            where_parts.append("model_id = ?")
+            params.append(model_id)
+        
+        where_clause = " AND ".join(where_parts) if where_parts else "1=1"
+        
+        query = f"""
+            SELECT * FROM ai_reflections 
+            WHERE {where_clause}
+            ORDER BY timestamp_created DESC 
+            LIMIT ?
+        """
+        params.append(limit)
         
         rows = await self.execute_query(query, params)
         return [dict(row) for row in rows]
@@ -6373,26 +6421,31 @@ class FridayMemorySystem:
             "insight_id": insight_id
         }
     
-    async def search_project_history(self, query: str, limit: int = 10) -> Dict:
-        """Search VS Code project history using semantic similarity"""
+    async def search_project_history(self, query: str, limit: int = 10, user_id: str = None, model_id: str = None) -> Dict:
+        """Search VS Code project history using semantic similarity, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         # Generate embedding for the search query
         query_embedding = await self.embedding_service.generate_embedding(query)
         if not query_embedding:
-            return await self._text_based_project_search(query, limit)
+            return await self._text_based_project_search(query, limit, user_id, model_id)
         
         all_results = []
         
         # Search development conversations
-        conversation_results = await self._search_development_conversations(query_embedding, limit)
+        conversation_results = await self._search_development_conversations(query_embedding, limit, user_id, model_id)
         all_results.extend(conversation_results)
         
         # Search project insights
-        insight_results = await self._search_project_insights(query_embedding, limit)
+        insight_results = await self._search_project_insights(query_embedding, limit, user_id, model_id)
         all_results.extend(insight_results)
         
         # Search code context
-        context_results = await self._search_code_context(query_embedding, limit)
+        context_results = await self._search_code_context(query_embedding, limit, user_id, model_id)
         all_results.extend(context_results)
         
         # Sort by similarity score and return top results
@@ -6405,8 +6458,13 @@ class FridayMemorySystem:
             "count": len(all_results[:limit])
         }
     
-    async def _search_development_conversations(self, query_embedding: List[float], limit: int) -> List[Dict]:
-        """Search development conversations using semantic similarity"""
+    async def _search_development_conversations(self, query_embedding: List[float], limit: int, user_id: str = None, model_id: str = None) -> List[Dict]:
+        """Search development conversations using semantic similarity, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         query = """
             SELECT conversation_id, session_id, timestamp, chat_context_id, 
@@ -6444,8 +6502,13 @@ class FridayMemorySystem:
         results.sort(key=lambda x: x["similarity_score"], reverse=True)
         return results[:limit]
     
-    async def _search_project_insights(self, query_embedding: List[float], limit: int) -> List[Dict]:
-        """Search project insights using semantic similarity"""
+    async def _search_project_insights(self, query_embedding: List[float], limit: int, user_id: str = None, model_id: str = None) -> List[Dict]:
+        """Search project insights using semantic similarity, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         query = """
             SELECT insight_id, timestamp_created, timestamp_updated, insight_type,
@@ -6487,8 +6550,13 @@ class FridayMemorySystem:
         results.sort(key=lambda x: x["similarity_score"], reverse=True)
         return results[:limit]
     
-    async def _search_code_context(self, query_embedding: List[float], limit: int) -> List[Dict]:
-        """Search code context using semantic similarity"""
+    async def _search_code_context(self, query_embedding: List[float], limit: int, user_id: str = None, model_id: str = None) -> List[Dict]:
+        """Search code context using semantic similarity, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         query = """
             SELECT context_id, timestamp, file_path, function_name, 
@@ -6524,8 +6592,13 @@ class FridayMemorySystem:
         results.sort(key=lambda x: x["similarity_score"], reverse=True)
         return results[:limit]
     
-    async def _text_based_project_search(self, query: str, limit: int) -> Dict:
-        """Fallback text-based search for project data"""
+    async def _text_based_project_search(self, query: str, limit: int, user_id: str = None, model_id: str = None) -> Dict:
+        """Fallback text-based search for project data, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         query_words = query.lower().split()
         results = []
@@ -6574,8 +6647,14 @@ class FridayMemorySystem:
         }
     
     async def link_code_context(self, file_path: str, description: str,
-                              function_name: str = None, conversation_id: str = None) -> Dict:
-        """Link conversation to code context"""
+                              function_name: str = None, conversation_id: str = None,
+                              user_id: str = None, model_id: str = None) -> Dict:
+        """Link conversation to code context, scoped to user/model"""
+        
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
         
         context_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
@@ -6583,9 +6662,9 @@ class FridayMemorySystem:
         # Store the code context
         await self.vscode_db.execute_update(
             """INSERT INTO code_context 
-               (context_id, timestamp, file_path, function_name, description) 
-               VALUES (?, ?, ?, ?, ?)""",
-            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description)
+               (context_id, timestamp, file_path, function_name, description, user_id, model_id) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description, user_id, model_id)
         )
         
         # Generate and store embedding for the description
@@ -6597,14 +6676,16 @@ class FridayMemorySystem:
             "message": "Code context linked successfully"
         }
     
-    async def get_project_continuity(self, workspace_path: str = None, limit: int = 5, include_archives: bool = False) -> Dict:
-        """Get project continuity context from active and optionally archived databases.
+    async def get_project_continuity(self, workspace_path: str = None, limit: int = 5, include_archives: bool = False, user_id: str = None, model_id: str = None) -> Dict:
+        """Get project continuity context from active and optionally archived databases, scoped to user/model.
         
         Args:
             workspace_path: Optional workspace path to filter sessions. If provided, only sessions 
                           from that workspace are returned (for VS Code isolation).
             limit: Maximum number of items to return per category
             include_archives: If True, also query archived databases and merge with active results
+            user_id: User ID for filtering results to user's data
+            model_id: Model ID for filtering results to model's data
         
         Design notes:
             - Sessions are workspace-scoped (only return sessions for the specified workspace)
@@ -6613,24 +6694,30 @@ class FridayMemorySystem:
             - Archives are full database dumps by date, preserving all relationships
         """
         
+        if not user_id:
+            user_id = "unknown"
+        if not model_id:
+            model_id = "unknown"
+        
         continuity_data = {}
         
-        # Get recent project sessions (workspace-scoped)
+        # Get recent project sessions (workspace-scoped + user/model scoped)
         if workspace_path:
             session_query = """
                 SELECT * FROM project_sessions 
-                WHERE workspace_path = ? 
+                WHERE workspace_path = ? AND user_id = ? AND model_id = ?
                 ORDER BY start_timestamp DESC 
                 LIMIT ?
             """
-            params = (workspace_path, limit)
+            params = (workspace_path, user_id, model_id, limit)
         else:
             session_query = """
                 SELECT * FROM project_sessions 
+                WHERE user_id = ? AND model_id = ?
                 ORDER BY start_timestamp DESC 
                 LIMIT ?
             """
-            params = (limit,)
+            params = (user_id, model_id, limit)
         
         sessions = await self.vscode_db.execute_query(session_query, params)
         continuity_data["recent_sessions"] = [dict(row) for row in sessions]
@@ -7950,7 +8037,7 @@ class FridayMemorySystem:
         }
     
     async def get_ai_insights(self, limit: int = 5, insight_type: str = None, user_id: str = None, model_id: str = None) -> Dict:
-        """Get recent AI self-reflection insights"""
+        """Get recent AI self-reflection insights, filtered by user/model"""
         # Set defaults for logging
         if not user_id:
             user_id = "Nate"
@@ -7959,7 +8046,8 @@ class FridayMemorySystem:
         
         logger.info(f"Getting AI insights (limit={limit}, type={insight_type}) for user={user_id}, model={model_id}")
         
-        reflections = await self.mcp_db.get_recent_reflections(limit, insight_type)
+        # Pass user_id and model_id to filter reflections appropriately
+        reflections = await self.mcp_db.get_recent_reflections(limit=limit, reflection_type=insight_type, user_id=user_id, model_id=model_id)
         
         return {
             "status": "success",
@@ -7967,6 +8055,133 @@ class FridayMemorySystem:
             "count": len(reflections),
             "requested_by": {"user_id": user_id, "model_id": model_id}
         }
+    
+    async def export_all_tool_calls(self, output_filename: str = None, user_id: str = "unknown", model_id: str = "system") -> Dict:
+        """Export all tool calls from current and archived databases to a text file.
+        
+        This tool is for LORA training dataset generation. It exports all tool calls
+        with their original JSON parameters in multi-line format.
+        
+        Args:
+            output_filename: Optional custom filename. Defaults to timestamp-based name.
+            user_id: User requesting the export (for logging)
+            model_id: Model ID (defaults to 'system')
+        
+        Returns:
+            Dictionary with status, file path, and count of exported tool calls
+        """
+        try:
+            import glob
+            from pathlib import Path
+            
+            # Create tool calls export directory if it doesn't exist
+            export_dir = Path(get_base_path()) / "tool calls"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename if not provided
+            if not output_filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_filename = f"tool_calls_export_{timestamp}.txt"
+            
+            output_path = export_dir / output_filename
+            
+            total_calls = 0
+            total_errors = 0
+            
+            # Open file for writing
+            with open(output_path, 'w', encoding='utf-8') as f:
+                # Export from current database
+                logger.info(f"Exporting tool calls from current database...")
+                try:
+                    current_db = sqlite3.connect(self.mcp_db.db_path)
+                    current_db.row_factory = sqlite3.Row
+                    cursor = current_db.execute("""
+                        SELECT tool_name, parameters, timestamp, status, result 
+                        FROM tool_calls 
+                        ORDER BY timestamp ASC
+                    """)
+                    
+                    for row in cursor:
+                        try:
+                            # Create export record
+                            export_record = {
+                                "tool_name": row["tool_name"],
+                                "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                                "timestamp": row["timestamp"],
+                                "status": row["status"],
+                                "result": json.loads(row["result"]) if row["result"] else None
+                            }
+                            # Write as multi-line JSON
+                            f.write(json.dumps(export_record, indent=2))
+                            f.write("\n")
+                            total_calls += 1
+                        except Exception as e:
+                            logger.warning(f"Error processing tool call: {e}")
+                            total_errors += 1
+                    
+                    current_db.close()
+                except Exception as e:
+                    logger.error(f"Error reading current database: {e}")
+                    total_errors += 1
+                
+                # Export from archived databases
+                logger.info(f"Exporting tool calls from archived databases...")
+                archive_dir = Path(self.mcp_db.db_path).parent / "archives"
+                if archive_dir.exists():
+                    archive_files = sorted(glob.glob(str(archive_dir / "mcp_tool_calls_*.db")))
+                    
+                    for archive_file in archive_files:
+                        logger.info(f"Processing archive: {Path(archive_file).name}")
+                        try:
+                            archive_db = sqlite3.connect(archive_file)
+                            archive_db.row_factory = sqlite3.Row
+                            cursor = archive_db.execute("""
+                                SELECT tool_name, parameters, timestamp, status, result 
+                                FROM tool_calls 
+                                ORDER BY timestamp ASC
+                            """)
+                            
+                            for row in cursor:
+                                try:
+                                    # Create export record
+                                    export_record = {
+                                        "tool_name": row["tool_name"],
+                                        "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                                        "timestamp": row["timestamp"],
+                                        "status": row["status"],
+                                        "result": json.loads(row["result"]) if row["result"] else None
+                                    }
+                                    # Write as multi-line JSON
+                                    f.write(json.dumps(export_record, indent=2))
+                                    f.write("\n")
+                                    total_calls += 1
+                                except Exception as e:
+                                    logger.warning(f"Error processing archived tool call: {e}")
+                                    total_errors += 1
+                            
+                            archive_db.close()
+                        except Exception as e:
+                            logger.error(f"Error reading archive {archive_file}: {e}")
+                            total_errors += 1
+            
+            logger.info(f"Tool calls export completed: {total_calls} calls exported, {total_errors} errors")
+            
+            return {
+                "status": "success",
+                "message": f"Successfully exported {total_calls} tool calls",
+                "file_path": str(output_path),
+                "total_calls": total_calls,
+                "errors": total_errors,
+                "export_directory": str(export_dir)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error exporting tool calls: {e}\n{traceback.format_exc()}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "message": "Failed to export tool calls"
+            }
     
     async def _generate_tool_usage_insights(self, stats: Dict) -> Dict:
         """Generate AI insights from tool usage statistics"""
@@ -8142,19 +8357,21 @@ Performance Assessment:"""
 
     # === SillyTavern-specific methods ===
     
-    async def get_character_context(self, character_name: str, context_type: str = None, limit: int = 5) -> Dict:
-        """Get relevant context about characters from memory for SillyTavern roleplay"""
+    async def get_character_context(self, character_name: str, context_type: str = None, limit: int = 5, user_id: str = None, model_id: str = None) -> Dict:
+        """Get relevant context about characters from memory for SillyTavern roleplay, scoped to user/model"""
         try:
             # Search memories for character-related content
             search_query = f"character {character_name}"
             if context_type:
                 search_query += f" {context_type}"
             
-            # Search across all memory types for character information
+            # Search across all memory types for character information, scoped to user/model
             results = await self.search_memories(
                 query=search_query,
                 limit=limit,
-                database_filter="all"
+                database_filter="all",
+                user_id=user_id,
+                model_id=model_id
             )
             
             # Filter and categorize results specifically for character context
@@ -8198,9 +8415,15 @@ Performance Assessment:"""
             }
     
     async def store_roleplay_memory(self, character_name: str, event_description: str, 
-                                  importance_level: int = 5, tags: List[str] = None) -> Dict:
-        """Store important roleplay moments or character developments for SillyTavern"""
+                                  importance_level: int = 5, tags: List[str] = None,
+                                  user_id: str = None, model_id: str = None) -> Dict:
+        """Store important roleplay moments or character developments for SillyTavern, scoped to user/model"""
         try:
+            if not user_id:
+                user_id = "unknown"
+            if not model_id:
+                model_id = "unknown"
+            
             # Create content that includes character context
             content = f"Roleplay event with {character_name}: {event_description}"
             
@@ -8215,7 +8438,9 @@ Performance Assessment:"""
                 content=content,
                 memory_type="roleplay",
                 importance_level=importance_level,
-                tags=roleplay_tags
+                tags=roleplay_tags,
+                user_id=user_id,
+                model_id=model_id
             )
             
             # Also store as a conversation to maintain chat context
@@ -8225,7 +8450,9 @@ Performance Assessment:"""
                 metadata={
                     "character_name": character_name,
                     "event_type": "roleplay_memory",
-                    "importance": importance_level
+                    "importance": importance_level,
+                    "user_id": user_id,
+                    "model_id": model_id
                 }
             )
             
@@ -8244,9 +8471,14 @@ Performance Assessment:"""
                 "error": str(e)
             }
     
-    async def search_roleplay_history(self, query: str, character_name: str = None, limit: int = 10) -> Dict:
-        """Search past roleplay interactions and character development for SillyTavern"""
+    async def search_roleplay_history(self, query: str, character_name: str = None, limit: int = 10, user_id: str = None, model_id: str = None) -> Dict:
+        """Search past roleplay interactions and character development for SillyTavern, scoped to user/model"""
         try:
+            if not user_id:
+                user_id = "unknown"
+            if not model_id:
+                model_id = "unknown"
+            
             # Enhance query with roleplay context
             search_query = f"roleplay {query}"
             if character_name:
@@ -8257,14 +8489,18 @@ Performance Assessment:"""
                 query=search_query,
                 limit=limit,
                 database_filter="all",
-                memory_type="roleplay"
+                memory_type="roleplay",
+                user_id=user_id,
+                model_id=model_id
             )
             
             # Also search general conversations for roleplay content
             all_results = await self.search_memories(
                 query=search_query,
                 limit=limit * 2,
-                database_filter="conversations"
+                database_filter="conversations",
+                user_id=user_id,
+                model_id=model_id
             )
             
             # Combine and deduplicate results

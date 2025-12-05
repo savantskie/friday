@@ -1147,6 +1147,14 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User ID for user separation"
+                        },
+                        "model_id": {
+                            "type": "string",
+                            "description": "Model ID for model separation"
                         }
                     },
                     "required": ["content", "user_id", "model_id"],
@@ -1187,6 +1195,14 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User ID for user separation"
+                        },
+                        "model_id": {
+                            "type": "string",
+                            "description": "Model ID for model separation"
                         }
                     },
                     "required": ["content", "user_id", "model_id"],
@@ -1216,9 +1232,22 @@ class FridayMemoryMCPServer:
                     "properties": {
                         "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                        "model_id": {"type": "string", "description": "Model ID for user separation"}
                     },
                     "required": ["user_id", "model_id"],
+                    "additionalProperties": False
+                }
+            )
+            ,
+            Tool(
+                name="export_all_tool_calls",
+                description="Export all tool calls from current and archived databases for LORA training dataset generation (web-only, not for models)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "output_filename": {"type": "string", "description": "Optional custom filename for export (defaults to timestamp-based name)"},
+                        "user_id": {"type": "string", "description": "User ID for logging (required)"}
+                    },
                     "additionalProperties": False
                 }
             )
@@ -1525,10 +1554,17 @@ class FridayMemoryMCPServer:
 
         # ---------------------------------------------------------------------
         # MANDATORY PARAMETER VALIDATION: user_id and model_id REQUIRED
+        # (Exception: export_all_tool_calls defaults model_id to 'system')
         # ---------------------------------------------------------------------
         # ALL tools must have both user_id and model_id for tracking and debugging
         user_id = arguments.get("user_id")
         model_id = arguments.get("model_id")
+        
+        # Special handling for export_all_tool_calls: model_id defaults to 'system'
+        if tool_name == "export_all_tool_calls":
+            if not model_id:
+                model_id = "system"
+                arguments["model_id"] = "system"
         
         if not user_id:
             error_msg = (
@@ -1671,26 +1707,30 @@ class FridayMemoryMCPServer:
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 try:
-                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days
-                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days"}
+                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days, user_id, model_id
+                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days", "user_id", "model_id"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    # Ensure user_id and model_id are provided
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                     reflection_id = await self._protected_tool_call(self.memory_system.mcp_db.store_ai_reflection(**filtered_args))
                     result = {"status": "success", "reflection_id": reflection_id}
-                except TypeError as e:
-                    if "unexpected keyword argument 'user_id'" in str(e):
-                        logger.warning(f"store_ai_reflection tool temporarily disabled due to user/model separation work in progress: {e}")
-                        result = {"status": "temporarily_disabled", "message": "AI reflection storage is temporarily disabled while implementing user/model separation. This will be restored tomorrow."}
-                    else:
-                        raise  # Re-raise other TypeErrors
                 except Exception as e:
                     logger.error(f"Error storing AI reflection: {e}")
                     result = {"status": "error", "message": f"Failed to store AI reflection: {str(e)}"}
 
             elif tool_name == "get_ai_insights":
                 try:
-                    # get_ai_insights accepts: limit, insight_type, query
-                    allowed_args = {"limit", "insight_type", "query"}
+                    # get_ai_insights accepts: limit, insight_type, query, user_id, model_id
+                    allowed_args = {"limit", "insight_type", "query", "user_id", "model_id"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    # Ensure user_id and model_id are provided
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                     query = arguments.get("query", "").lower()
                     result = await self._protected_tool_call(self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"}))
                     
@@ -1710,9 +1750,13 @@ class FridayMemoryMCPServer:
                     result = {"status": "error", "message": f"Failed to get AI insights: {str(e)}", "reflections": [], "count": 0}
 
             elif tool_name == "get_character_context":
-                # get_character_context accepts: character_name, context_type, limit
-                allowed_args = {"character_name", "context_type", "limit"}
+                # get_character_context accepts: character_name, context_type, limit, user_id, model_id
+                allowed_args = {"character_name", "context_type", "limit", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_character_context(**filtered_args))
 
             # -----------------------------------------------------------------
@@ -1722,6 +1766,10 @@ class FridayMemoryMCPServer:
                 # create_appointment accepts: title, description, scheduled_datetime, location, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id
                 allowed_args = {"title", "description", "scheduled_datetime", "location", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.create_appointment(**filtered_args))
             elif tool_name == "cancel_appointment":
                 # cancel_appointment accepts: appointment_id, user_id, model_id
@@ -1888,29 +1936,49 @@ class FridayMemoryMCPServer:
             elif tool_name == "get_system_health":
                 result = await self._protected_tool_call(self.memory_system.get_system_health())
             elif tool_name == "save_development_session":
-                # save_development_session accepts: workspace_path, active_files, git_branch, session_summary
-                allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary"}
+                # save_development_session accepts: workspace_path, active_files, git_branch, session_summary, user_id, model_id
+                allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.save_development_session(**filtered_args))
             elif tool_name == "store_project_insight":
-                # store_project_insight accepts: insight_type, content, related_files, importance_level
-                allowed_args = {"insight_type", "content", "related_files", "importance_level"}
+                # store_project_insight accepts: insight_type, content, related_files, importance_level, user_id, model_id
+                allowed_args = {"insight_type", "content", "related_files", "importance_level", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.store_project_insight(**filtered_args))
             elif tool_name == "search_project_history":
-                # search_project_history accepts: query, limit
-                allowed_args = {"query", "limit"}
+                # search_project_history accepts: query, limit, user_id, model_id
+                allowed_args = {"query", "limit", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.search_project_history(**filtered_args))
             elif tool_name == "link_code_context":
-                # link_code_context accepts: file_path, function_name, description, conversation_id
-                allowed_args = {"file_path", "function_name", "description", "conversation_id"}
+                # link_code_context accepts: file_path, function_name, description, conversation_id, user_id, model_id
+                allowed_args = {"file_path", "function_name", "description", "conversation_id", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.link_code_context(**filtered_args))
             elif tool_name == "get_project_continuity":
-                # get_project_continuity accepts: workspace_path, limit
-                allowed_args = {"workspace_path", "limit"}
+                # get_project_continuity accepts: workspace_path, limit, include_archives, user_id, model_id
+                allowed_args = {"workspace_path", "limit", "include_archives", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.get_project_continuity(**filtered_args))
             elif tool_name == "get_tool_information":
                 # get_tool_information accepts: mode, tool_name, days, client_id
@@ -1926,14 +1994,22 @@ class FridayMemoryMCPServer:
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 result = await self._protected_tool_call(self.memory_system.reflect_on_tool_usage(**filtered_args))
             elif tool_name == "store_roleplay_memory":
-                # store_roleplay_memory accepts: character_name, event_description, importance_level, tags
-                allowed_args = {"character_name", "event_description", "importance_level", "tags"}
+                # store_roleplay_memory accepts: character_name, event_description, importance_level, tags, user_id, model_id
+                allowed_args = {"character_name", "event_description", "importance_level", "tags", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.store_roleplay_memory(**filtered_args))
             elif tool_name == "search_roleplay_history":
-                # search_roleplay_history accepts: query, character_name, limit
-                allowed_args = {"query", "character_name", "limit"}
+                # search_roleplay_history accepts: query, character_name, limit, user_id, model_id
+                allowed_args = {"query", "character_name", "limit", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.search_roleplay_history(**filtered_args))
 
             # -----------------------------------------------------------------
@@ -1941,6 +2017,22 @@ class FridayMemoryMCPServer:
             # -----------------------------------------------------------------
             elif tool_name == "get_current_time":
                 result = await self.get_current_time_tool()
+
+            elif tool_name == "export_all_tool_calls":
+                # export_all_tool_calls accepts: output_filename (optional), model_id defaults to 'system'
+                output_filename = arguments.get("output_filename")
+                logger.info(f"Exporting all tool calls for LORA training dataset")
+                
+                # Force model_id to 'system' for this tool (unless explicitly overridden)
+                export_model_id = arguments.get("model_id", "system")
+                
+                result = await self._protected_tool_call(
+                    self.memory_system.export_all_tool_calls(
+                        output_filename=output_filename,
+                        user_id=user_id,
+                        model_id=export_model_id
+                    )
+                )
 
             elif tool_name == "trigger_database_maintenance":
                 force = arguments.get("force", True)

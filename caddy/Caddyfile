@@ -35,49 +35,7 @@ fridayonline.bounceme.net {
             reverse_proxy 192.168.1.50:12345
         }
 
-        # ---------- OAuth Proxy (for Claude Desktop integration) ----------
-        @preflight_oauth {
-            method OPTIONS
-            path /oauth*
-        }
-        header @preflight_oauth {
-            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
-            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-            Access-Control-Allow-Headers "*"
-            Access-Control-Allow-Credentials "true"
-        }
-        respond @preflight_oauth 204
 
-        @oauth path /oauth*
-        header @oauth {
-            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
-            Access-Control-Allow-Credentials "true"
-        }
-        handle /oauth* {
-            reverse_proxy localhost:8888
-        }
-
-        # ---------- MCP Proxy Endpoint (Claude Desktop with OAuth) ----------
-        @preflight_mcp_oauth {
-            method OPTIONS
-            path /mcp*
-        }
-        header @preflight_mcp_oauth {
-            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
-            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-            Access-Control-Allow-Headers "*"
-            Access-Control-Allow-Credentials "true"
-        }
-        respond @preflight_mcp_oauth 204
-
-        @mcp_oauth path /mcp*
-        header @mcp_oauth {
-            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
-            Access-Control-Allow-Credentials "true"
-        }
-        handle_path /mcp* {
-            reverse_proxy localhost:8888
-        }
 
         # ---------- LM Studio via same-origin HTTPS ----------
         @preflight_lms {
@@ -122,21 +80,7 @@ fridayonline.bounceme.net {
             reverse_proxy 127.0.0.1:3000
         }
 
-        # ---------- OpenID Configuration (no auth required) ----------
-        # Route .well-known endpoints to OAuth proxy for OpenID discovery
-        @well_known path /.well-known/*
-        handle @well_known {
-            reverse_proxy localhost:8888
-        }
 
-        # ---------- Claude.ai MCP (JWT token-based routing) ----------
-        # Route requests with JWT bearer tokens (start with eyJ) to OAuth proxy
-        @claude_mcp {
-            header Authorization "Bearer eyJ*"
-        }
-        handle @claude_mcp {
-            reverse_proxy localhost:8888
-        }
 
         # ---------- Default: proxy OpenWebUI ----------
         # Handles browser requests (no auth) and OpenWebUI MCPO requests (specific bearer token)

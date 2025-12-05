@@ -904,6 +904,14 @@ What details are relevant to remember about this image? Describe only the key vi
             default=90,
             description="Minimum age in days for a memory to be eligible for promotion from short-term to long-term storage",
         )
+        enable_memory_linking_task: bool = Field(
+            default=True,
+            description="Enable or disable the background memory-conversation linking task (ensures all memories are linked to their source conversations)",
+        )
+        memory_linking_interval: int = Field(
+            default=18000,  # 5 hours
+            description="Frequency in seconds between memory-conversation linking verification runs",
+        )
         model_discovery_interval: int = Field(
             default=7200,  # 2 hours performance setting
             description="Interval in seconds between model discovery runs",
@@ -1746,6 +1754,16 @@ Analyze the following conversation and provide a concise summary.""",
                 self._background_tasks.discard
             )
             logger.debug("Started memory promotion background task")
+
+        if self.valves.enable_memory_linking_task:
+            self._memory_linking_task = asyncio.create_task(
+                self._ensure_memories_linked_to_conversations_loop()
+            )
+            self._background_tasks.add(self._memory_linking_task)
+            self._memory_linking_task.add_done_callback(
+                self._background_tasks.discard
+            )
+            logger.debug("Started memory-conversation linking background task")
 
         # Model discovery results
         self.available_ollama_models = []
@@ -2656,12 +2674,42 @@ Analyze the following conversation and provide a concise summary.""",
                                             memory_system = FridayMemorySystem()
                                             logger.info(f"Promoting memory '{mem.get('id')}' to Friday Memory System for user {user_id}")
                                             
+                                            # Try to find actual conversation_id this memory is linked to
+                                            source_conversation_id = f"openwebui_user_{user_id}"  # Fallback
+                                            try:
+                                                # First, try to find if this memory has a composite conversation_id already
+                                                # (format: chat_id_user_id_model_id)
+                                                openwebui_mem_id = mem.get('id')
+                                                
+                                                # Check if Friday system recognizes this memory (via stored metadata)
+                                                # This is tricky because OpenWebUI and Friday use different memory IDs
+                                                # So instead, we'll look for memories from this user created at similar time
+                                                mem_created_at = mem.get('created_at')
+                                                
+                                                if mem_created_at:
+                                                    # Try to match to a conversation by timestamp
+                                                    conversations = await memory_system.conversations_db.execute_query(
+                                                        "SELECT DISTINCT conversation_id FROM conversations WHERE user_id = ? ORDER BY start_timestamp DESC LIMIT 10",
+                                                        (user_id,)
+                                                    )
+                                                    
+                                                    if conversations:
+                                                        # Get the most recent conversation for this user
+                                                        # (memories being promoted are typically from recent conversations)
+                                                        most_recent_conv = conversations[0]
+                                                        if most_recent_conv and most_recent_conv.get('conversation_id'):
+                                                            source_conversation_id = most_recent_conv['conversation_id']
+                                                            logger.debug(f"Found recent conversation for promoted memory: {source_conversation_id}")
+                                            except Exception as link_query_error:
+                                                logger.debug(f"Could not query conversation links: {link_query_error}")
+                                            
                                             result = await memory_system.create_memory(
                                                 content=memory_content,
                                                 importance_level=5,  # Default importance
                                                 memory_type="archived",
-                                                source_conversation_id=f"openwebui_user_{user_id}",
+                                                source_conversation_id=source_conversation_id,
                                                 tags=["promoted", "archived"],
+                                                user_id=user_id,
                                                 wait_for_embedding=True  # IMPORTANT: Wait for embedding to complete
                                             )
                                             
@@ -2748,6 +2796,167 @@ Analyze the following conversation and provide a concise summary.""",
         except Exception as e:
             logger.error(
                 f"Fatal error in memory promotion task loop: {e}\n{traceback.format_exc()}"
+            )
+
+    async def _ensure_memories_linked_to_conversations_loop(self):
+        """
+        Periodically ensure all memories are linked to conversations.
+        
+        Runs every 5 hours. Finds orphaned memories (no conversation link) and matches them
+        to conversations by timestamp proximity. Falls back to generic conversation_id only
+        if no match can be found.
+        
+        This ensures no memories become disconnected from their source conversations.
+        """
+        try:
+            while True:
+                # Sleep for 5 hours with small jitter
+                interval = 5 * 3600  # 5 hours in seconds
+                jitter = random.uniform(0.9, 1.1)
+                await asyncio.sleep(interval * jitter)
+                
+                logger.info("Starting periodic memory-conversation linking verification...")
+                
+                try:
+                    if not FRIDAY_MEMORY_SYSTEM_AVAILABLE:
+                        logger.warning("Friday Memory System not available, skipping linking verification")
+                        continue
+                    
+                    from friday_memory_system import FridayMemorySystem
+                    memory_system = FridayMemorySystem()
+                    
+                    # Query all memories from Friday system
+                    all_memories = await memory_system.get_memories()
+                    if not all_memories:
+                        logger.debug("No memories found to verify links")
+                        continue
+                    
+                    logger.info(f"Checking {len(all_memories)} memories for conversation links...")
+                    
+                    orphaned_count = 0
+                    linked_count = 0
+                    
+                    for memory in all_memories:
+                        try:
+                            memory_id = memory.get("id")
+                            if not memory_id:
+                                continue
+                            
+                            # Check if this memory has a conversation link
+                            existing_links = await memory_system.get_memory_conversation_links(memory_id=memory_id)
+                            
+                            if existing_links:
+                                # Memory already has link(s)
+                                linked_count += 1
+                                continue
+                            
+                            # Memory is orphaned, try to match it to a conversation by timestamp
+                            orphaned_count += 1
+                            memory_created_at = memory.get("created_at")
+                            
+                            if not memory_created_at:
+                                logger.debug(f"Memory {memory_id} has no created_at timestamp, cannot link")
+                                continue
+                            
+                            # Parse the memory's creation timestamp
+                            try:
+                                if isinstance(memory_created_at, str):
+                                    mem_timestamp = datetime.fromisoformat(
+                                        memory_created_at.replace("Z", "+00:00")
+                                    )
+                                else:
+                                    mem_timestamp = memory_created_at
+                            except Exception as parse_err:
+                                logger.debug(f"Could not parse memory timestamp {memory_created_at}: {parse_err}")
+                                continue
+                            
+                            # Query for conversations near this timestamp (within ±1 hour)
+                            all_conversations = await memory_system.conversations_db.execute_query(
+                                "SELECT conversation_id, start_timestamp, user_id FROM conversations ORDER BY start_timestamp DESC"
+                            )
+                            
+                            best_match = None
+                            min_time_diff = float('inf')
+                            
+                            for conv in all_conversations:
+                                conv_timestamp_str = conv["start_timestamp"]
+                                try:
+                                    if isinstance(conv_timestamp_str, str):
+                                        conv_timestamp = datetime.fromisoformat(
+                                            conv_timestamp_str.replace("Z", "+00:00")
+                                        )
+                                    else:
+                                        conv_timestamp = conv_timestamp_str
+                                except Exception:
+                                    continue
+                                
+                                # Calculate time difference
+                                time_diff = abs((mem_timestamp - conv_timestamp).total_seconds())
+                                
+                                # Match if within 1 hour and memory user matches conversation user
+                                if time_diff < 3600 and time_diff < min_time_diff:
+                                    if memory.get("user_id") == conv["user_id"]:
+                                        min_time_diff = time_diff
+                                        best_match = conv["conversation_id"]
+                            
+                            if best_match:
+                                # Found a matching conversation, link it
+                                try:
+                                    await memory_system.conversations_db.link_memory_to_conversation(
+                                        memory_id=memory_id,
+                                        conversation_id=best_match,
+                                        link_type="timestamp_matched",
+                                        metadata={
+                                            "source": "auto_link_routine",
+                                            "time_diff_seconds": min_time_diff,
+                                        }
+                                    )
+                                    logger.info(
+                                        f"✓ Linked orphaned memory {memory_id} to conversation {best_match} (time diff: {min_time_diff}s)"
+                                    )
+                                except Exception as link_err:
+                                    logger.warning(f"Failed to link orphaned memory {memory_id}: {link_err}")
+                            else:
+                                # No matching conversation found, use generic fallback
+                                user_id = memory.get("user_id", "unknown")
+                                fallback_conversation_id = f"orphaned_{user_id}_{memory_id[:8]}"
+                                try:
+                                    await memory_system.conversations_db.link_memory_to_conversation(
+                                        memory_id=memory_id,
+                                        conversation_id=fallback_conversation_id,
+                                        link_type="orphaned_fallback",
+                                        metadata={
+                                            "source": "auto_link_routine",
+                                            "reason": "no_matching_conversation",
+                                        }
+                                    )
+                                    logger.warning(
+                                        f"⚠️ Linked orphaned memory {memory_id} to fallback conversation {fallback_conversation_id}"
+                                    )
+                                except Exception as link_err:
+                                    logger.warning(f"Failed to link orphaned memory to fallback: {link_err}")
+                        
+                        except Exception as mem_err:
+                            logger.debug(f"Error processing memory {memory.get('id')}: {mem_err}")
+                            continue
+                    
+                    logger.info(
+                        f"Memory-conversation linking verification complete: "
+                        f"{linked_count} already linked, {orphaned_count} orphaned, "
+                        f"matched/linked as many as possible"
+                    )
+                
+                except Exception as e:
+                    logger.error(
+                        f"Error in memory-conversation linking loop: {e}\n{traceback.format_exc()}"
+                    )
+                    # Continue loop even if one run fails
+        
+        except asyncio.CancelledError:
+            logger.info("Memory-conversation linking task cancelled.")
+        except Exception as e:
+            logger.error(
+                f"Fatal error in memory-conversation linking loop: {e}\n{traceback.format_exc()}"
             )
 
     async def _log_error_counters_loop(self):
@@ -2987,6 +3196,34 @@ Analyze the following conversation and provide a concise summary.""",
         model_in_body = body.get('model', 'NOT SET')
         logger.info(f"🔴 INLET CALLED - Model in body: {model_in_body}")
         logger.info(f"🔴 INLET: Full body keys: {list(body.keys())}")
+        
+        # COMPREHENSIVE BODY INSPECTION FOR CONVERSATION_ID DISCOVERY
+        logger.info("=" * 80)
+        logger.info("🔍 COMPREHENSIVE BODY INSPECTION - Looking for conversation_id fields:")
+        logger.info("=" * 80)
+        
+        # Check for common conversation_id field names
+        potential_ids = ['chat_id', 'conversation_id', 'session_id', 'thread_id', 'room_id', 'id']
+        for field_name in potential_ids:
+            if field_name in body:
+                logger.info(f"✓ FOUND '{field_name}': {body[field_name]}")
+        
+        # Log the ENTIRE body structure (top-level keys and their types)
+        logger.info("\nFull body structure:")
+        for key, value in body.items():
+            value_type = type(value).__name__
+            if isinstance(value, (dict, list)):
+                if isinstance(value, dict):
+                    logger.info(f"  - {key}: dict with keys {list(value.keys())}")
+                else:
+                    logger.info(f"  - {key}: list with {len(value)} items")
+            elif isinstance(value, str):
+                logger.info(f"  - {key}: str (length={len(value)})")
+            else:
+                logger.info(f"  - {key}: {value_type} = {value}")
+        
+        logger.info("=" * 80)
+        
         if 'messages' in body:
             logger.info(f"🔴 INLET: Number of messages: {len(body['messages'])}")
             for i, msg in enumerate(body['messages']):
@@ -2997,6 +3234,22 @@ Analyze the following conversation and provide a concise summary.""",
             logger.warning("Inlet: User info or ID missing, skipping processing.")
             return body
         user_id = __user__["id"]
+
+        # --- Extract Conversation Context (chat_id, model_id) ---
+        # Capture these early so outlet() can use them when linking memories
+        chat_id = body.get("chat_id", None)
+        model_id = body.get("model", "default")
+        
+        # Create composite conversation_id: chat_id_user_id_model_id
+        # Falls back to old pattern if chat_id is missing
+        if chat_id:
+            self._current_conversation_id = f"{chat_id}_{user_id}_{model_id}"
+            logger.info(f"✓ Extracted conversation context: chat_id={chat_id}, user_id={user_id}, model={model_id}")
+            logger.debug(f"  Composite conversation_id: {self._current_conversation_id}")
+        else:
+            # Fallback to old pattern if chat_id not available
+            self._current_conversation_id = f"{user_id}_{model_id}"
+            logger.warning(f"⚠️ chat_id not in body, falling back to pattern: {self._current_conversation_id}")
 
         # --- Initialization & Valve Loading ---
         # Load valves early, handle potential errors
@@ -3518,6 +3771,33 @@ Analyze the following conversation and provide a concise summary.""",
         # Log function entry
         logger.debug("Outlet called - making deep copy of body dictionary")
         logger.info(f"🟢 OUTLET CALLED - Model in body: {body.get('model', 'NOT SET')} - LLM should have already responded")
+        
+        # COMPREHENSIVE BODY INSPECTION FOR CONVERSATION_ID DISCOVERY (same as inlet)
+        logger.info("=" * 80)
+        logger.info("🔍 COMPREHENSIVE BODY INSPECTION (OUTLET) - Looking for conversation_id fields:")
+        logger.info("=" * 80)
+        
+        # Check for common conversation_id field names
+        potential_ids = ['chat_id', 'conversation_id', 'session_id', 'thread_id', 'room_id', 'id']
+        for field_name in potential_ids:
+            if field_name in body:
+                logger.info(f"✓ FOUND '{field_name}': {body[field_name]}")
+        
+        # Log the ENTIRE body structure (top-level keys and their types)
+        logger.info("\nFull body structure (OUTLET):")
+        for key, value in body.items():
+            value_type = type(value).__name__
+            if isinstance(value, (dict, list)):
+                if isinstance(value, dict):
+                    logger.info(f"  - {key}: dict with keys {list(value.keys())}")
+                else:
+                    logger.info(f"  - {key}: list with {len(value)} items")
+            elif isinstance(value, str):
+                logger.info(f"  - {key}: str (length={len(value)})")
+            else:
+                logger.info(f"  - {key}: {value_type} = {value}")
+        
+        logger.info("=" * 80)
 
         # Store model for use in memory operations (user_id + model = isolation key)
         self._current_model = body.get("model", "default")
@@ -6207,16 +6487,15 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         user_id = getattr(user, "id", None)
                         if user_id:
                             conversation_db = ConversationDatabase()
-                            # Use user_id + model for isolation (each character has separate memories per user)
-                            model = getattr(self, "_current_model", "default")
-                            conversation_id = f"{user_id}_{model}"
+                            # Use composite conversation_id from inlet (includes chat_id, user_id, model)
+                            conversation_id = getattr(self, "_current_conversation_id", f"{user_id}_{getattr(self, '_current_model', 'default')}")
                             await conversation_db.link_memory_to_conversation(
                                 memory_id=str(mem_id),
                                 conversation_id=conversation_id,
                                 link_type="direct",
                                 metadata={
                                     "source": "adaptive_memory_v3",
-                                    "model": model,
+                                    "model": getattr(self, '_current_model', 'default'),
                                     "tags": operation.tags,
                                     "memory_bank": operation.memory_bank
                                     or self.valves.default_memory_bank,
@@ -6293,16 +6572,15 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             user_id = getattr(user, "id", None)
                             if user_id:
                                 conversation_db = ConversationDatabase()
-                                # Use user_id + model for isolation (each character has separate memories per user)
-                                model = getattr(self, "_current_model", "default")
-                                conversation_id = f"{user_id}_{model}"
+                                # Use composite conversation_id from inlet (includes chat_id, user_id, model)
+                                conversation_id = getattr(self, "_current_conversation_id", f"{user_id}_{getattr(self, '_current_model', 'default')}")
                                 await conversation_db.link_memory_to_conversation(
                                     memory_id=str(new_mem_id),
                                     conversation_id=conversation_id,
                                     link_type="updated",
                                     metadata={
                                         "source": "adaptive_memory_v3",
-                                        "model": model,
+                                        "model": getattr(self, '_current_model', 'default'),
                                         "previous_id": str(operation.id),
                                         "tags": operation.tags,
                                     },
