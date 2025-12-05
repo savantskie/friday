@@ -11,6 +11,8 @@ env/
 .env/
 lmstudio/
 lm-studio/
+tool calls/
+tool_calls/
 
 # File types to ignore
 *.pyc
