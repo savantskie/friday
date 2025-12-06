@@ -180,10 +180,10 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
     # Build compact hourly (next 48h)
     hourly = []
     hh = data.get("hourly") or {}
-    for t, tc, pop in zip(hh.get("time") or [],
+    for t, tf, pop in zip(hh.get("time") or [],
                           hh.get("temperature_2m") or [],
                           hh.get("precipitation_probability") or []):
-        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
+        hourly.append({"time": t, "temp_f": tf, "pop": int(pop) if pop is not None else None})
     hourly = hourly[:48]
 
     # Build daily
@@ -193,7 +193,7 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
                             dd.get("temperature_2m_max") or [],
                             dd.get("temperature_2m_min") or [],
                             dd.get("precipitation_probability_max") or []):
-        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
+        daily.append({"date": d, "tmax_f": mx, "tmin_f": mn, "pop_max": int(p) if p is not None else None})
 
     return {
         "source": "open-meteo",
@@ -421,9 +421,9 @@ class FridayMemoryMCPServer:
         
         # If return_changes_only is True, return empty changes since this is a new file
         if return_changes_only:
-            return {"success": True, "changes": {}, "updated": False, "via_cache": False}
+            return {"success": True, "changes": {}, "updated": True, "via_cache": False}
             
-        return {"success": True, "data": fresh, "updated": False}
+        return {"success": True, "data": fresh, "updated": True}
 
 
     async def brave_web_search(self, query: str, count: int = 10, country: str = "US", language: str = "en") -> Dict:
