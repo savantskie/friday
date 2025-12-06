@@ -764,7 +764,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -792,8 +793,11 @@ class FridayMemoryMCPServer:
                             "description": "If true, shrink the update window to 30 minutes for severe weather.",
                             "default": False
                         },
-                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
-                    }
+                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False},
+                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
+                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -809,7 +813,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["query"]
+                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -825,7 +829,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["query"]
+                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -837,7 +841,8 @@ class FridayMemoryMCPServer:
                         "days": {"type": "integer", "description": "Look back X days", "default": 7},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -851,7 +856,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id", "new_due_datetime"]
+                    "required": ["reminder_id", "new_due_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -864,7 +869,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id"]
+                    "required": ["reminder_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -877,7 +882,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["appointment_id"]
+                    "required": ["appointment_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -890,7 +895,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["appointment_id"]
+                    "required": ["appointment_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -903,7 +908,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             
@@ -1246,8 +1252,10 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "output_filename": {"type": "string", "description": "Optional custom filename for export (defaults to timestamp-based name)"},
-                        "user_id": {"type": "string", "description": "User ID for logging (required)"}
+                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
+                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
                     },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -1560,16 +1568,11 @@ class FridayMemoryMCPServer:
         user_id = arguments.get("user_id")
         model_id = arguments.get("model_id")
         
-        # Special handling for export_all_tool_calls: model_id defaults to 'system'
-        if tool_name == "export_all_tool_calls":
-            if not model_id:
-                model_id = "system"
-                arguments["model_id"] = "system"
-        
+        # ALL tools require user_id and model_id for logging and tracking
         if not user_id:
             error_msg = (
                 "❌ MISSING REQUIRED PARAMETER: user_id\n\n"
-                "ALL Friday Memory System tools REQUIRE both user_id and model_id for:\n"
+                "ALL Friday tools REQUIRE both user_id and model_id for:\n"
                 "  • Memory system separation (different users = different memory spaces)\n"
                 "  • Model tracking (knowing which model made which changes)\n"
                 "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
@@ -1586,7 +1589,7 @@ class FridayMemoryMCPServer:
         if not model_id:
             error_msg = (
                 "❌ MISSING REQUIRED PARAMETER: model_id\n\n"
-                "ALL Friday Memory System tools REQUIRE both user_id and model_id for:\n"
+                "ALL Friday tools REQUIRE both user_id and model_id for:\n"
                 "  • Memory system separation (different users = different memory spaces)\n"
                 "  • Model tracking (knowing which model made which changes)\n"
                 "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
