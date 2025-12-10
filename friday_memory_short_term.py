@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.10
+version: 0.0.11
 ---
 
 # Overview
@@ -283,6 +283,7 @@ class MemoryOperation(BaseModel):
     content: Optional[str] = None
     tags: List[str] = []
     memory_bank: Optional[str] = None  # NEW – bank assignment
+    model_card_name: Optional[str] = None  # Model card name (persona) for memory separation
 
 
 class ImageManager:
@@ -2502,6 +2503,7 @@ Analyze the following conversation and provide a concise summary.""",
                                     operation="NEW",
                                     content=formatted_summary,
                                     tags=tags,
+                                    model_card_name=self._current_model_card_name,
                                 )
                                 await self._execute_memory_operation(
                                     new_mem_op, user_obj
@@ -3180,6 +3182,7 @@ Analyze the following conversation and provide a concise summary.""",
         body: Dict[str, Any],
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
         __user__: Optional[Dict[str, Any]] = None,
+        __metadata__: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Intercepts incoming messages, extracts memories, injects relevant ones.
@@ -3235,10 +3238,22 @@ Analyze the following conversation and provide a concise summary.""",
             return body
         user_id = __user__["id"]
 
-        # --- Extract Conversation Context (chat_id, model_id) ---
+        # --- Extract Conversation Context (chat_id, model_id, model_card_name) ---
         # Capture these early so outlet() can use them when linking memories
         chat_id = body.get("chat_id", None)
-        model_id = body.get("model", "default")
+        
+        # Extract model card name (persona) with fallback to backend model ID
+        # Primary: model card name from metadata (e.g., "Friday", "Tara")
+        # Fallback: backend model ID from body (e.g., "llama3:latest")
+        model_card_name = None
+        if __metadata__:
+            model_card_name = __metadata__.get("model", {}).get("name")
+        if not model_card_name:
+            model_card_name = body.get("model", "default")
+        
+        # Store for use throughout the session
+        self._current_model_card_name = model_card_name
+        model_id = model_card_name  # Use model card name as primary model ID
         
         # Create composite conversation_id: chat_id_user_id_model_id
         # Falls back to old pattern if chat_id is missing
@@ -3677,6 +3692,7 @@ Analyze the following conversation and provide a concise summary.""",
                     current_message=message_text_for_retrieval,
                     user_id=user_id,
                     user_timezone=user_valves.timezone,  # Use user-specific timezone
+                    model_card_name=self._current_model_card_name,  # Pass current model card for persona isolation
                 )
                 
                 # Check if this is the interface/tool model - if so, skip memory injection
@@ -3764,6 +3780,7 @@ Analyze the following conversation and provide a concise summary.""",
         body: dict,
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
         __user__: Optional[dict] = None,
+        __metadata__: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """Process LLM response, extract memories, and update the response"""
         # logger.debug("****** OUTLET FUNCTION CALLED ******") # REMOVED
@@ -3799,8 +3816,18 @@ Analyze the following conversation and provide a concise summary.""",
         
         logger.info("=" * 80)
 
-        # Store model for use in memory operations (user_id + model = isolation key)
-        self._current_model = body.get("model", "default")
+        # Extract model card name (persona) with fallback to backend model ID
+        # Primary: model card name from metadata (e.g., "Friday", "Tara")
+        # Fallback: backend model ID from body (e.g., "llama3:latest")
+        model_card_name = None
+        if __metadata__:
+            model_card_name = __metadata__.get("model", {}).get("name")
+        if not model_card_name:
+            model_card_name = body.get("model", "default")
+        
+        # Store for use throughout the session
+        self._current_model_card_name = model_card_name
+        self._current_model = model_card_name  # Use model card name as primary model ID
         logger.debug(f"Outlet: Set current_model to {self._current_model}")
 
         # DEFENSIVE: Make a deep copy of the body to avoid dictionary changed size during iteration
@@ -3915,6 +3942,7 @@ Analyze the following conversation and provide a concise summary.""",
                 or "",  # Use the variable holding the user message
                 user_id=user_id,
                 user_timezone=user_timezone,
+                model_card_name=self._current_model_card_name,  # Pass current model card for persona isolation
             )
 
             # If we found relevant memories and the user wants to see them
@@ -4206,6 +4234,9 @@ Analyze the following conversation and provide a concise summary.""",
                     memory_content = getattr(memory, "content", "")
                     created_at = getattr(memory, "created_at", None)
                     updated_at = getattr(memory, "updated_at", None)
+                    
+                    # Extract metadata (includes model_card_name, memory_bank, tags, etc.)
+                    metadata = getattr(memory, "metadata", {}) or {}
 
                     memories_list.append(
                         {
@@ -4213,6 +4244,7 @@ Analyze the following conversation and provide a concise summary.""",
                             "memory": memory_content,
                             "created_at": created_at,
                             "updated_at": updated_at,
+                            "metadata": metadata,  # Include metadata for filtering and context
                         }
                     )
 
@@ -4224,6 +4256,20 @@ Analyze the following conversation and provide a concise summary.""",
                 f"Error getting formatted memories: {e}\n{traceback.format_exc()}"
             )
             return []
+
+    def _strip_model_info_from_memory(self, memory_content: str) -> str:
+        """Remove model card information from memory content before injection into chat
+        
+        Strips [Model: ...] tags so the main LLM doesn't see internal tracking info.
+        Used to keep memories clean when injecting into the main conversation.
+        
+        Example: "[Tags: preference] I like coffee [Memory Bank: Personal] [Model: Friday]"
+        Returns: "[Tags: preference] I like coffee [Memory Bank: Personal]"
+        """
+        import re
+        # Remove [Model: ...] pattern
+        cleaned = re.sub(r'\s*\[Model:\s*[^\]]+\]', '', memory_content)
+        return cleaned.strip()
 
     def _inject_memories_into_context(
         self, body: Dict[str, Any], memories: List[Dict[str, Any]]
@@ -4288,35 +4334,41 @@ Analyze the following conversation and provide a concise summary.""",
         # Extract tags and add each memory according to specified format
         if format_type == "bullet":
             for mem in memories:
-                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", mem["memory"])
+                # First strip model info from the memory
+                cleaned_memory = self._strip_model_info_from_memory(mem["memory"])
+                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", cleaned_memory)
                 if tags_match:
                     tags = tags_match.group(1)
                     content = tags_match.group(2)[:max_len]
                     memory_context += f"- {content} (tags: {tags})\n"
                 else:
-                    content = mem["memory"][:max_len]
+                    content = cleaned_memory[:max_len]
                     memory_context += f"- {content}\n"
 
         elif format_type == "numbered":
             for i, mem in enumerate(memories, 1):
-                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", mem["memory"])
+                # First strip model info from the memory
+                cleaned_memory = self._strip_model_info_from_memory(mem["memory"])
+                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", cleaned_memory)
                 if tags_match:
                     tags = tags_match.group(1)
                     content = tags_match.group(2)[:max_len]
                     memory_context += f"{i}. {content} (tags: {tags})\n"
                 else:
-                    content = mem["memory"][:max_len]
+                    content = cleaned_memory[:max_len]
                     memory_context += f"{i}. {content}\n"
 
         else:  # paragraph format
             memories_text = []
             for mem in memories:
-                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", mem["memory"])
+                # First strip model info from the memory
+                cleaned_memory = self._strip_model_info_from_memory(mem["memory"])
+                tags_match = re.match(r"\[Tags: (.*?)\] (.*)", cleaned_memory)
                 if tags_match:
                     content = tags_match.group(2)[:max_len]
                     memories_text.append(content)
                 else:
-                    content = mem["memory"][:max_len]
+                    content = cleaned_memory[:max_len]
                     memories_text.append(content)
 
             memory_context += f"{'. '.join(memories_text)}.\n"
@@ -4596,6 +4648,7 @@ Analyze the following conversation and provide a concise summary.""",
                         operation="NEW",
                         content=user_message.strip(),  # Save the raw message content
                         tags=["preference"],  # Assume preference tag
+                        model_card_name=self._current_model_card_name,
                     )
                     await self._execute_memory_operation(
                         shortcut_op, user
@@ -5581,7 +5634,7 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
             return self._calculate_memory_similarity(memory1, memory2)
 
     async def get_relevant_memories(
-        self, current_message: str, user_id: str, user_timezone: str = None
+        self, current_message: str, user_id: str, user_timezone: str = None, model_card_name: str = None
     ) -> List[Dict[str, Any]]:
         """Get memories relevant to the current context"""
         # --- RELOAD VALVES --- REMOVED
@@ -5842,17 +5895,26 @@ Produce ONLY the JSON array output for the user message above, adhering strictly
                     return []
 
                 # Build the prompt for LLM
+                # Get current model card name (use parameter or instance variable)
+                current_model = model_card_name or getattr(self, '_current_model_card_name', 'unknown')
+                
                 memory_strings = []
                 for mem in memories_for_llm:
-                    memory_strings.append(f"ID: {mem['id']}, CONTENT: {mem['memory']}")
+                    mem_metadata = mem.get('metadata', {})
+                    model_card = mem_metadata.get('model_card_name', 'unknown')
+                    memory_strings.append(
+                        f"ID: {mem['id']}, MODEL: {model_card}, CONTENT: {mem['memory']}"
+                    )
 
                 system_prompt = self.valves.memory_relevance_prompt
-                user_prompt = f"""Current user message: "{current_message}"
+                user_prompt = f"""Current model card: "{current_model}"
+Current user message: "{current_message}"
 
 Available memories (pre-filtered by vector similarity):
 {json.dumps(memory_strings)}
 
-Rate the relevance of EACH memory to the current user message based *only* on the provided content and message context."""  # Removed escaping backslashes
+Rate the relevance of EACH memory to the current user message based *only* on the provided content and message context. 
+IMPORTANT: Only return memories where MODEL matches the current model card "{current_model}". Exclude memories from other model cards/personas."""  # Removed escaping backslashes
 
                 # Add current datetime for context
                 current_datetime = self.get_formatted_datetime(user_timezone)
@@ -6144,6 +6206,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                         )  # LOG START
                         # Format the memory content
                         operation = MemoryOperation(**memory_dict)
+                        operation.model_card_name = self._current_model_card_name
                         formatted_content = self._format_memory_content(operation)
 
                         # --- BYPASS: Skip dedup for short preference statements ---
@@ -6271,6 +6334,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                 try:
                     # Validate memory operation
                     operation = MemoryOperation(**memory_dict)
+                    operation.model_card_name = self._current_model_card_name
                     # Execute the memory operation
                     await self._execute_memory_operation(operation, user)
                     # If successful, add to our list
@@ -6438,6 +6502,7 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             or self.valves.default_memory_bank,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "source": "adaptive_memory_v3",
+                            "model_card_name": operation.model_card_name or "unknown",
                         },
                     ),
                 )
@@ -6670,11 +6735,12 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                 raise
 
     def _format_memory_content(self, operation: MemoryOperation) -> str:
-        """Format memory content with tags and memory bank for saving / display"""
+        """Format memory content with tags, memory bank, and model card name for saving / display"""
         content = operation.content or ""
         tag_part = f"[Tags: {', '.join(operation.tags)}] " if operation.tags else ""
         bank_part = f" [Memory Bank: {operation.memory_bank or self.valves.default_memory_bank}]"
-        return f"{tag_part}{content}{bank_part}".strip()
+        model_part = f" [Model: {operation.model_card_name}]" if operation.model_card_name else ""
+        return f"{tag_part}{content}{bank_part}{model_part}".strip()
 
     async def query_llm_with_retry(self, system_prompt: str, user_prompt: str) -> str:
         """Query LLM with retry logic, supporting multiple provider types.

@@ -95,6 +95,24 @@ Documents:
 
 ---
 
+### 🎭 MODEL_SEPARATION_IMPLEMENTATION_2025_11_25.md
+**Complete guide to persona/model card separation implementation.**
+
+Covers:
+- Why content-based tagging was chosen over metadata
+- Two-filter architecture (memory LLM sees model tags, main chat LLM doesn't)
+- Implementation details with exact line numbers
+- How `[Model: ...]` tags work in memory content
+- Persona isolation for Friday, Tara, Jessie, James, Willow
+- Backward compatibility guarantees
+- Testing checklist and validation points
+
+**When to use**: You need to understand how persona/model card separation works, or you're implementing/testing it
+
+**Size**: Comprehensive (~8KB, ~300 lines)
+
+---
+
 ## Organization
 
 ### Active Summaries (Main Folder)
@@ -103,6 +121,7 @@ CONSOLIDATED_IMPLEMENTATION_MASTER_2025_11_09.md ← START HERE
 ASYNC_EMBEDDING_INTEGRATION_2025_11_09.md
 CHAT_ISOLATION_BEFORE_AFTER.md
 CHAT_ISOLATION_REMEDIATION.md
+MODEL_SEPARATION_IMPLEMENTATION_2025_11_25.md ← NEW: Persona/Model Card Separation
 SUMMARIES_FOLDER_CONSOLIDATION_PLAN.md
 TIMESTAMP_FIX_SUMMARY.txt
 ```
@@ -140,6 +159,9 @@ ARCHIVE/
 
 ### "What's next?"
 → Read: CONSOLIDATED_IMPLEMENTATION_MASTER_2025_11_09.md (Part 9)
+
+### "How does model/persona separation work?"
+→ Read: MODEL_SEPARATION_IMPLEMENTATION_2025_11_25.md
 
 ### "What about historical phases?"
 → Read: ARCHIVE/ folder (Historical subfolder)
