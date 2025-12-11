@@ -2287,11 +2287,13 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
             Request body:
             {
                 "content": "Memory content (required)",
+                "user_id": "User identifier (optional, defaults to 'nate')",
                 "memory_type": "Optional: memory type",
                 "tags": ["optional", "tags"],
                 "memory_bank": "Optional: category (General, Personal, Work, Context, Tasks) - default: General",
                 "conversation_id": "Optional: source conversation ID for linking",
-                "source_conversation_id": "Optional: source conversation ID (deprecated, use conversation_id)"
+                "source_conversation_id": "Optional: source conversation ID (deprecated, use conversation_id)",
+                "model_id": "Optional: model card name (persona) - extracted from [Model: ...] tag if not provided"
             }
             
             Response:
@@ -2315,11 +2317,31 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 if not content or not content.strip():
                     raise HTTPException(status_code=400, detail="Memory content is required")
                 
-                # Extract optional fields
+                # Extract required and optional fields
+                user_id = body.get("user_id", "nate")  # Default to "nate" if not provided
+                
                 memory_type = body.get("memory_type")
                 tags = body.get("tags", [])
                 memory_bank = body.get("memory_bank", "General")
                 conversation_id = body.get("conversation_id") or body.get("source_conversation_id")
+                model_id = body.get("model_id")
+                
+                # Extract model_id from [Model: ...] tag if not provided
+                if not model_id:
+                    import re
+                    model_match = re.search(r'\[Model:\s*([^\]]+)\]', content)
+                    if model_match:
+                        model_id = model_match.group(1).strip()
+                        logger.debug(f"Extracted model_id from content: {model_id}")
+                
+                if not model_id:
+                    model_id = "friday"  # Default to "friday" if not provided
+                
+                # Strip [Model: ...] tag from content before storing in long-term system
+                import re
+                cleaned_content = re.sub(r'\s*\[Model:\s*[^\]]+\]', '', content).strip()
+                if cleaned_content != content:
+                    logger.debug(f"Stripped model tag from promoted memory content")
                 
                 # Add "promoted" tag to indicate origin
                 if isinstance(tags, list):
@@ -2331,13 +2353,17 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 # Call create_memory with promoted importance level (8-9)
                 # Use 8 as default for promoted memories (high but not critical)
                 # Store memory with memory_bank category for future enrichment
+                # Use cleaned_content (model tag stripped) and model_id from tag or request
                 memory_id = await mcp_server.memory_system.create_memory(
-                    content=content,
+                    content=cleaned_content,
                     memory_type=memory_type,
                     importance_level=8,
                     tags=tags,
                     memory_bank=memory_bank,
-                    source_conversation_id=conversation_id
+                    source_conversation_id=conversation_id,
+                    user_id=user_id,
+                    model_id=model_id,
+                    wait_for_embedding=True  # Ensure embedding completes for promoted memories
                 )
                 
                 # Link memory to conversation if provided

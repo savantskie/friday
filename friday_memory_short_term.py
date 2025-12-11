@@ -210,25 +210,26 @@ try:
     log_dir = "/media/nate/Friday/Friday/logs"
     os.makedirs(log_dir, exist_ok=True)
 
+    # Main short-term memory log file
     file_handler = logging.FileHandler(
-        os.path.join(log_dir, "adaptive_memory_embedding.log"), encoding="utf-8"
+        os.path.join(log_dir, "friday_short_term_memory.log"), encoding="utf-8"
     )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.info(
-        "FileHandler initialized - logging to /media/nate/Friday/Friday/logs/adaptive_memory_embedding.log"
+        "✓ FileHandler initialized - logging to /media/nate/Friday/Friday/logs/friday_short_term_memory.log"
     )
     
     # Add dedicated inlet/outlet debug handler
     inlet_outlet_handler = logging.FileHandler(
-        os.path.join(log_dir, "inlet_outlet_flow.log"), encoding="utf-8"
+        os.path.join(log_dir, "friday_short_term_inlet_outlet.log"), encoding="utf-8"
     )
     inlet_outlet_handler.setFormatter(formatter)
     inlet_outlet_logger = logging.getLogger("openwebui.plugins.adaptive_memory.flow")
     inlet_outlet_logger.addHandler(inlet_outlet_handler)
     inlet_outlet_logger.setLevel(logging.DEBUG)
     inlet_outlet_logger.propagate = False
-    logger.info("✓ Inlet/Outlet flow logger initialized - logging to inlet_outlet_flow.log")
+    logger.info("✓ Inlet/Outlet flow logger initialized - logging to friday_short_term_inlet_outlet.log")
 except Exception as e:
     inlet_outlet_logger = logger  # Fallback to main logger
     logger.error(f"Failed to create file logger: {e}")
@@ -244,9 +245,8 @@ try:
     error_log_dir = "/media/nate/Friday/Friday/logs"
     os.makedirs(error_log_dir, exist_ok=True)
     
-    # Create a timestamped error log file
-    error_log_filename = f"ERRORS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    error_log_path = os.path.join(error_log_dir, error_log_filename)
+    # Use consistent filename for easier tracking
+    error_log_path = os.path.join(error_log_dir, "friday_short_term_errors.log")
     
     error_logger = logging.getLogger("openwebui.plugins.adaptive_memory.errors")
     error_file_handler = logging.FileHandler(error_log_path, encoding="utf-8")
@@ -255,7 +255,7 @@ try:
     error_logger.setLevel(logging.ERROR)
     error_logger.propagate = False
     
-    logger.info(f"Error logger initialized - writing to {error_log_filename}")
+    logger.info(f"✓ Error logger initialized - writing to friday_short_term_errors.log")
 except Exception as e:
     error_logger = None
     logger.error(f"Failed to create error logger: {e}")
@@ -3237,6 +3237,11 @@ Analyze the following conversation and provide a concise summary.""",
             logger.warning("Inlet: User info or ID missing, skipping processing.")
             return body
         user_id = __user__["id"]
+        user_name = __user__.get("name", "Unknown")
+        
+        # Store UUID for access by outlet and other methods
+        self._current_user_uuid = user_id
+        self._current_user_name = user_name
 
         # --- Extract Conversation Context (chat_id, model_id, model_card_name) ---
         # Capture these early so outlet() can use them when linking memories
@@ -3844,6 +3849,10 @@ Analyze the following conversation and provide a concise summary.""",
         if not user_id:
             logger.warning("User object contains no ID - skipping memory processing")
             return body_copy
+        
+        # Store UUID for access by other methods
+        self._current_user_uuid = user_id
+        self._current_user_name = __user__.get("name", "Unknown")
 
         # Check if user has enabled memory function
         user_valves = self._get_user_valves(__user__)
@@ -3981,26 +3990,36 @@ Analyze the following conversation and provide a concise summary.""",
             logger.error(f"Error in event emitter: {e}")
 
     def _get_user_valves(self, __user__: dict) -> UserValves:
-        """Extract and validate user valves settings"""
+        """Extract and validate user valves settings from OpenWebUI's __user__ dictionary
+        
+        OpenWebUI injects user-specific settings via __user__["valves"]. This method
+        extracts and validates those settings, falling back to defaults if not present.
+        """
         if not __user__:
             logger.warning("No user information provided")
             return self.UserValves()
 
-        # Access the valves attribute directly from the UserModel object
-        user_valves_data = getattr(
-            __user__, "valves", {}
-        )  # Use getattr for safe access
+        # Handle both dict and UserModel objects
+        if isinstance(__user__, dict):
+            user_valves_data = __user__.get("valves", {})
+        else:
+            # __user__ is a UserModel object, try to get the valves attribute
+            user_valves_data = getattr(__user__, "valves", {})
 
         # Ensure we have a dictionary to work with
         if not isinstance(user_valves_data, dict):
             logger.warning(
-                f"User valves attribute is not a dictionary (type: {type(user_valves_data)}), using defaults."
+                f"User valves is not a dictionary (type: {type(user_valves_data)}), using defaults."
             )
             user_valves_data = {}
 
         try:
-            # Validate and return the UserValves model
-            return self.UserValves(**user_valves_data)
+            # Validate and return the UserValves model with user-specific overrides
+            user_id = __user__.get("id", "unknown")
+            user_name = __user__.get("name", "Unknown")
+            user_valves = self.UserValves(**user_valves_data)
+            logger.debug(f"✓ Loaded user valves for {user_name} ({user_id}): enabled={user_valves.enabled}, show_status={user_valves.show_status}")
+            return user_valves
         except Exception as e:
             # Default to enabled if validation/extraction fails
             logger.error(
@@ -6760,6 +6779,9 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
         max_retries = self.valves.max_retries
         retry_delay = self.valves.retry_delay
 
+        logger.info(
+            f"🔵 MEMORY LLM DEBUG: valve llm_provider_type={self.valves.llm_provider_type}, valve llm_model_name={self.valves.llm_model_name}"
+        )
         logger.info(
             f"LLM Query: Provider={provider_type}, Model={model}, URL={api_url}"
         )
