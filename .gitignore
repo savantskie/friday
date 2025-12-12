@@ -30,6 +30,7 @@ tool_calls/
 Thumbs.db
 
 # Specific files to ignore
+*.log
 *.private
 *.secret
 *.key
