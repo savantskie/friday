@@ -1192,6 +1192,12 @@ Analyze the following related memories and provide a concise summary.""",
             description="Enable collecting Possession information (things owned or desired)",
         )
 
+        # Dual-message memory extraction configuration
+        extract_memories_from_model_responses: bool = Field(
+            default=True,
+            description="Enable extracting memories from both user messages AND model responses (for roleplay/story contexts). When disabled, only user messages are analyzed.",
+        )
+
         # Error handling
         max_retries: int = Field(
             default=2, description="Maximum number of retries for API calls"
@@ -1209,16 +1215,27 @@ Analyze the following related memories and provide a concise summary.""",
         # DO NOT mix concerns across prompts. Example of mistake: Don't mention injection/retrieval in extraction prompt.
         # This keeps the LLM focused on its single task and prevents confusion about responsibilities.
         memory_identification_prompt: str = Field(
-            default="""You are an automated JSON data extraction system. Your ONLY function is to identify user-specific, persistent or contextually relevant information from the user's messages and output them STRICTLY as a structured JSON object.
+            default="""You are an automated JSON data extraction system. Your ONLY function is to identify user-specific, persistent or contextually relevant information from the user's messages and model's messages and output them STRICTLY as a structured JSON object.
 
 Your job is to aggressively detect meaningful user-related information including: preferences, ongoing tasks, technical context, current projects, constraints, identity details, habits, patterns, or any other data that may provide continuity or relevance across sessions.
 
-Your extraction must remain flexible, nuanced, and permissive, capturing even subtle or implied information. When the user suggests or hints at something meaningful, treat it as a potential memory and extract it — but phrase all memory content cautiously (e.g., "User is currently working on…", "User has been experimenting with…", "User appears to…") to avoid overstating permanence.
+Your extraction must remain flexible, nuanced, and permissive, capturing even subtle or implied information. When the user suggests or hints at something meaningful, or the model suggests or hints as something meaningful about the character they are portraying, treat it as a potential memory and extract it — but phrase all memory content cautiously (e.g., "User is currently working on…", "User has been experimenting with…", "User appears to…", "Character appears to…", "Character has been experimenting with…", or "Character appears to…")
 
 You MUST use tags and memory banks as defined below.
 
----
+IMPORTANT: Each memory you extract MUST be tagged with the appropriate model_card_name. If the user is interacting with a specific model card (persona) like "Friday", "Tara", "Jessie", "James", or "Willow", that context should inform your memory assignments. Memories created during one persona's conversation belong to that persona and should be appropriately categorized. Memories not tagged is assumed to belong to the "Friday" model unless there is a role play or story aspect to it. Memories with no model tag that are role play or story based can be ignored.
 
+---
+***Models:**
+
+***Assistant Models***
+ -Friday
+***Role Playing Models:***
+ -Tara
+ -Jessie
+ -Jamie
+ -Willow
+ 
 **ABSOLUTE OUTPUT REQUIREMENT:**
 +- Your ENTIRE response MUST be ONLY a valid JSON object with exactly this structure:
 +  `{"status": "success|no_memories_found", "reason": "<reason_string>", "memories": [...]}`  
@@ -1263,10 +1280,11 @@ Extract ANY meaningful, relevant, or repeated details including:
 +- **Meta-Patterns (NEW TAG):** Repeated behavioral or conversational patterns.
 +- **Intent Signals (NEW TAG):** When User implies desire, interest, or intention.
 +- **Misc (NEW TAG):** Any valuable information not covered above.
+*- **Include information provided for the model, not just the user. Especially for role playing models. These details can affect the model's personality.**
 
 If the message contains *any* information that may benefit future reasoning, store it.
 
-When unsure, **store it** using safe, cautious wording.
+When unsure, **store it** 
 
 ---
 
@@ -3866,6 +3884,7 @@ Analyze the following conversation and provide a concise summary.""",
         # --- BEGIN MEMORY PROCESSING IN OUTLET ---
         # Process the *last user message* for memory extraction *after* the LLM response
         last_user_message_content = None
+        last_assistant_message_content = None
         message_history_for_context = []
         try:
             messages_copy = copy.deepcopy(body_copy.get("messages", []))
@@ -3875,6 +3894,16 @@ Analyze the following conversation and provide a concise summary.""",
                     if msg.get("role") == "user" and msg.get("content"):
                         last_user_message_content = msg.get("content")
                         break
+                
+                # Find the last assistant message (if dual-message extraction is enabled)
+                if self.valves.extract_memories_from_model_responses:
+                    for msg in reversed(messages_copy):
+                        if msg.get("role") == "assistant" and msg.get("content"):
+                            last_assistant_message_content = msg.get("content")
+                            break
+                    if last_assistant_message_content:
+                        logger.debug(f"Extracted last assistant message for dual-message extraction: {last_assistant_message_content[:60]}...")
+                
                 # Get up to N messages *before* the last user message for context
                 if last_user_message_content:
                     user_msg_index = -1
@@ -3897,6 +3926,8 @@ Analyze the following conversation and provide a concise summary.""",
                 logger.info(
                     f"Starting memory processing in outlet for user message: {last_user_message_content[:60]}..."
                 )
+                if last_assistant_message_content:
+                    logger.info(f"Also processing assistant message for dual-message extraction")
                 # Use asyncio.create_task for non-blocking processing
                 # Reload valves inside _process_user_memories ensures latest config
                 logger.debug("Starting memory extraction from outlet response")
@@ -3919,6 +3950,7 @@ Analyze the following conversation and provide a concise summary.""",
                                     show_status=user_valves.show_status,
                                     user_timezone=user_timezone,
                                     recent_chat_history=message_history_for_context,
+                                    assistant_message=last_assistant_message_content if self.valves.extract_memories_from_model_responses else None,
                                 ),
                                 timeout=300  # 5 minutes
                             )
@@ -4406,8 +4438,18 @@ Analyze the following conversation and provide a concise summary.""",
         recent_chat_history: Optional[
             List[Dict[str, Any]]
         ] = None,  # Added this argument
+        assistant_message: Optional[str] = None,  # Added for dual-message extraction
     ) -> List[Dict[str, Any]]:
-        """Process user message to extract and store memories
+        """Process user message (and optionally assistant message) to extract and store memories
+
+        Args:
+            user_message: User's input message
+            user_id: User identifier
+            event_emitter: Event emitter for status updates
+            show_status: Whether to show status messages
+            user_timezone: User's timezone
+            recent_chat_history: List of recent messages for context
+            assistant_message: Optional model response for dual-message memory extraction
 
         Returns:
             List of stored memory operations
@@ -5072,11 +5114,22 @@ Rate the relevance of EACH memory to the current user message."""
         input_text: str,
         existing_memories: Optional[List[Dict[str, Any]]] = None,
         user_timezone: str = None,
+        assistant_message: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Identify potential memories from text using LLM"""
+        """Identify potential memories from text using LLM
+        
+        Args:
+            input_text: User message to analyze
+            existing_memories: Optional list of existing memories for context
+            user_timezone: User's timezone for datetime context
+            assistant_message: Optional model/assistant response message (for dual-message extraction in roleplay contexts)
+        """
         logger.debug(
             f"Starting memory identification from input text: {input_text[:50]}..."
         )
+        
+        if assistant_message:
+            logger.debug(f"Dual-message extraction enabled - also analyzing assistant response: {assistant_message[:50]}...")
 
         # Remove <details> blocks that may interfere with processing
         input_text = re.sub(r"<details>.*?</details>", "", input_text, flags=re.DOTALL)
@@ -5144,9 +5197,46 @@ Rate the relevance of EACH memory to the current user message."""
 
         try:
             # Construct the user prompt with few-shot examples
-            user_prompt = f"""Analyze the following user message and extract relevant memories:
+            # Build the message context, including both user and assistant messages if available
+            if assistant_message:
+                # Dual-message extraction for roleplay contexts
+                user_prompt = f"""Analyze the following user message and model response and extract relevant memories:
+
 >>> USER MESSAGE START <<<
-+{clean_input}
+{clean_input}
+>>> USER MESSAGE END <<<
+
+>>> ASSISTANT/MODEL RESPONSE START <<<
+{assistant_message}
+>>> ASSISTANT/MODEL RESPONSE END <<<
+
+Your task: Extract memories from BOTH messages combined. Focus on:
+- What the character (protagonist) experienced or did (from the model response)
+- What the user directed or requested (from the user message)
+- Character traits, emotions, relationships, and significant events
+- Any information that could affect future story progression
+
+--- EXAMPLES OF DESIRED OUTPUT FORMAT ---
+Example 1 User: "Willow feels betrayed but tries to hide it"
+Example 1 Assistant: "Willow's hands trembled as she turned away, her eyes glistening with unshed tears..."
+Example 1 Output: [{{"operation": "NEW", "content": "Willow feels betrayed and is struggling to hide her emotions", "tags": ["character", "emotional_tone"], "memory_bank": "Context"}}]
+
+Example 2 User: "continue the story"
+Example 2 Assistant: "She met a mysterious stranger in the tavern who offered her a strange map."
+Example 2 Output: [{{"operation": "NEW", "content": "Willow encountered a mysterious stranger who offered her a strange map", "tags": ["character", "relationship", "context"], "memory_bank": "Context"}}]
+
+Example 3 User: "What is Willow's greatest fear?"
+Example 3 Assistant: "In all her adventures, Willow has always feared abandonment more than death itself."
+Example 3 Output: [{{"operation": "NEW", "content": "Willow fears abandonment more than death", "tags": ["character", "behavior"], "memory_bank": "Personal"}}]
+--- END EXAMPLES ---
+
+Produce ONLY the JSON object output with status/reason/memories, adhering strictly to the format requirements outlined in the system prompt.
+"""
+            else:
+                # Standard user-message-only extraction
+                user_prompt = f"""Analyze the following user message and extract relevant memories:
+>>> USER MESSAGE START <<<
+{clean_input}
 >>> USER MESSAGE END <<<
 
 --- EXAMPLES OF DESIRED OUTPUT FORMAT ---
@@ -5160,7 +5250,7 @@ Example 3 Input: "My sister Jane is visiting next week. I should buy her flowers
 Example 3 Output: [{{"operation": "NEW", "content": "User has a sister named Jane", "tags": ["relationship"]}}, {{"operation": "NEW", "content": "User's sister Jane is visiting next week", "tags": ["relationship"]}}]
 --- END EXAMPLES ---
 
-Produce ONLY the JSON array output for the user message above, adhering strictly to the format requirements outlined in the system prompt.
+Produce ONLY the JSON object output with status/reason/memories, adhering strictly to the format requirements outlined in the system prompt.
 """
             # Note: Doubled curly braces {{ }} are used to escape them within the f-string for the JSON examples.
 
