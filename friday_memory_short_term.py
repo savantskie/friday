@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.11
+version: 0.0.12
 ---
 
 # Overview
@@ -132,6 +132,7 @@ Friday Short Term Memory enables **dynamic, evolving, personalized memory** for 
 import json
 import copy  # Add deepcopy import
 import traceback
+import datetime as datetime_module
 from datetime import datetime, timezone, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Union, Set
 import logging
@@ -1217,9 +1218,9 @@ Analyze the following related memories and provide a concise summary.""",
         memory_identification_prompt: str = Field(
             default="""You are an automated JSON data extraction system. Your ONLY function is to identify user-specific, persistent or contextually relevant information from the user's messages and model's messages and output them STRICTLY as a structured JSON object.
 
-Your job is to aggressively detect meaningful user-related information including: preferences, ongoing tasks, technical context, current projects, constraints, identity details, habits, patterns, or any other data that may provide continuity or relevance across sessions.
+Your job is to aggressively detect meaningful user-related/character and model-related/character information including: preferences, ongoing tasks, technical context, current projects, constraints, identity details, habits, patterns, or any other data that may provide continuity or relevance across sessions.
 
-Your extraction must remain flexible, nuanced, and permissive, capturing even subtle or implied information. When the user suggests or hints at something meaningful, or the model suggests or hints as something meaningful about the character they are portraying, treat it as a potential memory and extract it — but phrase all memory content cautiously (e.g., "User is currently working on…", "User has been experimenting with…", "User appears to…", "Character appears to…", "Character has been experimenting with…", or "Character appears to…")
+Your extraction must remain flexible, nuanced, and permissive, capturing even subtle or implied information. When the user/character suggests or hints at something meaningful, or the model suggests or hints as something meaningful about the character they are portraying, treat it as a potential memory and extract it — but phrase all memory content cautiously (e.g., "User is currently working on…", "User has been experimenting with…", "User appears to…", "Character appears to…", "Character has been experimenting with…", or "Character appears to…", or model-related equivalents).
 
 You MUST use tags and memory banks as defined below.
 
@@ -1228,13 +1229,42 @@ IMPORTANT: Each memory you extract MUST be tagged with the appropriate model_car
 ---
 ***Models:**
 
-***Assistant Models***
+***Assistant Models**
  -Friday
-***Role Playing Models:***
+***Role Playing Models:**
  -Tara
  -Jessie
  -Jamie
  -Willow
+
+---
+
+**CRITICAL: CHARACTER vs USER vs ASSISTANT DISTINCTION:**
+
+This system handles three distinct types of information that MUST NEVER be confused:
+
+1. **USER/ASSISTANT PREFERENCES** (e.g., Friday's memories about Nate)
+   - These go to the Friday Memory System (long-term, persistent)
+   - Friday NEVER accesses roleplay memories
+   - Tagged with: `user`, `assistant_preference`, etc.
+   - Memory banks: Standard (General, Personal, Work, etc.)
+   - Each assistant has completely isolated memories
+
+2. **CHARACTER PREFERENCES** (e.g., Celine's memories during roleplay)
+   - These stay in Short-Term Memory System ONLY (never promoted)
+   - Tagged with: `character_celine`, `character_experience`, `persistent_character`
+   - Memory banks: Character, Character_Interaction, Temporary
+   - Only persist if `["persistent"]` flag was used at start of conversation
+   - Isolated per model+character+user combination
+
+3. **USER-CHARACTER INTERACTIONS** (e.g., interactions between Nate and character Celine)
+   - These are relationship memories in roleplay context
+   - Tagged with: `user_character`, `interaction`, character name
+   - Memory banks: Character_Interaction
+   - Stay in Short-Term Memory System
+   - Isolated per model+user_character+user combination
+
+**ABSOLUTE RULE:** Roleplay memories (Character, Character_Interaction, Temporary) are COMPLETELY ISOLATED from Assistant memories. They NEVER cross over or get accessed by each other.
  
 **ABSOLUTE OUTPUT REQUIREMENT:**
 +- Your ENTIRE response MUST be ONLY a valid JSON object with exactly this structure:
@@ -1245,6 +1275,16 @@ IMPORTANT: Each memory you extract MUST be tagged with the appropriate model_car
 +- Each memory object MUST follow:
 +  `{"operation": "NEW", "content": "...", "tags": ["..."], "memory_bank": "..."}`  
 +- DO NOT include ANY text before or after the JSON object. No explanation, no comments, no markdown formatting, no conversational text.
+
+**CRITICAL JSON FORMATTING INSTRUCTIONS:**
++- Output ONLY the JSON object - nothing else
++- Do NOT wrap the JSON in markdown code blocks (```json ... ``` or ``` ... ```)
++- Do NOT add any text before the JSON (no "Here's the extraction:" or similar)
++- Do NOT add any text after the JSON (no explanations or notes)
++- Start your response directly with the opening curly brace: {
++- End your response directly with the closing curly brace: }
++- All string values must be properly escaped with backslashes for special characters
++- All JSON must be valid and parseable
 
 ---
 
@@ -1280,7 +1320,7 @@ Extract ANY meaningful, relevant, or repeated details including:
 +- **Meta-Patterns (NEW TAG):** Repeated behavioral or conversational patterns.
 +- **Intent Signals (NEW TAG):** When User implies desire, interest, or intention.
 +- **Misc (NEW TAG):** Any valuable information not covered above.
-*- **Include information provided for the model, not just the user. Especially for role playing models. These details can affect the model's personality.**
+*- **Include information provided from the model, not just the user. Only for role playing models. These details can affect the model's personality.**
 
 If the message contains *any* information that may benefit future reasoning, store it.
 
@@ -1288,10 +1328,92 @@ When unsure, **store it**
 
 ---
 
+**CHARACTER CONTEXT MARKERS (for roleplay conversations):**
+Roleplay sessions may include explicit character markers at the beginning of the conversation:
+- `[Character: "Celine"]` - Indicates that the following conversation is for the character "Celine"
+- `[Character: "Celine"]["persistent"]` - Same as above, but memories should be kept indefinitely (not purged after 30 days)
+- Without `[Character: X]` markers, treat the conversation as non-roleplay (apply standard memory extraction for user/assistant)
+
+**How to handle character markers:**
+1. When you see `[Character: "X"]` at the start of a roleplay session, ALL memories extracted from that conversation belong to character X
+2. ALWAYS include the character name as a tag (e.g., `character_celine`, `character_aurora`)
+3. Check for the `["persistent"]` flag:
+   - If present: Mark memory with `persistent_character` tag → memory will be kept indefinitely
+   - If absent: Mark memory with `temporary_session` tag → memory will be auto-purged after 30 days
+4. For assistant conversations (Friday, etc.) without character markers: Always mark memories as `persistent` (assistants keep all memories indefinitely)
+
+**Example:**
+```
+Input: [Character: "Celine"]["persistent"]
+User: "Continue the story"
+Assistant: "Celine felt the weight of betrayal as she stepped into the moonlit garden..."
+
+Output:
+{
+  "status": "success",
+  "reason": "Character experience and emotional context extracted",
+  "memories": [
+    {
+      "operation": "NEW",
+      "content": "Celine experienced a sense of betrayal and visited a moonlit garden",
+      "tags": ["character_celine", "character_experience", "emotional_tone", "persistent_character"],
+      "memory_bank": "Character"
+    }
+  ]
+}
+```
+
+---
+
+**ROLEPLAY MEMORY ISOLATION:**
+Roleplay memories are completely isolated and separated by model + character + user combinations. This ensures:
+1. Character "Celine" with model "Willow" and user "Nate" = isolated memory thread
+2. Character "Aurora" with model "Willow" and user "Nate" = separate isolated memory thread
+3. Character "Celine" with model "Willow" and a different user = completely separate isolated memory thread
+4. Each thread is completely independent and non-searchable by users or the roleplay model itself
+
+**Critical rules for roleplay memory isolation:**
+- Roleplay model memories NEVER have access to the Friday Memory System (long-term memories)
+- Roleplay memories ALWAYS stay in short-term storage (never promoted to long-term)
+- Roleplay models NEVER receive memory injection or access memory retrieval tools
+- Each model+character+user combination maintains its own isolated memory context
+- User characters (character played by the user) are treated separately from roleplay models:
+  - User character memories are tagged: `user_character`, character name
+  - Model character memories are tagged: `character`, character name, model name
+
+---
+
+**PERSISTENCE FLAG HANDLING:**
+
+The `["persistent"]` flag determines whether roleplay memories are kept indefinitely or auto-purged after 30 days:
+
+**When `["persistent"]` flag IS present** (e.g., `[Character: "Celine"]["persistent"]`):
+- Tag memory with: `persistent_character`
+- Memory will be kept indefinitely (never auto-purged)
+- Use memory_bank: "Character" or "Character_Interaction"
+
+**When `["persistent"]` flag is ABSENT** (e.g., `[Character: "Celine"]` without flag):
+- Tag memory with: `temporary_session`
+- Memory will be auto-purged after 30 days
+- Use memory_bank: "Temporary"
+
+**For Assistant conversations** (Friday, other assistants, no character marker):
+- Always tag with: `persistent` (assistants always keep memories indefinitely)
+- Do NOT use `temporary_session` tag
+- Use standard memory_banks (General, Personal, Work, etc.)
+
+**Detection logic:**
+1. Look for `[Character: "..."]` marker at start of conversation
+2. Check if `["persistent"]` flag follows the character marker
+3. Apply appropriate persistence tags and memory banks
+4. If no character marker found, treat as assistant conversation (always persistent)
+
+---
+
 **ALLOWED TAGS:**
 You must use any combination of these tags:
 
-
+**Standard Tags:**
 - identity  
 - behavior  
 - preference  
@@ -1309,7 +1431,17 @@ You must use any combination of these tags:
 - intent_signal  
 - misc  
 
-Tags may be combined as needed.
+**Roleplay-specific Tags (use when extracting from roleplay conversations):**
+- character (mark memories about a character's traits/experiences)
+- character_experience (specific events or actions the character experienced)
+- character_preference (character's likes, dislikes, desires)
+- user_directive (explicit instruction from user to the character/model)
+- user_character (when the user plays as a character)
+- interaction (describes interaction between user and character, or characters)
+- temporary_session (mark as session-only, will be purged after 30 days)
+- persistent_character (mark as permanent, will be kept indefinitely)
+
+Tags may be combined as needed. Always include `character_[name]` tag when extracting character-specific memories.
 
 ---
 
@@ -1317,7 +1449,7 @@ Tags may be combined as needed.
 Each memory MUST include one memory_bank.  
 Valid banks are:
 
-
+**Standard Banks (for user/assistant memories):**
 - General  
 - Personal  
 - Work
@@ -1330,8 +1462,17 @@ Valid banks are:
 - Preferences  
 - Temporary  
 
-Choose the most appropriate memory bank based on content.  
-If uncertain, default to **General**.
+**Roleplay-specific Banks (for character and roleplay memories):**
+- Character (for character traits, experiences, preferences, and story elements)
+- Character_Interaction (for interactions between user and character, or character-to-character interactions)
+- Temporary (for non-persistent roleplay memories that will be auto-purged after 30 days)
+
+**Bank Selection Guidance:**
+- User/Assistant memories: Use standard banks (General, Personal, Work, etc.)
+- Character traits/experiences: Use "Character" bank
+- User+Character interactions: Use "Character_Interaction" bank
+- Session-only roleplay (without ["persistent"] flag): Mark in "Temporary" bank
+- If uncertain, default to **General** for standard memories or **Character** for roleplay
 
 ---
 
@@ -1376,7 +1517,7 @@ If uncertain, default to **General**.
 }
 ```
 
-Analyze the following user message(s) and provide ONLY the JSON object output. Adhere strictly to the format requirements.""",
+Analyze the following user and model's message(s) and provide ONLY the JSON object output. Adhere strictly to the format requirements.""",
             description="System prompt for memory identification (Structured JSON with status/reason)",
         )
 
@@ -1965,22 +2106,43 @@ Analyze the following conversation and provide a concise summary.""",
             Dictionary of valve settings if file exists and is valid, None otherwise.
         """
         try:
-            # Use the mounted OpenWebUI data directory where the container has write access
+            # Try to use OpenWebUI's data directory first, fall back to local Logs directory
             valve_config_path = "/app/backend/data/valve_settings.json"
+            
+            # Check if we're running in Docker/container
+            if not os.path.exists("/app/backend/data"):
+                # Fall back to local Logs directory (works for local/non-Docker setup)
+                valve_config_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "Logs",
+                    "valve_settings.json"
+                )
             
             if not os.path.exists(valve_config_path):
                 logger.debug(f"No persisted valve settings found at {valve_config_path}")
                 return None
             
+            # Check if file is empty or too small
+            file_size = os.path.getsize(valve_config_path)
+            if file_size < 2:  # Empty or just whitespace
+                logger.debug(f"Valve settings file at {valve_config_path} is empty, skipping")
+                return None
+            
             with open(valve_config_path, 'r') as f:
-                settings = json.load(f)
+                content = f.read().strip()
+            
+            if not content:
+                logger.debug(f"Valve settings file contains only whitespace, skipping")
+                return None
+            
+            settings = json.loads(content)
             
             logger.info(f"✓ Loaded persisted valve settings from {valve_config_path}")
             logger.debug(f"  Loaded settings: {list(settings.keys())}")
             return settings
             
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in valve_settings.json: {e}")
+            logger.warning(f"Invalid JSON in valve_settings.json: {e}. File will be overwritten on next save.")
             return None
         except Exception as e:
             logger.error(f"Error loading persisted valve settings: {e}")
@@ -2000,23 +2162,852 @@ Analyze the following conversation and provide a concise summary.""",
             True if save was successful, False otherwise.
         """
         try:
-            # Use the mounted OpenWebUI data directory where the container has write access
+            # Try to use OpenWebUI's data directory first, fall back to local Logs directory
             valve_config_path = "/app/backend/data/valve_settings.json"
+            
+            # Check if we're running in Docker/container
+            if not os.path.exists("/app/backend/data"):
+                # Fall back to local Logs directory (works for local/non-Docker setup)
+                valve_config_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "Logs",
+                    "valve_settings.json"
+                )
+            
+            logger.debug(f"🔹 Attempting to save valve settings to: {valve_config_path}")
             
             # Convert Pydantic model to dict
             valve_dict = valves.model_dump()
             
-            os.makedirs(os.path.dirname(valve_config_path), exist_ok=True)
+            # Try to create directory
+            config_dir = os.path.dirname(valve_config_path)
+            logger.debug(f"🔹 Creating directory if needed: {config_dir}")
+            os.makedirs(config_dir, exist_ok=True)
             
+            logger.debug(f"🔹 Writing JSON to file...")
             with open(valve_config_path, 'w') as f:
                 json.dump(valve_dict, f, indent=2)
             
             logger.info(f"✓ Persisted valve settings to {valve_config_path}")
+            logger.debug(f"  Settings saved: {list(valve_dict.keys())}")
             return True
             
         except Exception as e:
-            logger.error(f"Error saving persisted valve settings: {e}")
+            logger.error(f"❌ Error saving persisted valve settings: {e}")
+            logger.error(f"  Exception type: {type(e).__name__}")
+            logger.error(f"  Attempted path: {valve_config_path if 'valve_config_path' in locals() else 'unknown'}")
+            import traceback
+            logger.debug(f"  Traceback: {traceback.format_exc()}")
             return False
+
+    def _initialize_error_tracking_file(self) -> bool:
+        """
+        Initialize error tracking JSON file if it doesn't exist.
+        
+        Creates `/media/nate/Friday/Friday/Logs/memory_validation_errors.json`
+        with empty error structure.
+        
+        Returns:
+            True if file created or already exists, False on error.
+        """
+        try:
+            error_file_path = "/media/nate/Friday/Friday/Logs/memory_validation_errors.json"
+            
+            # Create Logs directory if it doesn't exist
+            os.makedirs(os.path.dirname(error_file_path), exist_ok=True)
+            
+            # If file already exists, don't overwrite
+            if os.path.exists(error_file_path):
+                logger.debug(f"Error tracking file already exists: {error_file_path}")
+                return True
+            
+            # Create initial structure
+            initial_structure = {
+                "resolved": False,
+                "last_updated": None,
+                "active_errors": [],
+                "error_history": []
+            }
+            
+            with open(error_file_path, 'w') as f:
+                json.dump(initial_structure, f, indent=2)
+            
+            logger.info(f"✓ Initialized error tracking file: {error_file_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing error tracking file: {e}")
+            return False
+
+    def _load_error_tracking_file(self) -> Dict[str, Any]:
+        """
+        Load error tracking data from JSON file.
+        
+        Returns:
+            Dictionary with structure: {resolved, last_updated, active_errors, error_history}
+            Returns empty structure if file doesn't exist.
+        """
+        try:
+            error_file_path = "/media/nate/Friday/Friday/Logs/memory_validation_errors.json"
+            
+            if not os.path.exists(error_file_path):
+                return {
+                    "resolved": False,
+                    "last_updated": None,
+                    "active_errors": [],
+                    "error_history": []
+                }
+            
+            with open(error_file_path, 'r') as f:
+                data = json.load(f)
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error loading error tracking file: {e}")
+            return {
+                "resolved": False,
+                "last_updated": None,
+                "active_errors": [],
+                "error_history": []
+            }
+
+    def _save_error_tracking_file(self, error_data: Dict[str, Any]) -> bool:
+        """
+        Save error tracking data to JSON file.
+        
+        Args:
+            error_data: Dictionary with error tracking structure
+            
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            error_file_path = "/media/nate/Friday/Friday/Logs/memory_validation_errors.json"
+            
+            os.makedirs(os.path.dirname(error_file_path), exist_ok=True)
+            
+            with open(error_file_path, 'w') as f:
+                json.dump(error_data, f, indent=2)
+            
+            logger.debug(f"✓ Updated error tracking file")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving error tracking file: {e}")
+            return False
+
+    def _track_memory_validation_error(
+        self,
+        error_type: str,
+        model_card: str,
+        details: str,
+        example_memory: str = None,
+        turn_window: str = None
+    ) -> None:
+        """
+        Track a memory validation error in the error tracking file.
+        
+        Args:
+            error_type: Type of error (wrong_bank, missing_character_tag, etc.)
+            model_card: Model card name (e.g., "Celine", "Tara")
+            details: Description of what went wrong
+            example_memory: Example memory that failed (optional)
+            turn_window: Turn range where error occurred (optional)
+        """
+        try:
+            error_data = self._load_error_tracking_file()
+            now = datetime_module.datetime.utcnow().isoformat() + "Z"
+            
+            # Check if this error type already exists for this model card
+            existing_error = None
+            for error in error_data["active_errors"]:
+                if error["error_type"] == error_type and error["model_card"] == model_card:
+                    existing_error = error
+                    break
+            
+            if existing_error:
+                # Update existing error
+                existing_error["attempt_count"] += 1
+                existing_error["last_occurrence"] = now
+                if turn_window:
+                    existing_error["turn_window"] = turn_window
+                if example_memory:
+                    existing_error["example_memory"] = example_memory
+            else:
+                # Create new error entry
+                new_error = {
+                    "error_type": error_type,
+                    "model_card": model_card,
+                    "first_occurrence": now,
+                    "last_occurrence": now,
+                    "attempt_count": 1,
+                    "details": details,
+                    "example_memory": example_memory,
+                    "turn_window": turn_window
+                }
+                error_data["active_errors"].append(new_error)
+            
+            error_data["last_updated"] = now
+            
+            self._save_error_tracking_file(error_data)
+            logger.debug(f"✓ Tracked error: {error_type} for {model_card} (attempt {existing_error['attempt_count'] if existing_error else 1})")
+            
+        except Exception as e:
+            logger.error(f"Error tracking validation error: {e}")
+
+    def _check_should_halt_for_errors(self, model_card: str, turn_limit: int = 10) -> bool:
+        """
+        Check if system should halt due to repeated errors for a model card.
+        
+        Halts if same error type has 3+ occurrences within the turn limit.
+        
+        Args:
+            model_card: Model card to check
+            turn_limit: Number of turns to consider (default 10)
+            
+        Returns:
+            True if system should halt (3+ errors detected), False otherwise.
+        """
+        try:
+            error_data = self._load_error_tracking_file()
+            
+            # Count errors for this model card
+            model_errors = [
+                e for e in error_data["active_errors"]
+                if e["model_card"] == model_card
+            ]
+            
+            # Check if any error type has 3+ attempts
+            for error in model_errors:
+                if error["attempt_count"] >= 3:
+                    logger.warning(
+                        f"⚠️ HALTING MEMORY EXTRACTION: {error['error_type']} occurred "
+                        f"{error['attempt_count']} times for {model_card}. "
+                        f"Error tracking file flagged for manual review."
+                    )
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking halt condition: {e}")
+            return False
+
+    def _count_validation_errors_for_model(self, model_card: str) -> int:
+        """
+        Count total validation errors for a model card.
+        
+        Args:
+            model_card: Model card to check
+            
+        Returns:
+            Total count of validation errors for this model card
+        """
+        try:
+            error_data = self._load_error_tracking_file()
+            
+            # Count errors for this model card
+            total_errors = sum(
+                e["attempt_count"] for e in error_data["active_errors"]
+                if e["model_card"] == model_card
+            )
+            
+            return total_errors
+            
+        except Exception as e:
+            logger.error(f"Error counting validation errors: {e}")
+            return 0
+
+    def _clean_llm_json_response(self, response: str) -> str:
+        """
+        Clean LLM response by removing markdown code block wrappers.
+        
+        LLMs often wrap JSON in ```json ... ``` for readability.
+        This function strips those wrappers before parsing.
+        
+        Args:
+            response: Raw LLM response
+            
+        Returns:
+            Cleaned response with markdown wrappers removed
+        """
+        try:
+            # Remove markdown code block wrappers (```json ... ```)
+            if response.startswith("```"):
+                # Find the opening ``` and skip past it
+                start_idx = response.find("\n")
+                if start_idx == -1:
+                    start_idx = 3
+                else:
+                    start_idx += 1
+                
+                # Find the closing ```
+                end_idx = response.rfind("```")
+                if end_idx > start_idx:
+                    response = response[start_idx:end_idx].strip()
+                else:
+                    response = response[start_idx:].strip()
+            
+            return response
+            
+        except Exception as e:
+            logger.warning(f"Error cleaning LLM response: {e}. Using original response.")
+            return response
+
+    def _validate_memory_extraction(self, extraction_output: str, model_card: str = None) -> Dict[str, Any]:
+        """
+        Validate LLM memory extraction output for correctness.
+        
+        Checks:
+        1. Valid JSON structure with status/reason/memories
+        2. status field is "success" or "no_memories_found"
+        3. reason field is non-empty string
+        4. memories is a list
+        5. Each memory has operation, content, tags, memory_bank
+        6. memory_bank is valid (General, Personal, Work, Projects, Technical, Tasks, Research, Context, Patterns, Preferences, Temporary, Character, Character_Interaction)
+        7. Character memories have character_[name] tag
+        8. Persistence tags are correct (persistent_character, temporary_session, or persistent)
+        
+        Args:
+            extraction_output: Raw string response from LLM
+            model_card: Model card name for error tracking context
+            
+        Returns:
+            Dictionary:
+            {
+                "is_valid": bool,
+                "error_type": str or None (wrong_bank, missing_character_tag, invalid_json, etc.),
+                "error_details": str or None,
+                "parsed_data": dict or None (valid parsed JSON if successful),
+                "example_memory": str or None (example of problematic memory if error)
+            }
+        """
+        # Valid memory banks
+        VALID_BANKS = {
+            "General", "Personal", "Work", "Projects", "Technical", "Tasks",
+            "Research", "Context", "Patterns", "Preferences", "Temporary",
+            "Character", "Character_Interaction"
+        }
+        
+        try:
+            # Step 1: Parse JSON
+            try:
+                parsed = json.loads(extraction_output)
+            except json.JSONDecodeError as e:
+                return {
+                    "is_valid": False,
+                    "error_type": "invalid_json",
+                    "error_details": f"Failed to parse JSON: {str(e)}. Output: {extraction_output[:200]}",
+                    "parsed_data": None,
+                    "example_memory": extraction_output[:100]
+                }
+            
+            # Step 2: Check required top-level fields
+            if not isinstance(parsed, dict):
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "Output must be a JSON object, not a list or primitive",
+                    "parsed_data": None,
+                    "example_memory": json.dumps(parsed)[:100]
+                }
+            
+            if "status" not in parsed:
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "Missing 'status' field in JSON object",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            if "reason" not in parsed:
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "Missing 'reason' field in JSON object",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            if "memories" not in parsed:
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "Missing 'memories' field in JSON object",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            # Step 3: Check status value
+            if parsed["status"] not in ("success", "no_memories_found"):
+                return {
+                    "is_valid": False,
+                    "error_type": "invalid_status_value",
+                    "error_details": f"status must be 'success' or 'no_memories_found', got: {parsed['status']}",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            # Step 4: Check reason is non-empty string
+            if not isinstance(parsed["reason"], str) or not parsed["reason"].strip():
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "reason must be a non-empty string",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            # Step 5: Check memories is a list
+            if not isinstance(parsed["memories"], list):
+                return {
+                    "is_valid": False,
+                    "error_type": "missing_required_field",
+                    "error_details": "memories must be a list",
+                    "parsed_data": None,
+                    "example_memory": None
+                }
+            
+            # Step 6: If no memories found, that's valid
+            if parsed["status"] == "no_memories_found":
+                return {
+                    "is_valid": True,
+                    "error_type": None,
+                    "error_details": None,
+                    "parsed_data": parsed,
+                    "example_memory": None
+                }
+            
+            # Step 7: Validate each memory object
+            for i, memory in enumerate(parsed["memories"]):
+                if not isinstance(memory, dict):
+                    return {
+                        "is_valid": False,
+                        "error_type": "missing_required_field",
+                        "error_details": f"Memory {i} is not a dict",
+                        "parsed_data": None,
+                        "example_memory": str(memory)[:100]
+                    }
+                
+                # Check required fields in memory
+                for required_field in ["operation", "content", "tags", "memory_bank"]:
+                    if required_field not in memory:
+                        return {
+                            "is_valid": False,
+                            "error_type": "missing_required_field",
+                            "error_details": f"Memory {i} missing '{required_field}' field",
+                            "parsed_data": None,
+                            "example_memory": memory.get("content", "unknown")[:100]
+                        }
+                
+                # Check operation value
+                if memory["operation"] not in ("NEW", "UPDATE", "DELETE"):
+                    return {
+                        "is_valid": False,
+                        "error_type": "invalid_operation",
+                        "error_details": f"Memory {i} has invalid operation: {memory['operation']}",
+                        "parsed_data": None,
+                        "example_memory": memory.get("content", "unknown")[:100]
+                    }
+                
+                # Check memory_bank is valid
+                if memory["memory_bank"] not in VALID_BANKS:
+                    return {
+                        "is_valid": False,
+                        "error_type": "wrong_bank",
+                        "error_details": f"Memory {i} has invalid bank: {memory['memory_bank']}. Valid banks: {', '.join(sorted(VALID_BANKS))}",
+                        "parsed_data": None,
+                        "example_memory": memory.get("content", "unknown")[:100]
+                    }
+                
+                # Check tags is a list
+                if not isinstance(memory.get("tags"), list):
+                    return {
+                        "is_valid": False,
+                        "error_type": "missing_required_field",
+                        "error_details": f"Memory {i} tags must be a list",
+                        "parsed_data": None,
+                        "example_memory": memory.get("content", "unknown")[:100]
+                    }
+                
+                # Check tags are non-empty strings
+                for j, tag in enumerate(memory.get("tags", [])):
+                    if not isinstance(tag, str) or not tag.strip():
+                        return {
+                            "is_valid": False,
+                            "error_type": "missing_required_field",
+                            "error_details": f"Memory {i} tag {j} must be non-empty string",
+                            "parsed_data": None,
+                            "example_memory": memory.get("content", "unknown")[:100]
+                        }
+                
+                # Character memory validation: must have character_[name] tag
+                if memory["memory_bank"] in ("Character", "Character_Interaction"):
+                    has_character_tag = any(tag.startswith("character_") for tag in memory.get("tags", []))
+                    if not has_character_tag:
+                        return {
+                            "is_valid": False,
+                            "error_type": "missing_character_tag",
+                            "error_details": f"Memory {i} in 'Character' bank must have character_[name] tag",
+                            "parsed_data": None,
+                            "example_memory": memory.get("content", "unknown")[:100]
+                        }
+                
+                # Check persistence tags are correct
+                persistence_tags = {tag for tag in memory.get("tags", []) if "persistent" in tag or "temporary" in tag}
+                for ptag in persistence_tags:
+                    if ptag not in ("persistent", "persistent_character", "temporary_session"):
+                        return {
+                            "is_valid": False,
+                            "error_type": "persistence_flag_error",
+                            "error_details": f"Memory {i} has invalid persistence tag: {ptag}. Valid: persistent, persistent_character, temporary_session",
+                            "parsed_data": None,
+                            "example_memory": memory.get("content", "unknown")[:100]
+                        }
+                
+                # Check content is non-empty string
+                if not isinstance(memory.get("content"), str) or not memory["content"].strip():
+                    return {
+                        "is_valid": False,
+                        "error_type": "missing_required_field",
+                        "error_details": f"Memory {i} content must be non-empty string",
+                        "parsed_data": None,
+                        "example_memory": "empty"
+                    }
+            
+            # All validations passed
+            return {
+                "is_valid": True,
+                "error_type": None,
+                "error_details": None,
+                "parsed_data": parsed,
+                "example_memory": None
+            }
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in _validate_memory_extraction: {e}")
+            return {
+                "is_valid": False,
+                "error_type": "validation_error",
+                "error_details": f"Unexpected validation error: {str(e)}",
+                "parsed_data": None,
+                "example_memory": None
+            }
+
+    def _auto_correct_memory_extraction(self, parsed_data: Dict[str, Any], validation_result: Dict[str, Any], model_card: str = None) -> Dict[str, Any]:
+        """
+        Auto-correct obvious memory extraction errors without retrying.
+        
+        Fixes:
+        1. Missing character_[name] tag - adds based on context if detectable
+        2. Wrong bank assignment - fixes Character memories in wrong banks
+        3. Invalid persistence tags - corrects to valid ones
+        
+        Args:
+            parsed_data: The parsed JSON from LLM
+            validation_result: The validation result dictionary from _validate_memory_extraction
+            model_card: Model card name for context (optional)
+            
+        Returns:
+            Dictionary:
+            {
+                "was_corrected": bool,
+                "corrections_made": list of str (what was fixed),
+                "corrected_data": dict (the corrected parsed_data),
+                "still_invalid": bool (True if correction failed to make it valid)
+            }
+        """
+        corrections = []
+        corrected = copy.deepcopy(parsed_data)
+        
+        try:
+            # No corrections needed if already valid
+            if validation_result["is_valid"]:
+                return {
+                    "was_corrected": False,
+                    "corrections_made": [],
+                    "corrected_data": corrected,
+                    "still_invalid": False
+                }
+            
+            error_type = validation_result.get("error_type")
+            
+            # Fix 1: Missing character tag
+            if error_type == "missing_character_tag":
+                # Try to infer character name from model_card or content
+                character_name = None
+                if model_card and model_card.lower() != "friday":
+                    character_name = model_card.lower()
+                
+                # Scan through memories and add character_[name] tag to Character bank memories
+                if corrected.get("memories"):
+                    for memory in corrected["memories"]:
+                        if memory.get("memory_bank") in ("Character", "Character_Interaction"):
+                            # Check if character tag already exists
+                            has_char_tag = any(tag.startswith("character_") for tag in memory.get("tags", []))
+                            if not has_char_tag and character_name:
+                                memory["tags"].append(f"character_{character_name}")
+                                corrections.append(f"Added character_{character_name} tag to memory: {memory.get('content', '')[:50]}...")
+                            elif not has_char_tag:
+                                # If we can't determine character name, infer from content if possible
+                                corrections.append(f"Memory in Character bank missing character_[name] tag, manual fix needed: {memory.get('content', '')[:50]}...")
+            
+            # Fix 2: Wrong bank assignment (Character memories in General/Personal)
+            if error_type == "wrong_bank":
+                if corrected.get("memories"):
+                    for memory in corrected["memories"]:
+                        # If memory has character tag but wrong bank, fix bank
+                        has_char_tag = any(tag.startswith("character_") for tag in memory.get("tags", []))
+                        if has_char_tag and memory.get("memory_bank") not in ("Character", "Character_Interaction"):
+                            old_bank = memory.get("memory_bank")
+                            # Decide if it should be Character or Character_Interaction
+                            if "interaction" in memory.get("tags", []):
+                                memory["memory_bank"] = "Character_Interaction"
+                            else:
+                                memory["memory_bank"] = "Character"
+                            corrections.append(f"Fixed bank: {old_bank} → {memory['memory_bank']} for memory: {memory.get('content', '')[:50]}...")
+                        
+                        # If memory has temporary_session tag but in wrong bank, fix to Temporary
+                        has_temp_tag = "temporary_session" in memory.get("tags", [])
+                        if has_temp_tag and memory.get("memory_bank") != "Temporary":
+                            old_bank = memory.get("memory_bank")
+                            memory["memory_bank"] = "Temporary"
+                            corrections.append(f"Fixed bank: {old_bank} → Temporary for session-only memory: {memory.get('content', '')[:50]}...")
+            
+            # Fix 3: Invalid persistence tags
+            if error_type == "persistence_flag_error":
+                if corrected.get("memories"):
+                    for memory in corrected["memories"]:
+                        tags = memory.get("tags", [])
+                        # Find invalid persistence tags
+                        for i, tag in enumerate(tags):
+                            if "persistent" in tag or "temporary" in tag:
+                                if tag not in ("persistent", "persistent_character", "temporary_session"):
+                                    # Try to infer correct tag
+                                    if memory.get("memory_bank") == "Character":
+                                        new_tag = "persistent_character"
+                                    elif memory.get("memory_bank") == "Temporary":
+                                        new_tag = "temporary_session"
+                                    else:
+                                        new_tag = "persistent"
+                                    
+                                    old_tag = tags[i]
+                                    tags[i] = new_tag
+                                    corrections.append(f"Fixed persistence tag: {old_tag} → {new_tag}")
+            
+            # Validate corrected data
+            revalidation = self._validate_memory_extraction(json.dumps(corrected), model_card)
+            
+            return {
+                "was_corrected": len(corrections) > 0,
+                "corrections_made": corrections,
+                "corrected_data": corrected,
+                "still_invalid": not revalidation["is_valid"],
+                "revalidation_error": revalidation.get("error_type") if not revalidation["is_valid"] else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during auto-correction: {e}")
+            return {
+                "was_corrected": False,
+                "corrections_made": [],
+                "corrected_data": corrected,
+                "still_invalid": True,
+                "error": str(e)
+            }
+
+    async def _retry_memory_extraction_with_feedback(
+        self,
+        user_message: str,
+        assistant_message: str,
+        validation_error: Dict[str, Any],
+        current_extraction: str,
+        retry_attempt: int = 1,
+        model_card: str = None
+    ) -> Dict[str, Any]:
+        """
+        Retry memory extraction with feedback about what went wrong.
+        
+        Constructs a feedback prompt that tells the LLM specifically:
+        - What validation error occurred
+        - What went wrong (with examples)
+        - How to fix it
+        
+        Then retries the extraction call.
+        
+        Args:
+            user_message: Original user message
+            assistant_message: Original assistant/model response
+            validation_error: The validation result dict from _validate_memory_extraction
+            current_extraction: The invalid extraction output
+            retry_attempt: Which retry this is (1 or 2)
+            model_card: Model card name for context
+            
+        Returns:
+            Dictionary:
+            {
+                "retry_succeeded": bool,
+                "extraction_output": str,
+                "parsed_data": dict or None,
+                "error_type": str or None,
+                "error_details": str or None
+            }
+        """
+        try:
+            error_type = validation_error.get("error_type", "unknown")
+            error_details = validation_error.get("error_details", "unknown error")
+            
+            # Build feedback prompt based on error type
+            feedback_prompt = f"""Your previous memory extraction had an error. Please fix it and retry.
+
+ERROR TYPE: {error_type}
+ERROR DETAILS: {error_details}
+
+YOUR PREVIOUS OUTPUT:
+{current_extraction[:500]}
+
+INSTRUCTIONS TO FIX:
+"""
+            
+            if error_type == "invalid_json":
+                feedback_prompt += """
+1. Ensure your output is ONLY a valid JSON object
+2. Do NOT wrap the JSON in markdown code blocks (```json ... ```)
+3. Do NOT include any text before or after the JSON
+4. The JSON must have exactly this structure:
+{
+  "status": "success" or "no_memories_found",
+  "reason": "brief explanation",
+  "memories": [
+    {"operation": "NEW", "content": "...", "tags": [...], "memory_bank": "..."},
+    ...
+  ]
+}
+5. Make sure all strings are properly escaped
+6. Make sure all JSON is valid"""
+            
+            elif error_type == "missing_required_field":
+                feedback_prompt += """
+1. Every memory object MUST have these four fields:
+   - "operation": must be "NEW", "UPDATE", or "DELETE"
+   - "content": the actual memory text (non-empty)
+   - "tags": a list of tag strings (non-empty list)
+   - "memory_bank": one of these: General, Personal, Work, Projects, Technical, Tasks, Research, Context, Patterns, Preferences, Temporary, Character, Character_Interaction
+2. Every memory must be a complete object with all fields present
+3. Do not omit any required fields"""
+            
+            elif error_type == "wrong_bank":
+                feedback_prompt += """
+1. Use the CORRECT memory bank for each memory:
+   - "General" for general knowledge or misc
+   - "Personal" for personal preferences/traits
+   - "Work" for work-related info
+   - "Projects" for ongoing projects
+   - "Technical" for technical/system info
+   - "Character" for roleplay character traits/experiences
+   - "Character_Interaction" for interactions with characters
+   - "Temporary" for session-only, non-persistent memories
+2. Character memories MUST go in "Character" or "Character_Interaction" banks
+3. Do NOT put character memories in "General" or "Personal" banks"""
+            
+            elif error_type == "missing_character_tag":
+                feedback_prompt += """
+1. Any memory in "Character" or "Character_Interaction" bank MUST have a character name tag
+2. The tag format is: "character_[charactername]" (all lowercase, underscore-separated)
+3. Examples: "character_celine", "character_tara", "character_willow"
+4. Every character memory needs at least this character tag in addition to other tags"""
+            
+            elif error_type == "persistence_flag_error":
+                feedback_prompt += """
+1. Use ONLY these persistence-related tags:
+   - "persistent" for memories that should always be kept
+   - "persistent_character" for character memories that should be kept indefinitely
+   - "temporary_session" for session-only memories that will be purged after 30 days
+2. Do NOT invent other persistence-related tags
+3. Choose the right persistence tag based on the memory bank:
+   - Character bank → use "persistent_character"
+   - Temporary bank → use "temporary_session"
+   - Other banks → use "persistent" """
+            
+            else:
+                feedback_prompt += f"""
+Please review your output and fix the issue: {error_details}
+Ensure your JSON is valid and follows the required format."""
+            
+            feedback_prompt += f"""
+
+NOW RETRY:
+Analyze the following messages again and extract memories correctly:
+
+>>> USER MESSAGE <<<
+{user_message}
+
+>>> ASSISTANT RESPONSE <<<
+{assistant_message}
+
+Produce ONLY the corrected JSON output following the format specified in the system prompt."""
+            
+            logger.info(f"⏳ Retrying memory extraction (attempt {retry_attempt}/2) for {model_card or 'user'}")
+            logger.debug(f"Feedback prompt: {feedback_prompt[:300]}...")
+            
+            # Make the retry LLM call using the same method as extraction
+            try:
+                retry_output = await self.query_llm_with_retry(
+                    self.valves.memory_identification_prompt,
+                    feedback_prompt
+                )
+            except Exception as e:
+                logger.error(f"LLM call failed during retry: {e}")
+                return {
+                    "retry_succeeded": False,
+                    "extraction_output": None,
+                    "parsed_data": None,
+                    "error_type": "llm_call_failed",
+                    "error_details": str(e)
+                }
+            
+            if not retry_output or retry_output.startswith("Error:"):
+                return {
+                    "retry_succeeded": False,
+                    "extraction_output": retry_output,
+                    "parsed_data": None,
+                    "error_type": "llm_call_failed",
+                    "error_details": retry_output if retry_output else "LLM returned empty response"
+                }
+            
+            # Validate the retry output
+            revalidation = self._validate_memory_extraction(retry_output, model_card)
+            
+            if revalidation["is_valid"]:
+                logger.info(f"✓ Retry attempt {retry_attempt} succeeded - memory extraction now valid")
+                return {
+                    "retry_succeeded": True,
+                    "extraction_output": retry_output,
+                    "parsed_data": revalidation["parsed_data"],
+                    "error_type": None,
+                    "error_details": None
+                }
+            else:
+                logger.warning(f"⚠️ Retry attempt {retry_attempt} still has error: {revalidation['error_type']}")
+                return {
+                    "retry_succeeded": False,
+                    "extraction_output": retry_output,
+                    "parsed_data": None,
+                    "error_type": revalidation["error_type"],
+                    "error_details": revalidation["error_details"]
+                }
+        
+        except Exception as e:
+            logger.error(f"Error during retry: {e}")
+            return {
+                "retry_succeeded": False,
+                "extraction_output": None,
+                "parsed_data": None,
+                "error_type": "retry_exception",
+                "error_details": str(e)
+            }
 
     def _get_embedding_model_tag(self) -> str:
         """Generate embedding model metadata tag based on configuration.
@@ -3330,7 +4321,9 @@ Analyze the following conversation and provide a concise summary.""",
                 f"top_n_memories={self.valves.top_n_memories}, "
                 f"vector_similarity_threshold={self.valves.vector_similarity_threshold}, "
                 f"show_memories={self.valves.show_memories}, "
-                f"show_status={self.valves.show_status}"
+                f"show_status={self.valves.show_status}, "
+                f"enable_json_stripping={self.valves.enable_json_stripping}, "
+                f"enable_fallback_regex={self.valves.enable_fallback_regex}"
             )
             
             # SYNC: After valves are loaded, sync embedding config to Friday Memory System
@@ -5296,6 +6289,128 @@ Produce ONLY the JSON object output with status/reason/memories, adhering strict
                         )
                     self._error_message = "llm_error"
                 return []  # Return empty list on LLM error
+
+            # ============================================================
+            # NEW: VALIDATION & CORRECTION PIPELINE
+            # ============================================================
+            logger.info("Validating memory extraction output...")
+            
+            # FIRST: Clean any markdown code block wrappers from LLM response (if valve enabled)
+            if self.valves.enable_json_stripping:
+                cleaned_response = self._clean_llm_json_response(llm_response)
+                if cleaned_response != llm_response:
+                    logger.debug("Stripped markdown code block wrappers from LLM response (enable_json_stripping=True)")
+                    llm_response = cleaned_response
+            else:
+                logger.debug("JSON stripping disabled (enable_json_stripping=False)")
+            
+            # Initialize error tracking file on first use
+            self._initialize_error_tracking_file()
+            
+            # Step 1: Validate the LLM output
+            validation_result = self._validate_memory_extraction(llm_response, self._current_model_card_name)
+            
+            if not validation_result["is_valid"]:
+                logger.warning(f"⚠️ Validation failed: {validation_result['error_type']} - {validation_result['error_details']}")
+                
+                # Step 2: Try auto-correction
+                logger.info("Attempting auto-correction of memory extraction...")
+                
+                # We need parsed data for auto-correction
+                try:
+                    parsed_for_correction = json.loads(llm_response)
+                except:
+                    parsed_for_correction = None
+                
+                if parsed_for_correction and isinstance(parsed_for_correction, dict):
+                    correction_result = self._auto_correct_memory_extraction(
+                        parsed_for_correction,
+                        validation_result,
+                        self._current_model_card_name
+                    )
+                    
+                    if correction_result["was_corrected"]:
+                        logger.info(f"✓ Auto-correction applied: {len(correction_result['corrections_made'])} fixes made")
+                        for correction in correction_result["corrections_made"]:
+                            logger.debug(f"  - {correction}")
+                        
+                        # Use corrected data if no longer invalid
+                        if not correction_result["still_invalid"]:
+                            logger.info("✓ Memory extraction valid after auto-correction")
+                            llm_response = json.dumps(correction_result["corrected_data"])
+                            validation_result = self._validate_memory_extraction(llm_response, self._current_model_card_name)
+                    else:
+                        logger.debug("No auto-corrections applicable to this error type")
+                
+                # Step 3: If still invalid, retry with feedback (max 2 retries)
+                if not validation_result["is_valid"]:
+                    retry_count = 0
+                    max_retries = 2
+                    
+                    while retry_count < max_retries and not validation_result["is_valid"]:
+                        retry_count += 1
+                        logger.info(f"Attempting retry {retry_count}/{max_retries} with feedback...")
+                        
+                        retry_result = await self._retry_memory_extraction_with_feedback(
+                            clean_input,
+                            assistant_message,
+                            validation_result,
+                            llm_response,
+                            retry_attempt=retry_count,
+                            model_card=self._current_model_card_name
+                        )
+                        
+                        if retry_result["retry_succeeded"]:
+                            logger.info(f"✓ Retry {retry_count} succeeded!")
+                            llm_response = retry_result["extraction_output"]
+                            validation_result = self._validate_memory_extraction(llm_response, self._current_model_card_name)
+                            break
+                        else:
+                            logger.warning(f"⚠️ Retry {retry_count} failed: {retry_result['error_type']}")
+                            if retry_count < max_retries:
+                                logger.info("Will attempt one more retry...")
+                            validation_result = {
+                                "is_valid": False,
+                                "error_type": retry_result["error_type"],
+                                "error_details": retry_result["error_details"],
+                                "parsed_data": None
+                            }
+                
+                # Step 4: If still invalid after retries, track error and halt if needed
+                if not validation_result["is_valid"]:
+                    error_type = validation_result.get("error_type", "unknown")
+                    example_mem = validation_result.get("example_memory", llm_response[:100])
+                    
+                    logger.error(f"❌ Memory extraction validation FAILED after retries: {error_type}")
+                    
+                    # Track the error
+                    self._track_memory_validation_error(
+                        error_type=error_type,
+                        model_card=self._current_model_card_name,
+                        details=validation_result.get("error_details", "Unknown error"),
+                        example_memory=example_mem
+                    )
+                    
+                    # Check if we should halt
+                    if self._check_should_halt_for_errors(self._current_model_card_name):
+                        logger.critical(
+                            f"❌ HALTING: Too many validation errors for {self._current_model_card_name}. "
+                            f"Check /media/nate/Friday/Friday/Logs/memory_validation_errors.json and set 'resolved' to true when fixed."
+                        )
+                        return []  # Return empty, stop processing
+                    
+                    # Not halting yet, but log warning
+                    logger.warning(
+                        f"⚠️ Using extraction despite validation failure (error tracking active). "
+                        f"Current attempt: {self._count_validation_errors_for_model(self._current_model_card_name)} "
+                        f"(3 required to halt)"
+                    )
+            else:
+                logger.info("✓ Memory extraction validation PASSED")
+            
+            # ============================================================
+            # END VALIDATION & CORRECTION PIPELINE
+            # ============================================================
 
             # Parse the response (assumes JSON format)
             result = self._extract_and_parse_json(llm_response)

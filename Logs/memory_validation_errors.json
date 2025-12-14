@@ -1,0 +1,37 @@
+{
+  "resolved": false,
+  "last_updated": "2025-12-14T19:35:04.890032Z",
+  "active_errors": [
+    {
+      "error_type": "invalid_json",
+      "model_card": "jessie",
+      "first_occurrence": "2025-12-13T15:53:03.459159Z",
+      "last_occurrence": "2025-12-13T15:53:03.459159Z",
+      "attempt_count": 1,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Multiple memories extracted related to character's behavior and relationships\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"Characte",
+      "example_memory": "```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Multiple memories extracted related to character's beh",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "tara",
+      "first_occurrence": "2025-12-14T19:01:22.532149Z",
+      "last_occurrence": "2025-12-14T19:01:22.532149Z",
+      "attempt_count": 1,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character-specific and interaction-related details extracted for role-playing model 'Tara'\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"conten",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific emotional tone and relationship context detected",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "friday",
+      "first_occurrence": "2025-12-14T19:29:33.770734Z",
+      "last_occurrence": "2025-12-14T19:35:04.890032Z",
+      "attempt_count": 2,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific relationships and possession/intent signals dete",
+      "turn_window": null
+    }
+  ],
+  "error_history": []
+}

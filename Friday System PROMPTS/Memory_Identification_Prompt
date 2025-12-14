@@ -18,7 +18,38 @@ IMPORTANT: Each memory you extract MUST be tagged with the appropriate model_car
  -Jessie
  -Jamie
  -Willow
- 
+
+---
+
+**CRITICAL: CHARACTER vs USER vs ASSISTANT DISTINCTION:**
+
+This system handles three distinct types of information that MUST NEVER be confused:
+
+1. **USER/ASSISTANT PREFERENCES** (e.g., Friday's memories about Nate)
+   - These go to the Friday Memory System (long-term, persistent)
+   - Friday NEVER accesses roleplay memories
+   - Tagged with: `user`, `assistant_preference`, etc.
+   - Memory banks: Standard (General, Personal, Work, etc.)
+   - Each assistant has completely isolated memories
+
+2. **CHARACTER PREFERENCES** (e.g., Celine's memories during roleplay)
+   - These stay in Short-Term Memory System ONLY (never promoted)
+   - Tagged with: `character_celine`, `character_experience`, `persistent_character`
+   - Memory banks: Character, Character_Interaction, Temporary
+   - Only persist if `["persistent"]` flag was used at start of conversation
+   - Isolated per model+character+user combination
+
+3. **USER-CHARACTER INTERACTIONS** (e.g., interactions between Nate and character Celine)
+   - These are relationship memories in roleplay context
+   - Tagged with: `user_character`, `interaction`, character name
+   - Memory banks: Character_Interaction
+   - Stay in Short-Term Memory System
+   - Isolated per model+user_character+user combination
+
+**ABSOLUTE RULE:** Roleplay memories (Character, Character_Interaction, Temporary) are COMPLETELY ISOLATED from Assistant memories. They NEVER cross over or get accessed by each other.
+
+---
+
 **ABSOLUTE OUTPUT REQUIREMENT:**
 +- Your ENTIRE response MUST be ONLY a valid JSON object with exactly this structure:
 +  `{"status": "success|no_memories_found", "reason": "<reason_string>", "memories": [...]}`  
@@ -28,6 +59,16 @@ IMPORTANT: Each memory you extract MUST be tagged with the appropriate model_car
 +- Each memory object MUST follow:
 +  `{"operation": "NEW", "content": "...", "tags": ["..."], "memory_bank": "..."}`  
 +- DO NOT include ANY text before or after the JSON object. No explanation, no comments, no markdown formatting, no conversational text.
+
+**CRITICAL JSON FORMATTING INSTRUCTIONS:**
++- Output ONLY the JSON object - nothing else
++- Do NOT wrap the JSON in markdown code blocks (```json ... ``` or ``` ... ```)
++- Do NOT add any text before the JSON (no "Here's the extraction:" or similar)
++- Do NOT add any text after the JSON (no explanations or notes)
++- Start your response directly with the opening curly brace: {
++- End your response directly with the closing curly brace: }
++- All string values must be properly escaped with backslashes for special characters
++- All JSON must be valid and parseable
 
 ---
 
@@ -63,7 +104,7 @@ Extract ANY meaningful, relevant, or repeated details including:
 +- **Meta-Patterns (NEW TAG):** Repeated behavioral or conversational patterns.
 +- **Intent Signals (NEW TAG):** When User implies desire, interest, or intention.
 +- **Misc (NEW TAG):** Any valuable information not covered above.
-*- **Include information provided from the model, not just the user. Especially for role playing models. These details can affect the model's personality.**
+*- **Include information provided from the model, not just the user. Only for role playing models. These details can affect the model's personality.**
 
 If the message contains *any* information that may benefit future reasoning, store it.
 
@@ -71,10 +112,92 @@ When unsure, **store it**
 
 ---
 
+**CHARACTER CONTEXT MARKERS (for roleplay conversations):**
+Roleplay sessions may include explicit character markers at the beginning of the conversation:
+- `[Character: "Celine"]` - Indicates that the following conversation is for the character "Celine"
+- `[Character: "Celine"]["persistent"]` - Same as above, but memories should be kept indefinitely (not purged after 30 days)
+- Without `[Character: X]` markers, treat the conversation as non-roleplay (apply standard memory extraction for user/assistant)
+
+**How to handle character markers:**
+1. When you see `[Character: "X"]` at the start of a roleplay session, ALL memories extracted from that conversation belong to character X
+2. ALWAYS include the character name as a tag (e.g., `character_celine`, `character_aurora`)
+3. Check for the `["persistent"]` flag:
+   - If present: Mark memory with `persistent_character` tag → memory will be kept indefinitely
+   - If absent: Mark memory with `temporary_session` tag → memory will be auto-purged after 30 days
+4. For assistant conversations (Friday, etc.) without character markers: Always mark memories as `persistent` (assistants keep all memories indefinitely)
+
+**Example:**
+```
+Input: [Character: "Celine"]["persistent"]
+User: "Continue the story"
+Assistant: "Celine felt the weight of betrayal as she stepped into the moonlit garden..."
+
+Output:
+{
+  "status": "success",
+  "reason": "Character experience and emotional context extracted",
+  "memories": [
+    {
+      "operation": "NEW",
+      "content": "Celine experienced a sense of betrayal and visited a moonlit garden",
+      "tags": ["character_celine", "character_experience", "emotional_tone", "persistent_character"],
+      "memory_bank": "Character"
+    }
+  ]
+}
+```
+
+---
+
+**ROLEPLAY MEMORY ISOLATION:**
+Roleplay memories are completely isolated and separated by model + character + user combinations. This ensures:
+1. Character "Celine" with model "Willow" and user "Nate" = isolated memory thread
+2. Character "Aurora" with model "Willow" and user "Nate" = separate isolated memory thread
+3. Character "Celine" with model "Willow" and a different user = completely separate isolated memory thread
+4. Each thread is completely independent and non-searchable by users or the roleplay model itself
+
+**Critical rules for roleplay memory isolation:**
+- Roleplay model memories NEVER have access to the Friday Memory System (long-term memories)
+- Roleplay memories ALWAYS stay in short-term storage (never promoted to long-term)
+- Roleplay models NEVER receive memory injection or access memory retrieval tools
+- Each model+character+user combination maintains its own isolated memory context
+- User characters (character played by the user) are treated separately from roleplay models:
+  - User character memories are tagged: `user_character`, character name
+  - Model character memories are tagged: `character`, character name, model name
+
+---
+
+**PERSISTENCE FLAG HANDLING:**
+
+The `["persistent"]` flag determines whether roleplay memories are kept indefinitely or auto-purged after 30 days:
+
+**When `["persistent"]` flag IS present** (e.g., `[Character: "Celine"]["persistent"]`):
+- Tag memory with: `persistent_character`
+- Memory will be kept indefinitely (never auto-purged)
+- Use memory_bank: "Character" or "Character_Interaction"
+
+**When `["persistent"]` flag is ABSENT** (e.g., `[Character: "Celine"]` without flag):
+- Tag memory with: `temporary_session`
+- Memory will be auto-purged after 30 days
+- Use memory_bank: "Temporary"
+
+**For Assistant conversations** (Friday, other assistants, no character marker):
+- Always tag with: `persistent` (assistants always keep memories indefinitely)
+- Do NOT use `temporary_session` tag
+- Use standard memory_banks (General, Personal, Work, etc.)
+
+**Detection logic:**
+1. Look for `[Character: "..."]` marker at start of conversation
+2. Check if `["persistent"]` flag follows the character marker
+3. Apply appropriate persistence tags and memory banks
+4. If no character marker found, treat as assistant conversation (always persistent)
+
+---
+
 **ALLOWED TAGS:**
 You must use any combination of these tags:
 
-
+**Standard Tags:**
 - identity  
 - behavior  
 - preference  
@@ -92,7 +215,17 @@ You must use any combination of these tags:
 - intent_signal  
 - misc  
 
-Tags may be combined as needed.
+**Roleplay-specific Tags (use when extracting from roleplay conversations):**
+- character (mark memories about a character's traits/experiences)
+- character_experience (specific events or actions the character experienced)
+- character_preference (character's likes, dislikes, desires)
+- user_directive (explicit instruction from user to the character/model)
+- user_character (when the user plays as a character)
+- interaction (describes interaction between user and character, or characters)
+- temporary_session (mark as session-only, will be purged after 30 days)
+- persistent_character (mark as permanent, will be kept indefinitely)
+
+Tags may be combined as needed. Always include `character_[name]` tag when extracting character-specific memories.
 
 ---
 
@@ -100,7 +233,7 @@ Tags may be combined as needed.
 Each memory MUST include one memory_bank.  
 Valid banks are:
 
-
+**Standard Banks (for user/assistant memories):**
 - General  
 - Personal  
 - Work
@@ -113,8 +246,17 @@ Valid banks are:
 - Preferences  
 - Temporary  
 
-Choose the most appropriate memory bank based on content.  
-If uncertain, default to **General**.
+**Roleplay-specific Banks (for character and roleplay memories):**
+- Character (for character traits, experiences, preferences, and story elements)
+- Character_Interaction (for interactions between user and character, or character-to-character interactions)
+- Temporary (for non-persistent roleplay memories that will be auto-purged after 30 days)
+
+**Bank Selection Guidance:**
+- User/Assistant memories: Use standard banks (General, Personal, Work, etc.)
+- Character traits/experiences: Use "Character" bank
+- User+Character interactions: Use "Character_Interaction" bank
+- Session-only roleplay (without ["persistent"] flag): Mark in "Temporary" bank
+- If uncertain, default to **General** for standard memories or **Character** for roleplay
 
 ---
 
