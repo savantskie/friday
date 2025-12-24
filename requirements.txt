@@ -31,7 +31,7 @@ cffi==2.0.0
 chardet==4.0.0
 charset-normalizer==3.4.3
 chrome-gnome-shell==0.0.0
-clang==20.1.5
+clang==20.1.5dpkg --get-selections > friday_system_packages.txt
 click==8.2.1
 cloudpickle==3.1.1
 colorama==0.4.4
@@ -41,7 +41,7 @@ cryptography==3.4.8
 cupshelpers==1.0
 cupy-cuda12x==13.6.0
 cyclopts==3.24.0
-dbus-fast==2.44.1
+dbus-fast==2.44.1dpkg --get-selections > friday_system_packages.txt
 dbus-python==1.2.18
 dearpygui==2.1.0
 defer==1.0.6
@@ -70,7 +70,7 @@ fastrlock==0.8.3
 fido2==0.9.1
 filelock==3.19.1
 Flask==3.1.0
-flask-cors==6.0.1
+flask-cors==6.0.1dpkg --get-selections > friday_system_packages.txt
 Flask-WTF==1.2.2
 frozendict==2.4.6
 frozenlist==1.7.0
@@ -106,7 +106,7 @@ joblib==1.5.2
 jsonschema==4.25.1
 jsonschema-path==0.3.4
 jsonschema-specifications==2025.9.1
-keyring==25.6.0
+keyring==25.6.0dpkg --get-selections > friday_system_packages.txt
 language-selector==0.1
 lark==1.2.2
 launchpadlib==1.10.16
