@@ -794,12 +794,22 @@ class AIMemoryDatabase(DatabaseManager):
         memory_bank: str = "General",
         user_id: str = "",
         model_id: str = "",
+        source: str = "direct",
     ) -> str:
 
-        """Create a new curated memory"""
+        """Create a new curated memory with embedded metadata and optional source tracking"""
         
         memory_id = str(uuid.uuid4())
         timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        # CHANGE 1B: Format content with embedded metadata tags (like short-term system does)
+        formatted_content = content
+        if tags:
+            formatted_content = f"[Tags: {', '.join(tags)}] {formatted_content}"
+        if memory_bank and memory_bank != "General":  # Only embed if not default
+            formatted_content = f"{formatted_content} [Memory Bank: {memory_bank}]"
+        if model_id and model_id != "Friday":  # Only embed if not default
+            formatted_content = f"{formatted_content} [Model: {model_id}]"
         
         await self.execute_update(
             """INSERT INTO curated_memories 
@@ -812,7 +822,7 @@ class AIMemoryDatabase(DatabaseManager):
                 timestamp,
                 source_conversation_id,
                 memory_type,
-                content,
+                formatted_content,
                 importance_level,
                 json.dumps(tags) if tags else None,
                 memory_bank,
@@ -4866,6 +4876,19 @@ class FridayMemorySystem:
         # Initialize embedding service
         self.embedding_service = EmbeddingService()
         
+        # CHANGE 0: Verify embedding model consistency with short-term system
+        logger.info("=" * 80)
+        logger.info("EMBEDDING MODEL SYNCHRONIZATION VERIFICATION")
+        logger.info("=" * 80)
+        primary_model = self.embedding_service.primary_config.get("model", "unknown")
+        primary_provider = self.embedding_service.primary_config.get("provider", "unknown")
+        fallback_model = self.embedding_service.fallback_config.get("model", "unknown")
+        fallback_provider = self.embedding_service.fallback_config.get("provider", "unknown")
+        logger.info(f"✅ PRIMARY EMBEDDING:  {primary_provider} → {primary_model}")
+        logger.info(f"⚡ FALLBACK EMBEDDING: {fallback_provider} → {fallback_model}")
+        logger.info("✓ Embedding models synchronized with short-term system")
+        logger.info("=" * 80)
+        
         # Track embedding config state for change detection
         # This allows us to detect when Adaptive Memory v3 changes config and re-embed accordingly
         self._last_embedding_config = self._capture_embedding_config()
@@ -6994,6 +7017,194 @@ class FridayMemorySystem:
         
         return diagnostics
 
+    # === LLM Analysis Helpers (CHANGE 2A, 2B, 2C) ===
+    
+    def _get_llm_config(self) -> tuple:
+        """CHANGE 2A: Get LLM configuration from valves or use fallback.
+        
+        Reads LLM model from OpenWebUI valves if available, otherwise uses
+        a sensible default local model.
+        
+        Returns:
+            tuple: (provider_type, model_name) or ("openai_compatible", "mistral-small") on fallback
+        """
+        try:
+            # Try to read from OpenWebUI valves
+            try:
+                from open_webui.apps.webui.models.settings import Settings
+                settings = Settings.get_settings()
+                
+                # Check if settings has LLM config
+                if hasattr(settings, 'llm_provider_type'):
+                    provider = settings.llm_provider_type
+                else:
+                    provider = "openai_compatible"
+                
+                if hasattr(settings, 'llm_model_name'):
+                    model = settings.llm_model_name
+                else:
+                    model = None
+                
+                if model:
+                    logger.info(f"✅ Using LLM from OpenWebUI settings: {provider} → {model}")
+                    return (provider, model)
+            except ImportError:
+                logger.debug("OpenWebUI settings not available, using fallback")
+            except Exception as e:
+                logger.debug(f"Could not read LLM config from OpenWebUI: {e}")
+            
+            # Fallback: use a sensible default
+            fallback_provider = "openai_compatible"
+            fallback_model = "mistral-small"  # Local default
+            logger.info(f"⚡ Using fallback LLM: {fallback_provider} → {fallback_model}")
+            return (fallback_provider, fallback_model)
+            
+        except Exception as e:
+            logger.error(f"Error getting LLM config: {e}, using fallback")
+            return ("openai_compatible", "mistral-small")
+    
+    async def _analyze_memory_with_llm(
+        self,
+        memory_content: str,
+        context: str = None,
+        task: str = "extract_tags"
+    ) -> Dict:
+        """CHANGE 2B: Call LLM for intelligent memory analysis.
+        
+        Tasks:
+        - "extract_tags": Extract what tags should be for this memory
+        - "extract_bank": Extract what memory bank should be
+        - "validate_tags": Is this tag set correct for this content?
+        - "rank_results": Score how relevant this result is for a query
+        
+        Args:
+            memory_content: The memory text to analyze
+            context: Optional context (query for ranking, tags to validate, etc.)
+            task: Type of analysis to perform
+            
+        Returns:
+            Dict with task-specific results
+        """
+        try:
+            provider, model = self._get_llm_config()
+            
+            # Build prompt based on task
+            if task == "extract_tags":
+                prompt = f"""Analyze this memory and extract appropriate tags.
+Memory: {memory_content}
+
+Return a JSON object with:
+{{
+    "tags": ["tag1", "tag2", ...],
+    "memory_bank": "General|Personal|Work|Context|Tasks",
+    "reasoning": "brief explanation"
+}}
+
+Respond ONLY with valid JSON, no other text."""
+            
+            elif task == "extract_bank":
+                prompt = f"""What memory bank category does this belong to?
+Memory: {memory_content}
+
+Options: General, Personal, Work, Context, Tasks
+
+Return JSON:
+{{
+    "memory_bank": "category",
+    "reasoning": "brief explanation"
+}}"""
+            
+            elif task == "validate_tags":
+                prompt = f"""Do these tags accurately describe this memory content?
+Memory: {memory_content}
+Tags: {context}
+
+Return JSON:
+{{
+    "valid": true/false,
+    "suggested_tags": ["tag1", "tag2", ...],
+    "reasoning": "brief explanation"
+}}"""
+            
+            elif task == "rank_results":
+                prompt = f"""How relevant is this memory to the query?
+Query: {context}
+Memory: {memory_content}
+
+Score 0-100 where 100 is perfectly relevant.
+Return JSON:
+{{
+    "relevance_score": 0-100,
+    "reasoning": "brief explanation"
+}}"""
+            
+            else:
+                return {"error": f"Unknown task: {task}"}
+            
+            # Call LLM via OpenAI-compatible API
+            import aiohttp
+            import asyncio
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Use LM Studio or local OpenAI-compatible endpoint
+                    url = "http://localhost:1234/v1/chat/completions"  # LM Studio default
+                    
+                    headers = {"Content-Type": "application/json"}
+                    payload = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 500,
+                        "top_p": 0.95
+                    }
+                    
+                    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            response_text = data["choices"][0]["message"]["content"].strip()
+                            
+                            # Parse JSON response
+                            import json as json_lib
+                            try:
+                                result = json_lib.loads(response_text)
+                                logger.debug(f"LLM {task} result: {result}")
+                                return result
+                            except json_lib.JSONDecodeError:
+                                logger.warning(f"LLM returned invalid JSON for {task}: {response_text}")
+                                return {"error": "Invalid JSON response from LLM", "raw": response_text}
+                        else:
+                            error_text = await resp.text()
+                            logger.error(f"LLM API error ({resp.status}): {error_text}")
+                            return {"error": f"LLM API error: {resp.status}"}
+                            
+            except asyncio.TimeoutError:
+                logger.error("LLM request timed out")
+                return {"error": "LLM request timeout"}
+            except aiohttp.ClientConnectError:
+                logger.error("Could not connect to LLM (LM Studio). Is it running?")
+                return {"error": "LLM not available"}
+            
+        except Exception as e:
+            logger.error(f"Error calling LLM for {task}: {e}\n{traceback.format_exc()}")
+            return {"error": str(e)}
+    
+    def _should_use_llm_for_memory(self, source: str) -> str:
+        """CHANGE 2C: Determine if and how to use LLM for this memory.
+        
+        Args:
+            source: One of "openwebui_promotion", "mcp_openwebui", "mcp_external", "direct"
+            
+        Returns:
+            "validate_only": Light validation (only for promotion)
+            "full_analysis": Full LLM intelligence (everything else)
+        """
+        if source == "openwebui_promotion":
+            return "validate_only"
+        else:
+            # mcp_openwebui, mcp_external, direct - all get full analysis
+            return "full_analysis"
+
         # Search operations
     async def search_memories(
         self, query: str = None, limit: int = 10, database_filter: str = "all",
@@ -7398,6 +7609,23 @@ class FridayMemorySystem:
                         similarity = self._calculate_cosine_similarity(query_embedding, stored_embedding)
                         
                         if similarity > 0.3:  # Threshold for relevance
+                            # CHANGE 3A: Extract tags/bank from content if columns are NULL
+                            memory_type = row["memory_type"]
+                            tags = json.loads(row["tags"]) if row["tags"] else None
+                            content = row["content"]
+                            
+                            # Try to extract from embedded metadata if columns missing
+                            if not tags and "[Tags:" in content:
+                                match = re.search(r'\[Tags:\s*([^\]]+)\]', content)
+                                if match:
+                                    tags_str = match.group(1).strip()
+                                    tags = [t.strip() for t in tags_str.split(",")]
+                            
+                            if not memory_type and "[Memory Bank:" in content:
+                                match = re.search(r'\[Memory Bank:\s*([^\]]+)\]', content)
+                                if match:
+                                    memory_type = match.group(1).strip()
+                            
                             result = {
                                 "type": "ai_memory",
                                 "similarity_score": similarity,
@@ -7406,10 +7634,10 @@ class FridayMemorySystem:
                                     "timestamp_created": row["timestamp_created"],
                                     "timestamp_updated": row["timestamp_updated"],
                                     "source_conversation_id": row["source_conversation_id"],
-                                    "memory_type": row["memory_type"],
-                                    "content": row["content"],
+                                    "memory_type": memory_type,
+                                    "content": content,
                                     "importance_level": row["importance_level"],
-                                    "tags": json.loads(row["tags"]) if row["tags"] else None,
+                                    "tags": tags,
                                     "user_id": row["user_id"],
                                     "model_id": row["model_id"]
                                 }
@@ -7627,6 +7855,23 @@ class FridayMemorySystem:
             
             rows = await self.ai_memory_db.execute_query(sql, params)
             for row in rows:
+                # CHANGE 3B: Extract tags/bank from content if columns are NULL
+                memory_type_col = row.get("memory_type")
+                tags = json.loads(row.get("tags")) if row.get("tags") else None
+                content = row.get("content", "")
+                
+                # Try to extract from embedded metadata if columns missing
+                if not tags and "[Tags:" in content:
+                    match = re.search(r'\[Tags:\s*([^\]]+)\]', content)
+                    if match:
+                        tags_str = match.group(1).strip()
+                        tags = [t.strip() for t in tags_str.split(",")]
+                
+                if not memory_type_col and "[Memory Bank:" in content:
+                    match = re.search(r'\[Memory Bank:\s*([^\]]+)\]', content)
+                    if match:
+                        memory_type_col = match.group(1).strip()
+                
                 results.append({
                     "type": "ai_memory",
                     "similarity_score": 0.5,
@@ -7635,10 +7880,12 @@ class FridayMemorySystem:
                         "timestamp_created": row["timestamp_created"],
                         "timestamp_updated": row["timestamp_updated"],
                         "source_conversation_id": row["source_conversation_id"],
-                        "memory_type": row["memory_type"],
-                        "content": row["content"],
+                        "memory_type": memory_type_col,
+                        "content": content,
                         "importance_level": row["importance_level"],
-                        "tags": json.loads(row["tags"]) if row["tags"] else None
+                        "tags": tags,
+                        "user_id": row.get("user_id"),
+                        "model_id": row.get("model_id")
                     }
                 })
         

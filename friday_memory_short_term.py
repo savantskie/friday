@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.12
+version: 0.0.13
 ---
 
 # Overview
@@ -438,6 +438,120 @@ class ImageManager:
             return True
         except Exception as e:
             logger.error(f"Failed to delete image {image_hash}: {e}")
+            return False
+
+
+class ConversationCharacterTracker:
+    """Track character context per conversation for persistent tagging"""
+    
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._init_db()
+    
+    def _init_db(self):
+        """Initialize conversation character tracking database"""
+        try:
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_characters (
+                    conversation_id TEXT PRIMARY KEY,
+                    character_name TEXT NOT NULL,
+                    is_persistent INTEGER NOT NULL,
+                    model_card_name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Conversation character tracker initialized: {self.db_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize conversation tracker: {e}")
+            raise
+    
+    def set_character_context(self, conversation_id: str, character_name: str, 
+                             is_persistent: bool, model_card_name: str = None):
+        """Store character context for a conversation"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO conversation_characters 
+                (conversation_id, character_name, is_persistent, model_card_name, last_used)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (conversation_id, character_name, 1 if is_persistent else 0, model_card_name))
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Set character context for conversation {conversation_id}: {character_name} (persistent={is_persistent})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set character context: {e}")
+            return False
+    
+    def get_character_context(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve character context for a conversation"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT character_name, is_persistent, model_card_name, created_at
+                FROM conversation_characters
+                WHERE conversation_id = ?
+            """, (conversation_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                # Update last_used timestamp
+                self._update_last_used(conversation_id)
+                
+                return {
+                    "character_name": row[0],
+                    "is_persistent": bool(row[1]),
+                    "model_card_name": row[2],
+                    "created_at": row[3]
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get character context: {e}")
+            return None
+    
+    def _update_last_used(self, conversation_id: str):
+        """Update last_used timestamp for a conversation"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE conversation_characters 
+                SET last_used = CURRENT_TIMESTAMP 
+                WHERE conversation_id = ?
+            """, (conversation_id,))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # Non-critical
+    
+    def clear_character_context(self, conversation_id: str):
+        """Remove character context for a conversation"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM conversation_characters WHERE conversation_id = ?", 
+                         (conversation_id,))
+            conn.commit()
+            conn.close()
+            logger.info(f"Cleared character context for conversation {conversation_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear character context: {e}")
             return False
 
 
@@ -1991,6 +2105,16 @@ Analyze the following conversation and provide a concise summary.""",
         except Exception as e:
             logger.error(f"Failed to initialize ImageManager: {e}")
             self.image_manager = None
+
+        # --- Conversation Character Tracking ---
+        # Initialize character tracker for roleplay conversations
+        try:
+            tracker_db_path = os.path.join(memory_data_path, "conversation_characters.db")
+            self.character_tracker = ConversationCharacterTracker(tracker_db_path)
+            logger.info("✓ Initialized conversation character tracker")
+        except Exception as e:
+            logger.error(f"Failed to initialize character tracker: {e}")
+            self.character_tracker = None
 
         # Session-scoped image cache: {user_id: {image_hash: {url, base64_data, description, query}}}
         # Images here are transient - only persisted if memory is created
@@ -3656,6 +3780,10 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                                     if not memory_content:
                                         continue
 
+                                    # Extract model_card_name from metadata for proper model isolation
+                                    mem_metadata = mem.get("metadata", {}) or {}
+                                    model_card_name = mem_metadata.get("model_card_name", "friday")  # Fallback to "friday"
+                                    
                                     # Add promotion metadata
                                     metadata = {
                                         "source": "openwebui_promotion",
@@ -3683,7 +3811,7 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                                             )
 
                                             memory_system = FridayMemorySystem()
-                                            logger.info(f"Promoting memory '{mem.get('id')}' to Friday Memory System for user {user_id}")
+                                            logger.info(f"Promoting memory '{mem.get('id')}' to Friday Memory System for user {user_id} with model_id={model_card_name}")
                                             
                                             # Try to find actual conversation_id this memory is linked to
                                             source_conversation_id = f"openwebui_user_{user_id}"  # Fallback
@@ -3721,6 +3849,8 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                                                 source_conversation_id=source_conversation_id,
                                                 tags=["promoted", "archived"],
                                                 user_id=user_id,
+                                                model_id=model_card_name,  # NEW: Pass model_card_name as model_id for proper isolation
+                                                source="openwebui_promotion",  # CHANGE 4A: Signal that this is promoted memory
                                                 wait_for_embedding=True  # IMPORTANT: Wait for embedding to complete
                                             )
                                             
@@ -5554,6 +5684,7 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                 user_message,
                 existing_memories=existing_memories,
                 user_timezone=user_timezone,
+                assistant_message=assistant_message,  # Pass assistant message for dual-message extraction
             )
 
             # Debug logging after memory identification
@@ -6102,6 +6233,70 @@ Rate the relevance of EACH memory to the current user message."""
         # Return the list of operations that were actually saved
         return saved_operations_list
 
+    def _extract_character_context(self, user_message: str, conversation_id: str = None) -> Dict[str, Any]:
+        """Extract character markers from user message OR retrieve from conversation tracker.
+        
+        Priority:
+        1. Check if conversation already has character context stored
+        2. If new markers in message, extract and store them
+        3. If neither, return None context
+        
+        Returns dict with:
+        - character_name: str or None
+        - is_persistent: bool
+        - cleaned_message: str (with markers removed if present)
+        - from_storage: bool (whether context came from storage vs message)
+        """
+        import re
+        
+        # FIRST: Check if this conversation already has character context stored
+        if conversation_id and self.character_tracker:
+            stored_context = self.character_tracker.get_character_context(conversation_id)
+            if stored_context:
+                logger.debug(f"Using stored character context for conversation {conversation_id}: {stored_context['character_name']}")
+                return {
+                    "character_name": stored_context["character_name"],
+                    "is_persistent": stored_context["is_persistent"],
+                    "cleaned_message": user_message,  # No markers to remove
+                    "from_storage": True
+                }
+        
+        # SECOND: Check for new markers in the message
+        # Pattern: [Character: "Name"]["persistent"] or [Character: "Name"]
+        pattern = r'\[Character:\s*"([^"]+)"\](?:\["persistent"\])?'
+        match = re.search(pattern, user_message)
+        
+        if not match:
+            return {
+                "character_name": None,
+                "is_persistent": False,
+                "cleaned_message": user_message,
+                "from_storage": False
+            }
+        
+        character_name = match.group(1)
+        is_persistent = '["persistent"]' in match.group(0)
+        
+        # Remove the marker from the message
+        cleaned = re.sub(pattern, '', user_message).strip()
+        
+        # STORE the character context for this conversation
+        if conversation_id and self.character_tracker:
+            self.character_tracker.set_character_context(
+                conversation_id, 
+                character_name, 
+                is_persistent,
+                self._current_model_card_name
+            )
+            logger.info(f"Stored NEW character context for conversation {conversation_id}: {character_name} (persistent={is_persistent})")
+        
+        return {
+            "character_name": character_name,
+            "is_persistent": is_persistent,
+            "cleaned_message": cleaned,
+            "from_storage": False
+        }
+
     async def identify_memories(
         self,
         input_text: str,
@@ -6124,11 +6319,21 @@ Rate the relevance of EACH memory to the current user message."""
         if assistant_message:
             logger.debug(f"Dual-message extraction enabled - also analyzing assistant response: {assistant_message[:50]}...")
 
+        # NEW: Extract character context FIRST (checks storage, then message markers)
+        conversation_id = getattr(self, '_current_conversation_id', None)
+        char_context = self._extract_character_context(input_text, conversation_id)
+        character_name = char_context["character_name"]
+        is_persistent = char_context["is_persistent"]
+        from_storage = char_context.get("from_storage", False)
+        
+        if character_name:
+            logger.info(f"Character context for memory extraction: {character_name} (persistent={is_persistent}, from_storage={from_storage})")
+        
         # Remove <details> blocks that may interfere with processing
         input_text = re.sub(r"<details>.*?</details>", "", input_text, flags=re.DOTALL)
 
-        # Clean up and prepare the input
-        clean_input = input_text.strip()
+        # Clean up and prepare the input (use cleaned_message from char_context)
+        clean_input = char_context["cleaned_message"].strip()
         logger.debug(f"Cleaned input text length: {len(clean_input)}")
 
         # Prepare the system prompt
@@ -6139,6 +6344,27 @@ Rate the relevance of EACH memory to the current user message."""
             # Add datetime context
             now_str = self.get_formatted_datetime(user_timezone)
             datetime_context = f"Current datetime: {now_str}"
+
+            # NEW: Add model perspective guidance if extracting from assistant response
+            model_perspective = ""
+            if assistant_message and character_name:
+                # For character roleplay
+                model_perspective = f"""
+PERSPECTIVE INSTRUCTION: You are extracting memories from {character_name}'s perspective.
+- Use first-person perspective (I, me, my) as spoken by the character
+- Extract what {character_name} experienced, thought, or did
+- Tag memories with: character_{character_name.lower()}, {"persistent_character" if is_persistent else "temporary_session"}
+- Example: "I encountered a mysterious stranger who offered me a map" (not "The character encountered...")
+"""
+            elif assistant_message and self._current_model_card_name and self._current_model_card_name.lower() in ['friday', 'default']:
+                # For Friday (main assistant)
+                model_perspective = f"""
+PERSPECTIVE INSTRUCTION: You are extracting memories from Friday's perspective.
+- Use first-person perspective (I, me, my) as spoken by Friday
+- Extract what Friday experienced, learned, or observed about the user
+- Tag memories with: assistant_perspective, friday_observation
+- Example: "I noticed the user is working on vLLM fork implementation" (not "The user mentioned...")
+"""
 
             # Add memory categories context based on enabled flags
             categories = []
@@ -6167,7 +6393,7 @@ Rate the relevance of EACH memory to the current user message."""
                     existing_memories_str += f"- {mem.get('content', 'Unknown')}\n"
 
             # Combine all context
-            context = f"{datetime_context}\nEnabled categories: {categories_str}\n{existing_memories_str}"
+            context = f"{datetime_context}\nEnabled categories: {categories_str}\n{existing_memories_str}{model_perspective}"
 
             # Log the components of the prompt
             logger.debug(f"Memory identification context: {context}")
@@ -6191,9 +6417,24 @@ Rate the relevance of EACH memory to the current user message."""
         try:
             # Construct the user prompt with few-shot examples
             # Build the message context, including both user and assistant messages if available
+            
+            # NEW: Build character context header if character is active
+            char_context_header = ""
+            if character_name:
+                persistence_desc = "INDEFINITE (keep forever)" if is_persistent else "TEMPORARY (30-day auto-purge)"
+                char_context_header = f"""
+>>> CHARACTER CONTEXT <
+Active Character: {character_name}
+Persistence: {persistence_desc}
+Memory Bank: {"Character" if is_persistent else "Temporary"}
+Required Tags: character_{character_name.lower()}, {"persistent_character" if is_persistent else "temporary_session"}
+>>> END CHARACTER CONTEXT <
+
+"""
+            
             if assistant_message:
                 # Dual-message extraction for roleplay contexts
-                user_prompt = f"""Analyze the following user message and model response and extract relevant memories:
+                user_prompt = f"""{char_context_header}Analyze the following user message and model response and extract relevant memories:
 
 >>> USER MESSAGE START <<<
 {clean_input}
@@ -6227,7 +6468,7 @@ Produce ONLY the JSON object output with status/reason/memories, adhering strict
 """
             else:
                 # Standard user-message-only extraction
-                user_prompt = f"""Analyze the following user message and extract relevant memories:
+                user_prompt = f"""{char_context_header}Analyze the following user message and extract relevant memories:
 >>> USER MESSAGE START <<<
 {clean_input}
 >>> USER MESSAGE END <<<

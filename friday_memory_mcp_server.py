@@ -1675,9 +1675,17 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
-                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id
-                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "memory_bank", "user_id", "model_id"}
+                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id, source
+                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "memory_bank", "user_id", "model_id", "source"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                
+                # CHANGE 4B: Determine source (where the call is coming from)
+                # Default to "mcp_openwebui" unless explicitly set
+                if "source" not in filtered_args:
+                    # If called from OpenWebUI, it's "mcp_openwebui", otherwise it's "mcp_external"
+                    # For now, assume OpenWebUI by default since that's most common
+                    filtered_args["source"] = "mcp_openwebui"
+                
                 result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
 
             elif tool_name in ("update_memory", "tool_update_memory_post"):
@@ -2363,6 +2371,7 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                     source_conversation_id=conversation_id,
                     user_id=user_id,
                     model_id=model_id,
+                    source="openwebui_promotion",  # CHANGE 4B: Mark as promoted from OpenWebUI
                     wait_for_embedding=True  # Ensure embedding completes for promoted memories
                 )
                 
