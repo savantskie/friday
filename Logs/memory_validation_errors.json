@@ -1,6 +1,6 @@
 {
   "resolved": false,
-  "last_updated": "2025-12-14T19:35:04.890032Z",
+  "last_updated": "2025-12-24T14:35:10.821002Z",
   "active_errors": [
     {
       "error_type": "invalid_json",
@@ -26,10 +26,20 @@
       "error_type": "invalid_json",
       "model_card": "friday",
       "first_occurrence": "2025-12-14T19:29:33.770734Z",
-      "last_occurrence": "2025-12-14T19:35:04.890032Z",
-      "attempt_count": 2,
+      "last_occurrence": "2025-12-24T14:35:10.821002Z",
+      "attempt_count": 7,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific relationships and possession/intent signals dete",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific behavioral and relationship details extracted\",\n",
+      "turn_window": null
+    },
+    {
+      "error_type": "llm_call_failed",
+      "model_card": "tara",
+      "first_occurrence": "2025-12-16T14:18:31.440189Z",
+      "last_occurrence": "2025-12-16T14:18:31.440189Z",
+      "attempt_count": 1,
+      "details": "Error: LLM API (openai_compatible) returned 400: {\n    \"error\": {\n        \"message\": \"Failed to load model \\\"ministral-3-14b-instruct-2512\\\". Error: Operation canceled.\",\n        \"type\": \"invalid_request_error\",\n        \"param\": \"model\",\n        \"code\": null\n    }\n}",
+      "example_memory": "{\n  \"status\": \"no_memories_found\",\n  \"reason\": \"Message is off-topic for memory extraction\"\n}",
       "turn_window": null
     }
   ],
