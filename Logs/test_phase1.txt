@@ -1,0 +1,1815 @@
+nate@nate-desktop:/media/nate/Friday/Friday/Tests$ python test_phase1_tag_search.py 
+
+================================================================================
+PHASE 1 TAG SEARCH IMPLEMENTATION TESTS
+================================================================================
+
+============================================================
+TEST 1: Tag Search OR Logic
+============================================================
+
+1. Creating test memories with tags...
+   Created memory 1 (tags: project, goal): 58820ce2-c957-43db-9c01-5920fe571946
+   Created memory 2 (tags: health, reminder): c885e132-2836-4ff4-a147-47b965b0f96e
+   Created memory 3 (tags: project, deadline): 2262042e-b3d6-41f3-8ce8-4372bf58a22f
+   Created memory 4 (no tags): 86505ec5-c16d-42d7-afbc-6004d4954ed2
+
+2. Searching for memories with 'project' tag (OR logic)...
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:39.682761'}
+  New: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:40.702450'}
+ERROR:friday_memory_system:❌ Error generating/storing embedding for e74cf620-946f-420c-a838-9719da2e7d3e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory e74cf620-946f-420c-a838-9719da2e7d3e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 3c072b88-dbd7-4bc3-a635-67c2a35d96cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 3c072b88-dbd7-4bc3-a635-67c2a35d96cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 9884dc13-f48d-47cd-a8cc-094e0d27a48a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 9884dc13-f48d-47cd-a8cc-094e0d27a48a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for a817f246-e5fa-491f-8ff4-698146b8ad80: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory a817f246-e5fa-491f-8ff4-698146b8ad80
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b27b9bb5-2508-4fdb-8dbf-e8c0734d557e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b27b9bb5-2508-4fdb-8dbf-e8c0734d557e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for d12de653-fbe1-4a01-9f12-6b9729275539: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory d12de653-fbe1-4a01-9f12-6b9729275539
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6e388188-11b9-4f69-804e-873a19f6a9fb: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6e388188-11b9-4f69-804e-873a19f6a9fb
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 62a98b0e-acb6-4a9d-a696-98fe4967fbf8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 62a98b0e-acb6-4a9d-a696-98fe4967fbf8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for eabcdd18-edd0-4c88-a6d5-2cf9432f0199: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory eabcdd18-edd0-4c88-a6d5-2cf9432f0199
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 733c1175-d224-499f-a889-f4b32d48e790: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 733c1175-d224-499f-a889-f4b32d48e790
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c7334eb4-8373-405f-8c7e-5521799b29c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c7334eb4-8373-405f-8c7e-5521799b29c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for ab5b5707-3d1c-4b1d-ba77-3fc572321c56: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory ab5b5707-3d1c-4b1d-ba77-3fc572321c56
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497da402-207e-407f-88f6-e9a6f532132d: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497da402-207e-407f-88f6-e9a6f532132d
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 1ed859ed-6c33-43e7-bdba-a86f73d3308c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 1ed859ed-6c33-43e7-bdba-a86f73d3308c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 482062d4-bdae-4697-837f-c24850ab27e8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 482062d4-bdae-4697-837f-c24850ab27e8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6c60c517-aa65-41d7-837d-7e1882897529: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6c60c517-aa65-41d7-837d-7e1882897529
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f39ee72c-3819-464e-b390-788c2d61861b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f39ee72c-3819-464e-b390-788c2d61861b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4c75e436-7520-4670-9d60-9b712557bd91: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4c75e436-7520-4670-9d60-9b712557bd91
+WARNING:friday_memory_system:Empty content for 312f408e-7b04-4025-a9ce-85c08448cae5, skipping embedding
+ERROR:friday_memory_system:Failed to re-embed memory 312f408e-7b04-4025-a9ce-85c08448cae5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c4932517-67b4-4d76-8f2a-130c11c0413a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c4932517-67b4-4d76-8f2a-130c11c0413a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f8d35a76-ba3e-4d17-af8f-7ed550369667: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f8d35a76-ba3e-4d17-af8f-7ed550369667
+ERROR:friday_memory_system:❌ Error generating/storing embedding for bbb1581e-43a9-46ce-b3ca-46071455b447: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory bbb1581e-43a9-46ce-b3ca-46071455b447
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 964a07ae-6736-481f-bc4d-a30b6a0f1083: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 964a07ae-6736-481f-bc4d-a30b6a0f1083
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 8b77f2d7-846a-4fbb-9936-961b1158963b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 8b77f2d7-846a-4fbb-9936-961b1158963b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 12c83ee0-01ad-431d-8387-365f074c7c34: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 12c83ee0-01ad-431d-8387-365f074c7c34
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 407548f5-a37f-4c17-8c4f-7844ffe1c379: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 407548f5-a37f-4c17-8c4f-7844ffe1c379
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0afeb9ca-f357-4acb-a0e6-7eece1806483: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0afeb9ca-f357-4acb-a0e6-7eece1806483
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c1595d34-ff82-4e6a-81f5-5614b65cbba8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c1595d34-ff82-4e6a-81f5-5614b65cbba8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 32e0e825-3f75-4cd7-88e8-2966fec95702: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 32e0e825-3f75-4cd7-88e8-2966fec95702
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497d8f61-2f34-4fc6-b40f-ad3ef0556b41: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497d8f61-2f34-4fc6-b40f-ad3ef0556b41
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 92ae6b4b-f87d-4fd6-a97c-c445223536cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 92ae6b4b-f87d-4fd6-a97c-c445223536cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 368d4b3d-5c30-4b43-a18c-4a608b6438d2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 368d4b3d-5c30-4b43-a18c-4a608b6438d2
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 7082156a-7477-448a-a107-17134087a551: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 7082156a-7477-448a-a107-17134087a551
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 42d59d76-aace-4dfd-97e7-bff8ebd97490: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 42d59d76-aace-4dfd-97e7-bff8ebd97490
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 58820ce2-c957-43db-9c01-5920fe571946: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 58820ce2-c957-43db-9c01-5920fe571946
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c885e132-2836-4ff4-a147-47b965b0f96e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c885e132-2836-4ff4-a147-47b965b0f96e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 2262042e-b3d6-41f3-8ce8-4372bf58a22f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 2262042e-b3d6-41f3-8ce8-4372bf58a22f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 86505ec5-c16d-42d7-afbc-6004d4954ed2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 86505ec5-c16d-42d7-afbc-6004d4954ed2
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+   Query result status: success
+   Filters applied: {'min_importance': None, 'max_importance': None, 'memory_type': None, 'database_filter': 'all', 'tags': ['project'], 'memory_bank': None}
+   Found 4 memories with 'project' tag
+   ✅ PASS: Found memories with 'project' tag (should be >= 2)
+      - f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: tags=['project', 'deadline']
+      - 2262042e-b3d6-41f3-8ce8-4372bf58a22f: tags=['project', 'deadline']
+      - 368d4b3d-5c30-4b43-a18c-4a608b6438d2: tags=['project', 'goal']
+      - 58820ce2-c957-43db-9c01-5920fe571946: tags=['project', 'goal']
+
+3. Searching for 'project' OR 'health' tags...
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:40.702450'}
+  New: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:42.115594'}
+ERROR:friday_memory_system:❌ Error generating/storing embedding for e74cf620-946f-420c-a838-9719da2e7d3e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory e74cf620-946f-420c-a838-9719da2e7d3e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 3c072b88-dbd7-4bc3-a635-67c2a35d96cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 3c072b88-dbd7-4bc3-a635-67c2a35d96cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 9884dc13-f48d-47cd-a8cc-094e0d27a48a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 9884dc13-f48d-47cd-a8cc-094e0d27a48a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for a817f246-e5fa-491f-8ff4-698146b8ad80: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory a817f246-e5fa-491f-8ff4-698146b8ad80
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b27b9bb5-2508-4fdb-8dbf-e8c0734d557e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b27b9bb5-2508-4fdb-8dbf-e8c0734d557e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for d12de653-fbe1-4a01-9f12-6b9729275539: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory d12de653-fbe1-4a01-9f12-6b9729275539
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6e388188-11b9-4f69-804e-873a19f6a9fb: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6e388188-11b9-4f69-804e-873a19f6a9fb
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 62a98b0e-acb6-4a9d-a696-98fe4967fbf8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 62a98b0e-acb6-4a9d-a696-98fe4967fbf8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for eabcdd18-edd0-4c88-a6d5-2cf9432f0199: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory eabcdd18-edd0-4c88-a6d5-2cf9432f0199
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 733c1175-d224-499f-a889-f4b32d48e790: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 733c1175-d224-499f-a889-f4b32d48e790
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c7334eb4-8373-405f-8c7e-5521799b29c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c7334eb4-8373-405f-8c7e-5521799b29c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for ab5b5707-3d1c-4b1d-ba77-3fc572321c56: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory ab5b5707-3d1c-4b1d-ba77-3fc572321c56
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497da402-207e-407f-88f6-e9a6f532132d: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497da402-207e-407f-88f6-e9a6f532132d
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 1ed859ed-6c33-43e7-bdba-a86f73d3308c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 1ed859ed-6c33-43e7-bdba-a86f73d3308c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 482062d4-bdae-4697-837f-c24850ab27e8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 482062d4-bdae-4697-837f-c24850ab27e8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6c60c517-aa65-41d7-837d-7e1882897529: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6c60c517-aa65-41d7-837d-7e1882897529
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f39ee72c-3819-464e-b390-788c2d61861b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f39ee72c-3819-464e-b390-788c2d61861b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4c75e436-7520-4670-9d60-9b712557bd91: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4c75e436-7520-4670-9d60-9b712557bd91
+WARNING:friday_memory_system:Empty content for 312f408e-7b04-4025-a9ce-85c08448cae5, skipping embedding
+ERROR:friday_memory_system:Failed to re-embed memory 312f408e-7b04-4025-a9ce-85c08448cae5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c4932517-67b4-4d76-8f2a-130c11c0413a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c4932517-67b4-4d76-8f2a-130c11c0413a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f8d35a76-ba3e-4d17-af8f-7ed550369667: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f8d35a76-ba3e-4d17-af8f-7ed550369667
+ERROR:friday_memory_system:❌ Error generating/storing embedding for bbb1581e-43a9-46ce-b3ca-46071455b447: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory bbb1581e-43a9-46ce-b3ca-46071455b447
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 964a07ae-6736-481f-bc4d-a30b6a0f1083: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 964a07ae-6736-481f-bc4d-a30b6a0f1083
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 8b77f2d7-846a-4fbb-9936-961b1158963b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 8b77f2d7-846a-4fbb-9936-961b1158963b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 12c83ee0-01ad-431d-8387-365f074c7c34: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 12c83ee0-01ad-431d-8387-365f074c7c34
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 407548f5-a37f-4c17-8c4f-7844ffe1c379: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 407548f5-a37f-4c17-8c4f-7844ffe1c379
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0afeb9ca-f357-4acb-a0e6-7eece1806483: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0afeb9ca-f357-4acb-a0e6-7eece1806483
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c1595d34-ff82-4e6a-81f5-5614b65cbba8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c1595d34-ff82-4e6a-81f5-5614b65cbba8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 32e0e825-3f75-4cd7-88e8-2966fec95702: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 32e0e825-3f75-4cd7-88e8-2966fec95702
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497d8f61-2f34-4fc6-b40f-ad3ef0556b41: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497d8f61-2f34-4fc6-b40f-ad3ef0556b41
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 92ae6b4b-f87d-4fd6-a97c-c445223536cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 92ae6b4b-f87d-4fd6-a97c-c445223536cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 368d4b3d-5c30-4b43-a18c-4a608b6438d2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 368d4b3d-5c30-4b43-a18c-4a608b6438d2
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 7082156a-7477-448a-a107-17134087a551: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 7082156a-7477-448a-a107-17134087a551
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 42d59d76-aace-4dfd-97e7-bff8ebd97490: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 42d59d76-aace-4dfd-97e7-bff8ebd97490
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 58820ce2-c957-43db-9c01-5920fe571946: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 58820ce2-c957-43db-9c01-5920fe571946
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c885e132-2836-4ff4-a147-47b965b0f96e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c885e132-2836-4ff4-a147-47b965b0f96e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 2262042e-b3d6-41f3-8ce8-4372bf58a22f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 2262042e-b3d6-41f3-8ce8-4372bf58a22f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 86505ec5-c16d-42d7-afbc-6004d4954ed2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 86505ec5-c16d-42d7-afbc-6004d4954ed2
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+   Found 6 memories with 'project' OR 'health' tags
+   ✅ PASS: Found memories with 'project' OR 'health' (should be >= 3)
+      - 7082156a-7477-448a-a107-17134087a551: tags=['health', 'reminder']
+      - c885e132-2836-4ff4-a147-47b965b0f96e: tags=['health', 'reminder']
+      - f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: tags=['project', 'deadline']
+      - 2262042e-b3d6-41f3-8ce8-4372bf58a22f: tags=['project', 'deadline']
+      - 368d4b3d-5c30-4b43-a18c-4a608b6438d2: tags=['project', 'goal']
+      - 58820ce2-c957-43db-9c01-5920fe571946: tags=['project', 'goal']
+
+4. Searching for 'project' tag in 'Work' memory_bank...
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:42.115594'}
+  New: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:43.441805'}
+ERROR:friday_memory_system:❌ Error generating/storing embedding for e74cf620-946f-420c-a838-9719da2e7d3e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory e74cf620-946f-420c-a838-9719da2e7d3e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 3c072b88-dbd7-4bc3-a635-67c2a35d96cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 3c072b88-dbd7-4bc3-a635-67c2a35d96cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 9884dc13-f48d-47cd-a8cc-094e0d27a48a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 9884dc13-f48d-47cd-a8cc-094e0d27a48a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for a817f246-e5fa-491f-8ff4-698146b8ad80: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory a817f246-e5fa-491f-8ff4-698146b8ad80
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b27b9bb5-2508-4fdb-8dbf-e8c0734d557e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b27b9bb5-2508-4fdb-8dbf-e8c0734d557e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for d12de653-fbe1-4a01-9f12-6b9729275539: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory d12de653-fbe1-4a01-9f12-6b9729275539
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6e388188-11b9-4f69-804e-873a19f6a9fb: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6e388188-11b9-4f69-804e-873a19f6a9fb
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 62a98b0e-acb6-4a9d-a696-98fe4967fbf8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 62a98b0e-acb6-4a9d-a696-98fe4967fbf8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for eabcdd18-edd0-4c88-a6d5-2cf9432f0199: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory eabcdd18-edd0-4c88-a6d5-2cf9432f0199
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 733c1175-d224-499f-a889-f4b32d48e790: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 733c1175-d224-499f-a889-f4b32d48e790
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c7334eb4-8373-405f-8c7e-5521799b29c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c7334eb4-8373-405f-8c7e-5521799b29c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for ab5b5707-3d1c-4b1d-ba77-3fc572321c56: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory ab5b5707-3d1c-4b1d-ba77-3fc572321c56
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497da402-207e-407f-88f6-e9a6f532132d: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497da402-207e-407f-88f6-e9a6f532132d
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 1ed859ed-6c33-43e7-bdba-a86f73d3308c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 1ed859ed-6c33-43e7-bdba-a86f73d3308c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 482062d4-bdae-4697-837f-c24850ab27e8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 482062d4-bdae-4697-837f-c24850ab27e8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6c60c517-aa65-41d7-837d-7e1882897529: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6c60c517-aa65-41d7-837d-7e1882897529
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f39ee72c-3819-464e-b390-788c2d61861b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f39ee72c-3819-464e-b390-788c2d61861b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4c75e436-7520-4670-9d60-9b712557bd91: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4c75e436-7520-4670-9d60-9b712557bd91
+WARNING:friday_memory_system:Empty content for 312f408e-7b04-4025-a9ce-85c08448cae5, skipping embedding
+ERROR:friday_memory_system:Failed to re-embed memory 312f408e-7b04-4025-a9ce-85c08448cae5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c4932517-67b4-4d76-8f2a-130c11c0413a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c4932517-67b4-4d76-8f2a-130c11c0413a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f8d35a76-ba3e-4d17-af8f-7ed550369667: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f8d35a76-ba3e-4d17-af8f-7ed550369667
+ERROR:friday_memory_system:❌ Error generating/storing embedding for bbb1581e-43a9-46ce-b3ca-46071455b447: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory bbb1581e-43a9-46ce-b3ca-46071455b447
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 964a07ae-6736-481f-bc4d-a30b6a0f1083: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 964a07ae-6736-481f-bc4d-a30b6a0f1083
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 8b77f2d7-846a-4fbb-9936-961b1158963b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 8b77f2d7-846a-4fbb-9936-961b1158963b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 12c83ee0-01ad-431d-8387-365f074c7c34: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 12c83ee0-01ad-431d-8387-365f074c7c34
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 407548f5-a37f-4c17-8c4f-7844ffe1c379: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 407548f5-a37f-4c17-8c4f-7844ffe1c379
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0afeb9ca-f357-4acb-a0e6-7eece1806483: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0afeb9ca-f357-4acb-a0e6-7eece1806483
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c1595d34-ff82-4e6a-81f5-5614b65cbba8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c1595d34-ff82-4e6a-81f5-5614b65cbba8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 32e0e825-3f75-4cd7-88e8-2966fec95702: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 32e0e825-3f75-4cd7-88e8-2966fec95702
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497d8f61-2f34-4fc6-b40f-ad3ef0556b41: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497d8f61-2f34-4fc6-b40f-ad3ef0556b41
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 92ae6b4b-f87d-4fd6-a97c-c445223536cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 92ae6b4b-f87d-4fd6-a97c-c445223536cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 368d4b3d-5c30-4b43-a18c-4a608b6438d2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 368d4b3d-5c30-4b43-a18c-4a608b6438d2
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 7082156a-7477-448a-a107-17134087a551: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 7082156a-7477-448a-a107-17134087a551
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 42d59d76-aace-4dfd-97e7-bff8ebd97490: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 42d59d76-aace-4dfd-97e7-bff8ebd97490
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 58820ce2-c957-43db-9c01-5920fe571946: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 58820ce2-c957-43db-9c01-5920fe571946
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c885e132-2836-4ff4-a147-47b965b0f96e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c885e132-2836-4ff4-a147-47b965b0f96e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 2262042e-b3d6-41f3-8ce8-4372bf58a22f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 2262042e-b3d6-41f3-8ce8-4372bf58a22f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 86505ec5-c16d-42d7-afbc-6004d4954ed2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 86505ec5-c16d-42d7-afbc-6004d4954ed2
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+   Found 0 memories in Work bank with 'project' tag
+   ❌ FAIL: Expected >= 2 memories in Work bank, got 0
+
+5. Verifying untagged memories are excluded when tag filter applied...
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:43.441805'}
+  New: {'primary_model': 'text-embedding-qwen3-embedding-0.6b', 'primary_dimension': 768, 'primary_endpoint': 'http://192.168.1.50:1234/v1/embeddings', 'fallback_model': 'qwen3-embedding:0.6b', 'fallback_dimension': 768, 'timestamp': '2025-12-24T22:23:44.701010'}
+ERROR:friday_memory_system:❌ Error generating/storing embedding for e74cf620-946f-420c-a838-9719da2e7d3e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory e74cf620-946f-420c-a838-9719da2e7d3e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 3c072b88-dbd7-4bc3-a635-67c2a35d96cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 3c072b88-dbd7-4bc3-a635-67c2a35d96cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 9884dc13-f48d-47cd-a8cc-094e0d27a48a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 9884dc13-f48d-47cd-a8cc-094e0d27a48a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for a817f246-e5fa-491f-8ff4-698146b8ad80: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory a817f246-e5fa-491f-8ff4-698146b8ad80
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b27b9bb5-2508-4fdb-8dbf-e8c0734d557e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b27b9bb5-2508-4fdb-8dbf-e8c0734d557e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory aef9d8ff-433c-4f71-b1a9-d3c4eb2e2b3b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for d12de653-fbe1-4a01-9f12-6b9729275539: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory d12de653-fbe1-4a01-9f12-6b9729275539
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6e388188-11b9-4f69-804e-873a19f6a9fb: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6e388188-11b9-4f69-804e-873a19f6a9fb
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 62a98b0e-acb6-4a9d-a696-98fe4967fbf8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 62a98b0e-acb6-4a9d-a696-98fe4967fbf8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for eabcdd18-edd0-4c88-a6d5-2cf9432f0199: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory eabcdd18-edd0-4c88-a6d5-2cf9432f0199
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 733c1175-d224-499f-a889-f4b32d48e790: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 733c1175-d224-499f-a889-f4b32d48e790
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c7334eb4-8373-405f-8c7e-5521799b29c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c7334eb4-8373-405f-8c7e-5521799b29c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for ab5b5707-3d1c-4b1d-ba77-3fc572321c56: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory ab5b5707-3d1c-4b1d-ba77-3fc572321c56
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4cfdb1dd-766c-4c43-b5c1-b5b633b43d8c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497da402-207e-407f-88f6-e9a6f532132d: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497da402-207e-407f-88f6-e9a6f532132d
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 1ed859ed-6c33-43e7-bdba-a86f73d3308c: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 1ed859ed-6c33-43e7-bdba-a86f73d3308c
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 482062d4-bdae-4697-837f-c24850ab27e8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 482062d4-bdae-4697-837f-c24850ab27e8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 6c60c517-aa65-41d7-837d-7e1882897529: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 6c60c517-aa65-41d7-837d-7e1882897529
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f39ee72c-3819-464e-b390-788c2d61861b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f39ee72c-3819-464e-b390-788c2d61861b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4c75e436-7520-4670-9d60-9b712557bd91: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4c75e436-7520-4670-9d60-9b712557bd91
+WARNING:friday_memory_system:Empty content for 312f408e-7b04-4025-a9ce-85c08448cae5, skipping embedding
+ERROR:friday_memory_system:Failed to re-embed memory 312f408e-7b04-4025-a9ce-85c08448cae5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c4932517-67b4-4d76-8f2a-130c11c0413a: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c4932517-67b4-4d76-8f2a-130c11c0413a
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f8d35a76-ba3e-4d17-af8f-7ed550369667: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f8d35a76-ba3e-4d17-af8f-7ed550369667
+ERROR:friday_memory_system:❌ Error generating/storing embedding for bbb1581e-43a9-46ce-b3ca-46071455b447: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory bbb1581e-43a9-46ce-b3ca-46071455b447
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5fdc4aa4-c445-4c2e-803e-9459bf3e0fcf
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 964a07ae-6736-481f-bc4d-a30b6a0f1083: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 964a07ae-6736-481f-bc4d-a30b6a0f1083
+ERROR:friday_memory_system:❌ Error generating/storing embedding for b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory b6e00eb6-b184-42f1-9aa3-d8d2d7d988f0
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 8b77f2d7-846a-4fbb-9936-961b1158963b: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 8b77f2d7-846a-4fbb-9936-961b1158963b
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 12c83ee0-01ad-431d-8387-365f074c7c34: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 12c83ee0-01ad-431d-8387-365f074c7c34
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 407548f5-a37f-4c17-8c4f-7844ffe1c379: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 407548f5-a37f-4c17-8c4f-7844ffe1c379
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 5bc231a2-aae1-4ee2-9dd7-61c0bfbdba29
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0afeb9ca-f357-4acb-a0e6-7eece1806483: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0afeb9ca-f357-4acb-a0e6-7eece1806483
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c1595d34-ff82-4e6a-81f5-5614b65cbba8: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c1595d34-ff82-4e6a-81f5-5614b65cbba8
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 0b10834e-e3ce-4c49-abf3-0e71ca0dc0a5
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 4ccaf417-b6c6-4d1b-a3ed-e2878d45a60f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 32e0e825-3f75-4cd7-88e8-2966fec95702: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 32e0e825-3f75-4cd7-88e8-2966fec95702
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 497d8f61-2f34-4fc6-b40f-ad3ef0556b41: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 497d8f61-2f34-4fc6-b40f-ad3ef0556b41
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 92ae6b4b-f87d-4fd6-a97c-c445223536cd: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 92ae6b4b-f87d-4fd6-a97c-c445223536cd
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 368d4b3d-5c30-4b43-a18c-4a608b6438d2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 368d4b3d-5c30-4b43-a18c-4a608b6438d2
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 7082156a-7477-448a-a107-17134087a551: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 7082156a-7477-448a-a107-17134087a551
+ERROR:friday_memory_system:❌ Error generating/storing embedding for f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory f4fa2d19-2d84-4f49-9d47-de79e4dbc6c4
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 42d59d76-aace-4dfd-97e7-bff8ebd97490: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 42d59d76-aace-4dfd-97e7-bff8ebd97490
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 58820ce2-c957-43db-9c01-5920fe571946: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 58820ce2-c957-43db-9c01-5920fe571946
+ERROR:friday_memory_system:❌ Error generating/storing embedding for c885e132-2836-4ff4-a147-47b965b0f96e: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory c885e132-2836-4ff4-a147-47b965b0f96e
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 2262042e-b3d6-41f3-8ce8-4372bf58a22f: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 2262042e-b3d6-41f3-8ce8-4372bf58a22f
+ERROR:friday_memory_system:❌ Error generating/storing embedding for 86505ec5-c16d-42d7-afbc-6004d4954ed2: no such column: embedding_dimension
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 5046, in _generate_and_store_embedding
+    await db_instance.execute_update(
+  File "/media/nate/Friday/Friday/friday_memory_system.py", line 102, in execute_update
+    cursor = conn.execute(query, params)
+sqlite3.OperationalError: no such column: embedding_dimension
+
+ERROR:friday_memory_system:Failed to re-embed memory 86505ec5-c16d-42d7-afbc-6004d4954ed2
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+   Found 0 memories with nonexistent tag
+   ✅ PASS: Correctly excluded memories without matching tags
+
+============================================================
+Phase 1 Tag Search Tests Completed
+============================================================
+Traceback (most recent call last):
+  File "/media/nate/Friday/Friday/Tests/test_phase1_tag_search.py", line 252, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "/media/nate/Friday/Friday/Tests/test_phase1_tag_search.py", line 243, in main
+    await test_tag_search_or_logic()
+  File "/media/nate/Friday/Friday/Tests/test_phase1_tag_search.py", line 166, in test_tag_search_or_logic
+    await memory_system.close()
+AttributeError: 'FridayMemorySystem' object has no attribute 'close'

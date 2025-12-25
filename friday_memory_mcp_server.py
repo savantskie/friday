@@ -23,6 +23,7 @@ import requests
 import aiohttp
 from zoneinfo import ZoneInfo
 import os
+import importlib
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timezone
@@ -283,10 +284,18 @@ class FridayMemoryMCPServer:
 
     async def handle_initialization(self, *args, **kwargs):
         # Call this after LM Studio/OpenWebUI tool registration
-        # Start file monitoring and maintenance after 3 minutes
+        # Start file monitoring and maintenance after 1 minute
         async def delayed_start():
-            await asyncio.sleep(180)  # 3 minutes
-            logger.info("⏳ Starting file monitoring and maintenance after 3 minutes...")
+            await asyncio.sleep(60)  # 1 minute
+            logger.info("⏳ Starting file monitoring and maintenance after 1 minute...")
+            
+            # Start file monitoring for auto-reload
+            try:
+                self._reload_task = asyncio.create_task(self._check_and_reload_modules())
+                logger.info("✅ Module file monitoring started (watches for changes to memory system files).")
+            except Exception as e:
+                logger.error(f"❌ Error starting module file monitoring: {e}")
+            
             try:
                 await self.memory_system._start_monitoring()
                 logger.info("✅ File monitoring started.")
@@ -670,6 +679,26 @@ class FridayMemoryMCPServer:
         self.schedule_db_path = str(self.memory_data_dir / "schedule.db")
         # Enable debug logging for MCP server
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
+        # File monitoring for auto-reload
+        self._module_watch_times = {}
+        self._reload_task = None
+        self._is_reloading = False
+        
+        # Start file monitoring in background thread (doesn't wait for initialization event)
+        def start_file_monitoring():
+            """Start file monitoring in a separate event loop"""
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._check_and_reload_modules())
+            except Exception as e:
+                logger.error(f"Error in file monitoring thread: {e}")
+        
+        # Start monitoring as daemon thread so it runs independently
+        monitor_thread = threading.Thread(target=start_file_monitoring, daemon=True)
+        monitor_thread.start()
+        logger.info("✅ Module file monitoring started (watching for changes to memory system files).")
+        
         self._register_handlers()
         # Do NOT start maintenance or file monitoring here
         logger.info("FridayMemoryMCPServer initialized successfully (Semaphore: 3 concurrent DB ops max)")
@@ -716,6 +745,99 @@ class FridayMemoryMCPServer:
             print(f"❌ Error initializing reminders database: {e}")
             raise
     
+
+    async def _check_and_reload_modules(self):
+        """Monitor source files and reload modules if they change"""
+        files_to_watch = [
+            BASE_PATH / "friday_memory_system.py",
+            BASE_PATH / "friday_memory_mcp_server.py"
+        ]
+        
+        while True:
+            try:
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+                any_changed = False
+                for filepath in files_to_watch:
+                    if not filepath.exists():
+                        continue
+                    
+                    try:
+                        current_mtime = filepath.stat().st_mtime
+                        last_mtime = self._module_watch_times.get(str(filepath))
+                        
+                        if last_mtime is None:
+                            # First time seeing this file
+                            self._module_watch_times[str(filepath)] = current_mtime
+                        elif current_mtime > last_mtime:
+                            # File has changed!
+                            any_changed = True
+                            logger.info(f"📝 Detected change in {filepath.name}")
+                            self._module_watch_times[str(filepath)] = current_mtime
+                    except Exception as e:
+                        logger.debug(f"Error checking {filepath.name}: {e}")
+                        continue
+                
+                if any_changed and not self._is_reloading:
+                    await self._reload_memory_modules()
+                    
+            except asyncio.CancelledError:
+                logger.info("📁 File monitoring task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in file monitoring: {e}")
+                await asyncio.sleep(5)  # Back off on error
+    
+    async def _reload_memory_modules(self):
+        """Reload the memory system modules"""
+        if self._is_reloading:
+            return
+        
+        self._is_reloading = True
+        try:
+            logger.info("�� Reloading Friday Memory System modules...")
+            
+            # Try to reload friday_memory_system
+            try:
+                import friday_memory_system
+                importlib.reload(friday_memory_system)
+                logger.debug("✅ Reloaded friday_memory_system")
+            except Exception as e:
+                logger.error(f"Error reloading friday_memory_system: {e}")
+                self._is_reloading = False
+                return
+            
+            # Recreate the memory system with fresh module code
+            try:
+                logger.info("🆕 Recreating FridayMemorySystem instance...")
+                old_system = self.memory_system
+                
+                # Create new instance with reloaded module
+                self.memory_system = friday_memory_system.FridayMemorySystem(
+                    data_dir=str(self.memory_data_dir)
+                )
+                logger.info("✅ Successfully reloaded and recreated memory system!")
+                logger.info("🎯 All modules are now running the latest code")
+                
+                # Close old system if it has a close method
+                try:
+                    if hasattr(old_system, 'close'):
+                        old_system.close()
+                except:
+                    pass
+                    
+            except Exception as e:
+                logger.error(f"Error recreating memory system: {e}")
+                # Keep the old system running if recreation failed
+                self._is_reloading = False
+                return
+            
+            self._is_reloading = False
+            
+        except Exception as e:
+            logger.error(f"Unexpected error during reload: {e}")
+            self._is_reloading = False
+
     def _register_handlers(self):
         """Register MCP server handlers"""
         
@@ -925,6 +1047,8 @@ class FridayMemoryMCPServer:
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
                         "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags (OR logic - returns memories matching ANY tag)"},
+                        "memory_bank": {"type": "string", "description": "Filter by memory bank (e.g., General, Personal, Work, Context, Tasks)"},
                         "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
@@ -960,6 +1084,7 @@ class FridayMemoryMCPServer:
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Memory tags"},
                         "source_conversation_id": {"type": "string", "description": "Source conversation ID"},
                         "memory_bank": {"type": "string", "description": "Memory category (General, Personal, Work, Context, Tasks)", "default": "General"},
+                        "source": {"type": "string", "description": "Memory source (direct, mcp_openwebui, mcp_external, openwebui_promotion)", "default": "direct"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
@@ -1665,8 +1790,8 @@ class FridayMemoryMCPServer:
             # Memory & Context Tools
             # -----------------------------------------------------------------
             if tool_name in ("search_memories", "tool_search_memories_post"):
-                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id, user_id, model_id
-                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id", "user_id", "model_id"}
+                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id, tags, memory_bank, user_id, model_id
+                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id", "tags", "memory_bank", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 if user_id:
                     filtered_args["user_id"] = filtered_args.get("user_id") or user_id

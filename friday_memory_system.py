@@ -690,7 +690,7 @@ class AIMemoryDatabase(DatabaseManager):
             expected_columns = [
                 'memory_id', 'timestamp_created', 'timestamp_updated', 'source_conversation_id',
                 'source_message_ids', 'memory_type', 'content', 'importance_level', 'tags',
-                'embedding', 'user_id', 'model_id', 'memory_bank', 'created_at'
+                'embedding', 'embedding_dimension', 'user_id', 'model_id', 'memory_bank', 'created_at', 'updated_at'
             ]
 
             # --- Check and migrate existing table ---
@@ -704,6 +704,10 @@ class AIMemoryDatabase(DatabaseManager):
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
             if "memory_bank" not in current_columns:
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN memory_bank TEXT DEFAULT 'General'")
+            if "embedding_dimension" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN embedding_dimension INTEGER")
+            if "updated_at" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
 
             # Detect incomplete schema (older versions)
             needs_migration = False
@@ -729,10 +733,12 @@ class AIMemoryDatabase(DatabaseManager):
                         importance_level INTEGER DEFAULT 5,
                         tags TEXT,
                         embedding BLOB,
+                        embedding_dimension INTEGER,
                         user_id TEXT,
                         model_id TEXT DEFAULT 'Friday',
                         memory_bank TEXT DEFAULT 'General',
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
                 for row in old_rows:
@@ -764,10 +770,12 @@ class AIMemoryDatabase(DatabaseManager):
                         importance_level INTEGER DEFAULT 5,
                         tags TEXT,
                         embedding BLOB,
+                        embedding_dimension INTEGER,
                         user_id TEXT,
                         model_id TEXT DEFAULT 'Friday',
                         memory_bank TEXT DEFAULT 'General',
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
 
@@ -7031,7 +7039,7 @@ class FridayMemorySystem:
         try:
             # Try to read from OpenWebUI valves
             try:
-                from open_webui.apps.webui.models.settings import Settings
+                from open_webui.apps.webui.models.settings import Settings  # type: ignore
                 settings = Settings.get_settings()
                 
                 # Check if settings has LLM config
@@ -7210,6 +7218,7 @@ Return JSON:
         self, query: str = None, limit: int = 10, database_filter: str = "all",
         min_importance: int = None, max_importance: int = None,
         memory_type: str = None, memory_id: str = None,
+        tags: List[str] = None, memory_bank: str = None,
         user_id: Optional[str] = None, model_id: Optional[str] = None
     ) -> Dict:
 
@@ -7268,6 +7277,32 @@ Return JSON:
             all_results.extend(schedule_results)
 
         
+        # CHANGE 5: Apply tag and memory_bank filtering (OR logic for tags)
+        filtered_results = []
+        for result in all_results:
+            # Check memory_bank filter (exact match if specified)
+            if memory_bank:
+                result_bank = result["data"].get("memory_type")  # memory_bank is stored in memory_type column
+                if result_bank != memory_bank:
+                    continue
+            
+            # Check tags filter (OR logic - match ANY provided tag)
+            if tags:
+                result_tags = result["data"].get("tags")
+                if not result_tags:
+                    # No tags in this memory, skip it if tags filter is specified
+                    continue
+                
+                # Check if any of the requested tags match (OR logic)
+                match_found = any(tag in result_tags for tag in tags)
+                if not match_found:
+                    continue
+            
+            # If passed all filters, include in results
+            filtered_results.append(result)
+        
+        all_results = filtered_results
+        
         # Sort all results by similarity score and return top results
         all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
         
@@ -7280,7 +7315,9 @@ Return JSON:
                 "min_importance": min_importance,
                 "max_importance": max_importance,
                 "memory_type": memory_type,
-                "database_filter": database_filter
+                "database_filter": database_filter,
+                "tags": tags,
+                "memory_bank": memory_bank
             }
         }
     
@@ -7726,6 +7763,9 @@ Return JSON:
     
     async def _discover_sharded_databases(self, db_type: str) -> List[str]:
         """
+            memory_data_path = Path(self.memory_data_path)
+            
+            # Pattern matching based on db_type
         Discover all database files for a given type (current + all sharded versions).
         
         For "conversations": finds conversations.db, conversations_2025-08.db, conversations_2025-09.db, etc
@@ -7770,6 +7810,9 @@ Return JSON:
         except Exception as e:
             logger.error(f"Error discovering sharded databases for {db_type}: {e}")
             return []
+            memory_data_path = Path(self.memory_data_path)
+            
+            # Pattern matching based on db_type
     
     def _calculate_cosine_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Calculate cosine similarity between two embeddings"""
@@ -7789,6 +7832,9 @@ Return JSON:
             
             similarity = dot_product / (norm1 * norm2)
             return float(similarity)
+            sql += " ORDER BY importance_level DESC LIMIT ?"
+            params.append(limit)
+            
             
         except Exception as e:
             logger.error(f"Error calculating cosine similarity: {e}")

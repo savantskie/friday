@@ -1,6 +1,6 @@
 {
   "resolved": false,
-  "last_updated": "2025-12-24T14:35:10.821002Z",
+  "last_updated": "2025-12-25T04:07:05.472466Z",
   "active_errors": [
     {
       "error_type": "invalid_json",
@@ -26,10 +26,10 @@
       "error_type": "invalid_json",
       "model_card": "friday",
       "first_occurrence": "2025-12-14T19:29:33.770734Z",
-      "last_occurrence": "2025-12-24T14:35:10.821002Z",
-      "attempt_count": 7,
+      "last_occurrence": "2025-12-25T04:07:05.472466Z",
+      "attempt_count": 8,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific behavioral and relationship details extracted\",\n",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User's technical constraints and model-specific directives ext",
       "turn_window": null
     },
     {

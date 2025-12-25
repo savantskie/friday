@@ -159,7 +159,7 @@ from fastapi.requests import Request
 from pydantic import BaseModel, Field, model_validator, field_validator, validator
 
 # Updated imports for OpenWebUI 0.5+
-from open_webui.routers.memories import (
+from open_webui.routers.memories import (  # type: ignore
     add_memory,
     AddMemoryForm,
     query_memory,
@@ -167,8 +167,8 @@ from open_webui.routers.memories import (
     delete_memory_by_id,
     Memories,
 )
-from open_webui.models.users import Users
-from open_webui.main import app as webui_app
+from open_webui.models.users import Users  # type: ignore
+from open_webui.main import app as webui_app  # type: ignore
 
 # Set up logging (before Friday import)
 logger = logging.getLogger("openwebui.plugins.adaptive_memory")
@@ -4776,7 +4776,7 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                     try:
                         model_id = body.get("model")
                         if model_id:
-                            from open_webui.models.models import Models
+                            from open_webui.models.models import Models  # type: ignore
                             model_info = Models.get_model_by_id(model_id)
                             if model_info:
                                 system_prompt = model_info.params.get("system")
