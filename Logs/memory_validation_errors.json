@@ -1,6 +1,6 @@
 {
   "resolved": false,
-  "last_updated": "2025-12-25T04:07:05.472466Z",
+  "last_updated": "2025-12-30T14:52:34.487098Z",
   "active_errors": [
     {
       "error_type": "invalid_json",
@@ -16,20 +16,20 @@
       "error_type": "invalid_json",
       "model_card": "tara",
       "first_occurrence": "2025-12-14T19:01:22.532149Z",
-      "last_occurrence": "2025-12-14T19:01:22.532149Z",
-      "attempt_count": 1,
+      "last_occurrence": "2025-12-28T21:09:19.437264Z",
+      "attempt_count": 18,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character-specific and interaction-related details extracted for role-playing model 'Tara'\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"conten",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific emotional tone and relationship context detected",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Extensive character traits, emotional states, relationships, a",
       "turn_window": null
     },
     {
       "error_type": "invalid_json",
       "model_card": "friday",
       "first_occurrence": "2025-12-14T19:29:33.770734Z",
-      "last_occurrence": "2025-12-25T04:07:05.472466Z",
-      "attempt_count": 8,
+      "last_occurrence": "2025-12-30T14:52:34.487098Z",
+      "attempt_count": 19,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User's technical constraints and model-specific directives ext",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific and model-related details extracted from both me",
       "turn_window": null
     },
     {
@@ -40,6 +40,36 @@
       "attempt_count": 1,
       "details": "Error: LLM API (openai_compatible) returned 400: {\n    \"error\": {\n        \"message\": \"Failed to load model \\\"ministral-3-14b-instruct-2512\\\". Error: Operation canceled.\",\n        \"type\": \"invalid_request_error\",\n        \"param\": \"model\",\n        \"code\": null\n    }\n}",
       "example_memory": "{\n  \"status\": \"no_memories_found\",\n  \"reason\": \"Message is off-topic for memory extraction\"\n}",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "Tuesday",
+      "first_occurrence": "2025-12-29T03:33:39.293585Z",
+      "last_occurrence": "2025-12-29T03:33:39.293585Z",
+      "attempt_count": 1,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"User-specific project details, emotional context, and intent signals extracted from messages\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"cont",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific goals, character traits, emotional context, and ",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "willow",
+      "first_occurrence": "2025-12-29T05:32:34.932638Z",
+      "last_occurrence": "2025-12-29T05:40:44.425187Z",
+      "attempt_count": 2,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant events extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n  ",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant eve",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "roxy",
+      "first_occurrence": "2025-12-29T06:00:52.153515Z",
+      "last_occurrence": "2025-12-29T06:13:09.859335Z",
+      "attempt_count": 2,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, and narrative context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant eve",
       "turn_window": null
     }
   ],

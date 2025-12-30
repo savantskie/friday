@@ -1884,31 +1884,6 @@ class FridayMemoryMCPServer:
 
         # Store context for client tracking
         client_id = self.client_context.get("current_client", f"{user_id}_{model_id}")
-        
-        # Determine source from MCP caller detection
-        def get_source_from_caller() -> str:
-            """Map MCP caller to source tracking value"""
-            try:
-                from port_manager import port_manager, CallerProgram
-                # Check OpenWebUI port first
-                if port_manager.active_port and port_manager.active_port == 12345:
-                    return "mcp_openwebui"
-                # Check caller program
-                caller = port_manager.caller_program.value if port_manager.caller_program else "unknown"
-                if caller == "lm_studio":
-                    return "mcp_lm_studio"
-                elif caller == "vscode":
-                    return "mcp_vscode"
-                elif caller == "openwebui":
-                    return "mcp_openwebui"
-                elif caller == "ollama":
-                    return "mcp_ollama"
-                else:
-                    return "mcp_external"  # Default for unknown callers
-            except Exception:
-                return "mcp_external"  # Fallback
-        
-        source = get_source_from_caller()
 
         # Store context for logging but don't modify arguments yet
         def _ensure_user_id(args: Dict[str, Any]) -> None:
@@ -1975,8 +1950,8 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
 
             elif tool_name in ("update_memory", "tool_update_memory_post"):
-                # update_memory accepts: memory_id, content, importance_level, tags, user_id, model_id, source
-                allowed_args = {"memory_id", "content", "importance_level", "tags", "user_id", "model_id", "source"}
+                # update_memory accepts: memory_id, content, importance_level, tags, user_id, model_id
+                allowed_args = {"memory_id", "content", "importance_level", "tags", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 if user_id:
                     filtered_args["user_id"] = filtered_args.get("user_id") or user_id
@@ -1993,8 +1968,8 @@ class FridayMemoryMCPServer:
                 result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
 
             elif tool_name == "store_conversation":
-                # store_conversation accepts: content, role, session_id, metadata, user_id, model_id, source
-                allowed_args = {"content", "role", "session_id", "metadata", "user_id", "model_id", "source"}
+                # store_conversation accepts: content, role, session_id, metadata, user_id, model_id
+                allowed_args = {"content", "role", "session_id", "metadata", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 if user_id:
                     filtered_args["user_id"] = filtered_args.get("user_id") or user_id
@@ -2004,8 +1979,8 @@ class FridayMemoryMCPServer:
 
             elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
                 try:
-                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days, user_id, model_id, source
-                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days", "user_id", "model_id", "source"}
+                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days, user_id, model_id
+                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days", "user_id", "model_id"}
                     filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                     # Ensure user_id and model_id are provided
                     if user_id:
@@ -2256,8 +2231,8 @@ class FridayMemoryMCPServer:
                     filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.save_development_session(**filtered_args))
             elif tool_name == "store_project_insight":
-                # store_project_insight accepts: insight_type, content, related_files, importance_level, user_id, model_id, source
-                allowed_args = {"insight_type", "content", "related_files", "importance_level", "user_id", "model_id", "source"}
+                # store_project_insight accepts: insight_type, content, related_files, importance_level, user_id, model_id
+                allowed_args = {"insight_type", "content", "related_files", "importance_level", "user_id", "model_id"}
                 filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
                 if user_id:
                     filtered_args["user_id"] = filtered_args.get("user_id") or user_id
@@ -2386,7 +2361,6 @@ class FridayMemoryMCPServer:
                         execution_time_ms=execution_time_ms,
                         status="success",
                         result=result,
-                        source=source,
                     )
                 )
             except Exception as log_error:
@@ -2407,6 +2381,7 @@ class FridayMemoryMCPServer:
         except Exception as e:
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000
+
             try:
                 asyncio.create_task(
                     self.memory_system.log_tool_call(
@@ -2416,7 +2391,6 @@ class FridayMemoryMCPServer:
                         execution_time_ms=execution_time_ms,
                         status="error",
                         error_message=str(e),
-                        source=source,
                     )
                 )
             except Exception as log_error:

@@ -8,6 +8,15 @@
 		},
 		{
 			"path": "../OpenWebUI/data"
+		},
+		{
+			"path": "../vllm"
+		},
+		{
+			"path": "../OpenWebUI"
+		},
+		{
+			"path": "../../../../home/nate/.vscode"
 		}
 	],
 	"settings": {
