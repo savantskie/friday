@@ -1,6 +1,6 @@
 {
   "resolved": false,
-  "last_updated": "2025-12-30T14:52:34.487098Z",
+  "last_updated": "2026-01-13T17:24:19.446445Z",
   "active_errors": [
     {
       "error_type": "invalid_json",
@@ -16,20 +16,20 @@
       "error_type": "invalid_json",
       "model_card": "tara",
       "first_occurrence": "2025-12-14T19:01:22.532149Z",
-      "last_occurrence": "2025-12-28T21:09:19.437264Z",
-      "attempt_count": 18,
+      "last_occurrence": "2026-01-11T16:11:14.750445Z",
+      "attempt_count": 21,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character-specific and interaction-related details extracted for role-playing model 'Tara'\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"conten",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Extensive character traits, emotional states, relationships, a",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Extracted persistent character dynamics, emotional states, and",
       "turn_window": null
     },
     {
       "error_type": "invalid_json",
       "model_card": "friday",
       "first_occurrence": "2025-12-14T19:29:33.770734Z",
-      "last_occurrence": "2025-12-30T14:52:34.487098Z",
-      "attempt_count": 19,
+      "last_occurrence": "2026-01-13T17:24:19.446445Z",
+      "attempt_count": 32,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User-specific and model-related details extracted from both me",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Contextual and character-related details extracted from both m",
       "turn_window": null
     },
     {
@@ -70,6 +70,36 @@
       "attempt_count": 2,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, and narrative context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"",
       "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant eve",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "roxy-vette",
+      "first_occurrence": "2026-01-06T17:44:21.970701Z",
+      "last_occurrence": "2026-01-06T19:00:12.831013Z",
+      "attempt_count": 2,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant events extracted from both messages\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"co",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotions, relationships, and significant eve",
+      "turn_window": null
+    },
+    {
+      "error_type": "llm_call_failed",
+      "model_card": "friday",
+      "first_occurrence": "2026-01-06T20:48:46.218844Z",
+      "last_occurrence": "2026-01-06T20:48:46.218844Z",
+      "attempt_count": 1,
+      "details": "Error: LLM API (openai_compatible) returned 400: {\"error\":\"Model unloaded.\"}",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Contextual and behavioral details extracted from user message ",
+      "turn_window": null
+    },
+    {
+      "error_type": "invalid_json",
+      "model_card": "tuesday",
+      "first_occurrence": "2026-01-11T06:08:20.189852Z",
+      "last_occurrence": "2026-01-11T06:11:36.003615Z",
+      "attempt_count": 2,
+      "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotional tone, and user preferences extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"conten",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Character traits, emotional tone, and relationship details ext",
       "turn_window": null
     }
   ],
