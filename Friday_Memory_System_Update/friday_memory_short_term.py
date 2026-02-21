@@ -1,7 +1,7 @@
 """
 title: Friday Short Term Memory v0.0.4 - Short term memory for Friday
 author: Nate
-version: 0.0.20
+version: 0.0.14
 ---
 
 # Overview
@@ -68,7 +68,7 @@ The system **dynamically extracts, filters, stores, and retrieves** user-specifi
 10. **Generalized LLM Provider Support** - Unified configuration for Ollama and OpenAI-compatible APIs
 11. **Memory Banks** - Added "Personal", "Work", and "General" memory banks for better organization
 12. **Fixed Configuration Persistence** - Resolved Issue #19 where user-configured LLM provider settings weren't being applied correctly
-13. **Fixed reasoning for GLM 4.7 Flash based models
+
 ---
 
 # Important Valves
@@ -1290,20 +1290,6 @@ Analyze the following related memories and provide a concise summary.""",
             default="bullet", description="Format for displaying memories in context"
         )
 
-        # Reminder notification configuration
-        show_active_reminders: bool = Field(
-            default=True, description="Show active reminders in context for proactive awareness"
-        )
-        reminder_format: Literal["bullet", "paragraph", "numbered"] = Field(
-            default="bullet", description="Format for displaying reminders in context"
-        )
-        reminder_check_interval: int = Field(
-            default=300, description="Interval in seconds between reminder escalation checks (default 5 minutes)"
-        )
-        notification_grace_period_minutes: int = Field(
-            default=15, description="Minutes after due time before overdue reminders are cleaned up"
-        )
-
         # Model pipeline configuration
         interface_model_name: str = Field(
             default="qwen/qwen3-vl-4b",
@@ -2074,12 +2060,6 @@ Analyze the following conversation and provide a concise summary.""",
         # Hold last processed body for confirmation tagging
         self._last_body: Dict[str, Any] = {}
 
-        # Memory operation queue system
-        self._memory_task_queue = asyncio.Queue()
-        self._active_memory_tasks = {}  # conversation_id -> task info
-        self._memory_task_semaphore = asyncio.Semaphore(10)  # Match LM Studio parallel limit
-        self._completed_memory_tasks = {}  # conversation_id -> completion status
-
         # Background tasks tracking
         self._background_tasks = set()
 
@@ -2128,11 +2108,6 @@ Analyze the following conversation and provide a concise summary.""",
             self._background_tasks.add(self._error_log_task)
             self._error_log_task.add_done_callback(self._background_tasks.discard)
             logger.debug("Started error logging background task")
-        # Start memory task queue processor
-        self._memory_processor_task = asyncio.create_task(self._process_memory_queue())
-        self._background_tasks.add(self._memory_processor_task)
-        self._memory_processor_task.add_done_callback(self._background_tasks.discard)
-        logger.debug("Started memory task queue processor")
 
         if self.valves.enable_memory_promotion_task:
             self._memory_promotion_task = asyncio.create_task(
@@ -3590,71 +3565,6 @@ Produce ONLY the corrected JSON output following the format specified in the sys
 
         except Exception as e:
             logger.error(f"Error injecting conversation summary into context: {e}")
-
-    async def _process_memory_queue(self):
-        """Continuously process queued memory operations"""
-        logger.info("Memory task queue processor started")
-        while True:
-            try:
-                # Get next task from queue (blocks until available)
-                task_data = await self._memory_task_queue.get()
-                conversation_id = task_data.get('conversation_id', 'unknown')
-                
-                logger.info(f"Processing queued memory extraction for conversation {conversation_id}")
-                
-                # Use semaphore to limit concurrent operations
-                async with self._memory_task_semaphore:
-                    try:
-                        await self._execute_memory_extraction(task_data)
-                        self._completed_memory_tasks[conversation_id] = {
-                            'status': 'completed',
-                            'timestamp': datetime.now(timezone.utc)
-                        }
-                        logger.info(f"✓ Memory extraction completed for conversation {conversation_id}")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"⏱️ Memory extraction timeout for conversation {conversation_id}")
-                        self._completed_memory_tasks[conversation_id] = {
-                            'status': 'timeout',
-                            'timestamp': datetime.now(timezone.utc)
-                        }
-                    except Exception as e:
-                        logger.error(f"❌ Memory extraction failed for conversation {conversation_id}: {e}")
-                        self._completed_memory_tasks[conversation_id] = {
-                            'status': 'failed',
-                            'error': str(e),
-                            'timestamp': datetime.now(timezone.utc)
-                        }
-                    finally:
-                        # Mark task as done
-                        self._memory_task_queue.task_done()
-                        # Remove from active tasks
-                        self._active_memory_tasks.pop(conversation_id, None)
-                        
-            except Exception as e:
-                logger.error(f"Error in memory queue processor: {e}\n{traceback.format_exc()}")
-                await asyncio.sleep(1)  # Brief pause on error to prevent tight loop
-
-    async def _execute_memory_extraction(self, task_data):
-        """Execute a single memory extraction operation with timeout"""
-        try:
-            await asyncio.wait_for(
-                self._process_user_memories(
-                    user_message=task_data['user_message'],
-                    user_id=task_data['user_id'],
-                    event_emitter=task_data.get('event_emitter'),
-                    show_status=task_data['show_status'],
-                    user_timezone=task_data['user_timezone'],
-                    recent_chat_history=task_data.get('recent_chat_history', []),
-                    assistant_message=task_data.get('assistant_message'),
-                ),
-                timeout=300  # 5 minute timeout
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"Memory extraction timeout after 5 minutes")
-            raise
-        except Exception as e:
-            logger.error(f"Error during memory extraction: {e}\n{traceback.format_exc()}")
-            raise            
 
     async def _summarize_old_memories_loop(self):
         """Periodically summarize old memories into concise summaries"""
@@ -5264,42 +5174,37 @@ Produce ONLY the corrected JSON output following the format specified in the sys
                 # Reload valves inside _process_user_memories ensures latest config
                 logger.debug("Starting memory extraction from outlet response")
                 try:
-                    # ============================================================
-                    # QUEUE MEMORY EXTRACTION TASK
-                    # Instead of fire-and-forget with asyncio.create_task, we now
-                    # queue the operation so it's tracked and guaranteed to complete
-                    # ============================================================
+                    # CRITICAL: Use create_task for NON-BLOCKING background processing
+                    # This allows outlet() to return response to client IMMEDIATELY
+                    # Memory extraction continues in background while client is satisfied
+                    # We DON'T await here - if we do, client disconnects during long LLM calls
                     
-                    # Package all the data needed for memory extraction
-                    task_data = {
-                        'conversation_id': self._current_conversation_id,  # Which conversation this is from
-                        'user_id': user_id,  # Who sent the message
-                        'user_message': last_user_message_content,  # YOUR message to extract from
-                        'event_emitter': __event_emitter__,  # For UI status updates
-                        'show_status': user_valves.show_status,  # Whether to show extraction status
-                        'user_timezone': user_timezone,  # For timestamp formatting
-                        'recent_chat_history': message_history_for_context,  # Recent conversation for context
-                        'assistant_message': last_assistant_message_content if self.valves.extract_memories_from_model_responses else None,  # FRIDAY'S response to extract from (if enabled)
-                    }
+                    async def memory_extraction_with_timeout():
+                        """Wrap memory extraction with timeout to prevent hanging forever."""
+                        try:
+                            # Set a 5-minute timeout for memory extraction
+                            # If it takes longer, just abort and let it fail gracefully
+                            await asyncio.wait_for(
+                                self._process_user_memories(
+                                    user_message=last_user_message_content,
+                                    user_id=user_id,
+                                    event_emitter=__event_emitter__,
+                                    show_status=user_valves.show_status,
+                                    user_timezone=user_timezone,
+                                    recent_chat_history=message_history_for_context,
+                                    assistant_message=last_assistant_message_content if self.valves.extract_memories_from_model_responses else None,
+                                ),
+                                timeout=300  # 5 minutes
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Memory extraction timeout after 5 minutes for user {user_id}")
+                        except Exception as e:
+                            logger.error(f"Background memory extraction failed: {e}\n{traceback.format_exc()}")
                     
-                    # Add this task to the processing queue
-                    # The background processor (_process_memory_queue) will pick it up
-                    await self._memory_task_queue.put(task_data)
-                    
-                    # Track this conversation as having an active memory operation
-                    # This lets us know it's in progress if we need to check status
-                    self._active_memory_tasks[self._current_conversation_id] = {
-                        'queued_at': datetime.now(timezone.utc),  # When it was queued
-                        'user_id': user_id  # Who owns this operation
-                    }
-                    
-                    # Log success with queue size for debugging
-                    queue_size = self._memory_task_queue.qsize()
-                    logger.info(f"✓ Queued memory extraction for conversation {self._current_conversation_id} (queue size: {queue_size})")
-                    
+                    memory_task = asyncio.create_task(memory_extraction_with_timeout())
+                    logger.debug("Memory extraction started as background task with 5-minute timeout")
                 except Exception as e:
-                    # If queueing fails for any reason, log it but don't crash
-                    logger.error(f"Error queuing memory extraction task: {e}\n{traceback.format_exc()}")
+                    logger.error(f"Error starting memory extraction task: {e}\n{traceback.format_exc()}")
             else:
                 logger.warning(
                     "Could not find last user message in outlet body to process for memories."
@@ -5331,37 +5236,6 @@ Produce ONLY the corrected JSON output following the format specified in the sys
         except Exception as e:
             logger.error(
                 f"Error processing memories for context: {e}\n{traceback.format_exc()}"
-            )
-
-        # Inject active reminders if enabled
-        try:
-            if self.valves.show_active_reminders and user_id and model_id:
-                logger.debug("OUTLET: Calling get_active_reminders_for_injection() for reminder injection")
-                active_reminders = await self.memory_system.get_active_reminders_for_injection(
-                    user_id=user_id,
-                    model_id=model_id
-                )
-                
-                if active_reminders:
-                    # Format reminders for injection
-                    reminders_context = self._format_active_reminders_for_context(active_reminders, self.valves.reminder_format)
-                    
-                    # Inject into system message
-                    if "messages" in body_copy:
-                        for message in body_copy["messages"]:
-                            if message["role"] == "system":
-                                message["content"] += f"\n\n{reminders_context}"
-                                break
-                        else:
-                            # No system message found, insert one
-                            body_copy["messages"].insert(0, {"role": "system", "content": reminders_context})
-                    
-                    logger.debug(f"Injected active reminders into context")
-            elif not self.valves.show_active_reminders:
-                logger.debug("Active reminders injection disabled via valve")
-        except Exception as e:
-            logger.error(
-                f"Error injecting active reminders: {e}\n{traceback.format_exc()}"
             )
 
         # Add confirmation message if memories were processed
@@ -5793,54 +5667,6 @@ Produce ONLY the corrected JSON output following the format specified in the sys
             memory_context += f"{'. '.join(memories_text)}.\n"
 
         return memory_context
-
-    def _format_active_reminders_for_context(self, active_reminders: Dict[str, List[str]], format_type: str = "bullet") -> str:
-        """Format active reminders for context injection by urgency tier"""
-        if not active_reminders or not any(active_reminders.values()):
-            return ""
-        
-        context = "[Active Reminders]\n\n"
-        
-        # Add urgent reminders
-        if active_reminders.get("urgent"):
-            context += "🔴 URGENT (< 1 hour):\n"
-            if format_type == "bullet":
-                for reminder in active_reminders["urgent"]:
-                    context += f"  • {reminder}\n"
-            elif format_type == "numbered":
-                for i, reminder in enumerate(active_reminders["urgent"], 1):
-                    context += f"  {i}. {reminder}\n"
-            else:  # paragraph
-                context += "  " + " | ".join(active_reminders["urgent"]) + "\n"
-            context += "\n"
-        
-        # Add soon reminders
-        if active_reminders.get("soon"):
-            context += "🟡 SOON (1-4 hours):\n"
-            if format_type == "bullet":
-                for reminder in active_reminders["soon"]:
-                    context += f"  • {reminder}\n"
-            elif format_type == "numbered":
-                for i, reminder in enumerate(active_reminders["soon"], 1):
-                    context += f"  {i}. {reminder}\n"
-            else:  # paragraph
-                context += "  " + " | ".join(active_reminders["soon"]) + "\n"
-            context += "\n"
-        
-        # Add upcoming reminders
-        if active_reminders.get("upcoming"):
-            context += "🟢 UPCOMING (< 24 hours):\n"
-            if format_type == "bullet":
-                for reminder in active_reminders["upcoming"]:
-                    context += f"  • {reminder}\n"
-            elif format_type == "numbered":
-                for i, reminder in enumerate(active_reminders["upcoming"], 1):
-                    context += f"  {i}. {reminder}\n"
-            else:  # paragraph
-                context += "  " + " | ".join(active_reminders["upcoming"]) + "\n"
-            context += "\n"
-        
-        return context.strip()
 
     async def _process_user_memories(
         self,
@@ -7117,60 +6943,6 @@ Produce ONLY the JSON object output with status/reason/memories, adhering strict
 
         return True
 
-    def _sanitize_reasoning_content(self, text: str) -> str:
-        """
-        Strip thinking tags and reasoning content from LLM responses while preserving tool calls.
-        Handles models like GLM-4.7-flash that output <think> tags and extended thinking.
-        Preserves <tool_call> blocks so tool execution isn't disrupted.
-        """
-        if not text:
-            return text
-
-        original_length = len(text)
-        
-        # Strip <think>...</think> tags but preserve <tool_call>...</tool_call> blocks
-        # Use a regex that matches <think> tags while avoiding <tool_call> blocks
-        import re
-        
-        # Remove <think>...</think> tags (including newlines within them)
-        text = re.sub(r'<think>.*?</think>\s*', '', text, flags=re.DOTALL)
-        
-        if len(text) < original_length:
-            logger.debug(
-                f"Removed thinking tags from response (reduced from {original_length} to {len(text)} chars)"
-            )
-        
-        return text.strip()
-
-    def _remove_reasoning_fields(self, obj: Union[Dict, List]) -> Union[Dict, List]:
-        """
-        Remove reasoning_content and thinking_content fields from parsed JSON objects.
-        Handles both dicts and lists recursively.
-        """
-        if isinstance(obj, dict):
-            # Remove reasoning fields from this dict
-            if 'reasoning_content' in obj:
-                del obj['reasoning_content']
-                logger.debug("Removed reasoning_content field from parsed JSON")
-            
-            if 'thinking_content' in obj:
-                del obj['thinking_content']
-                logger.debug("Removed thinking_content field from parsed JSON")
-            
-            # Recursively clean nested dicts and lists
-            for key, value in obj.items():
-                if isinstance(value, (dict, list)):
-                    obj[key] = self._remove_reasoning_fields(value)
-            
-            return obj
-        
-        elif isinstance(obj, list):
-            # Recursively clean list items
-            return [self._remove_reasoning_fields(item) if isinstance(item, (dict, list)) else item for item in obj]
-        
-        else:
-            return obj
-
     def _extract_and_parse_json(self, text: str) -> Union[List, Dict, None]:
         """Extract and parse JSON from text, handling common LLM response issues"""
         skip_reason = None  # For granular status updates
@@ -7184,9 +6956,6 @@ Produce ONLY the JSON object output with status/reason/memories, adhering strict
         logger.debug(
             f"Attempting to parse JSON from (original length {original_length}): {text[:150]}..."
         )
-
-        # Strip thinking tags that models like GLM-4.7-flash output
-        text = self._sanitize_reasoning_content(text)
 
         # Remove common Markdown code block fences if present
         if text.startswith("```json") or text.endswith("```"):
@@ -7238,10 +7007,6 @@ Produce ONLY the JSON object output with status/reason/memories, adhering strict
         try:
             parsed = json.loads(text)
             logger.debug("Successfully parsed JSON directly after pre-processing.")
-            
-            # Remove any reasoning_content or thinking_content fields from parsed JSON
-            parsed = self._remove_reasoning_fields(parsed)
-            
             # ---- NEW: unwrap single-key object -> list automatically ----
             if isinstance(parsed, dict) and len(parsed) == 1:
                 sole_value = next(iter(parsed.values()))
@@ -8705,9 +8470,6 @@ Current datetime: {current_datetime.strftime('%A, %B %d, %Y %H:%M:%S')} ({curren
                             "top_p": 1,
                             "max_tokens": 1024,
                             "stream": False,
-                            "chat_template_kwargs": {
-                                "enable_thinking": False
-                            }
                         }
                         logger.debug("Using messages format for chat completions")
                     else:
@@ -8795,16 +8557,7 @@ CRITICAL FORMATTING REQUIREMENT: You MUST respond with ONLY valid JSON. NO other
                                     and data["choices"][0].get("message")
                                     and data["choices"][0]["message"].get("content")
                                 ):
-                                    message = data["choices"][0]["message"]
-                                    
-                                    # Skip reasoning_content field that GLM-4.7-flash outputs
-                                    # (extended thinking/reasoning from the model)
-                                    if "reasoning_content" in message:
-                                        logger.debug(
-                                            f"Skipping reasoning_content field from response (length: {len(message['reasoning_content'])} chars)"
-                                        )
-                                    
-                                    content = message["content"]
+                                    content = data["choices"][0]["message"]["content"]
                                     logger.info(
                                         f"Retrieved content from chat completions response (length: {len(content)})"
                                     )

@@ -20,13 +20,16 @@ import logging
 import sqlite3
 import threading
 import requests
+import aiohttp
 from zoneinfo import ZoneInfo
 import os
+import importlib
 import numpy as np
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timezone
 import time
 import warnings
+import traceback
 from pathlib import Path
 
 # Get the base directory dynamically - works on both Windows and Linux
@@ -48,10 +51,14 @@ from mcp.types import (
 
 # Local imports (will be implemented)
 from friday_memory_system import FridayMemorySystem
+from port_manager import PortManager, CallerProgram
 
 # Initialize with dynamic path
 BASE_PATH = get_base_path()
 memory_system = FridayMemorySystem(data_dir=str(BASE_PATH / "memory_data"))
+
+# Initialize port manager
+port_manager = PortManager(memory_data_path=str(BASE_PATH / "memory_data"))
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
@@ -165,6 +172,7 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
         "hourly": "temperature_2m,precipitation_probability",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
         "timezone": tz,
+        "temperature_unit": "fahrenheit",
     }
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
@@ -173,10 +181,10 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
     # Build compact hourly (next 48h)
     hourly = []
     hh = data.get("hourly") or {}
-    for t, tc, pop in zip(hh.get("time") or [],
+    for t, tf, pop in zip(hh.get("time") or [],
                           hh.get("temperature_2m") or [],
                           hh.get("precipitation_probability") or []):
-        hourly.append({"time": t, "temp_c": tc, "pop": int(pop) if pop is not None else None})
+        hourly.append({"time": t, "temp_f": tf, "pop": int(pop) if pop is not None else None})
     hourly = hourly[:48]
 
     # Build daily
@@ -186,7 +194,7 @@ def _wx_fetch_openmeteo(lat: float, lon: float, tz: str) -> dict:
                             dd.get("temperature_2m_max") or [],
                             dd.get("temperature_2m_min") or [],
                             dd.get("precipitation_probability_max") or []):
-        daily.append({"date": d, "tmax_c": mx, "tmin_c": mn, "pop_max": int(p) if p is not None else None})
+        daily.append({"date": d, "tmax_f": mx, "tmin_f": mn, "pop_max": int(p) if p is not None else None})
 
     return {
         "source": "open-meteo",
@@ -276,10 +284,18 @@ class FridayMemoryMCPServer:
 
     async def handle_initialization(self, *args, **kwargs):
         # Call this after LM Studio/OpenWebUI tool registration
-        # Start file monitoring and maintenance after 3 minutes
+        # Start file monitoring and maintenance after 1 minute
         async def delayed_start():
-            await asyncio.sleep(180)  # 3 minutes
-            logger.info("⏳ Starting file monitoring and maintenance after 3 minutes...")
+            await asyncio.sleep(60)  # 1 minute
+            logger.info("⏳ Starting file monitoring and maintenance after 1 minute...")
+            
+            # Start file monitoring for auto-reload
+            try:
+                self._reload_task = asyncio.create_task(self._check_and_reload_modules())
+                logger.info("✅ Module file monitoring started (watches for changes to memory system files).")
+            except Exception as e:
+                logger.error(f"❌ Error starting module file monitoring: {e}")
+            
             try:
                 await self.memory_system._start_monitoring()
                 logger.info("✅ File monitoring started.")
@@ -414,20 +430,307 @@ class FridayMemoryMCPServer:
         
         # If return_changes_only is True, return empty changes since this is a new file
         if return_changes_only:
-            return {"success": True, "changes": {}, "updated": False, "via_cache": False}
+            return {"success": True, "changes": {}, "updated": True, "via_cache": False}
             
-        return {"success": True, "data": fresh, "updated": False}
+        return {"success": True, "data": fresh, "updated": True}
 
 
+    async def brave_web_search(self, query: str, count: int = 10, country: str = "US", language: str = "en") -> Dict:
+        """Perform a general web search using Brave Search API"""
+        logger.info(f"Brave web search called with query: {query}")
+        # Also write a simple append-only log for quick debugging (separate from python logging)
+        try:
+            log_dir = BASE_PATH / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "brave_search.log", "a", encoding="utf-8") as _lf:
+                _lf.write(f"{datetime.now().isoformat()} - brave_web_search called - query={query!r}, count={count}, country={country}, language={language}\n")
+        except Exception:
+            # best-effort logging; do not fail the search if logging can't write
+            pass
+        try:
+            # Get Brave API key from environment or file
+            api_key = os.getenv("BRAVE_API_KEY")
+            if not api_key:
+                # Try to load from file
+                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
+                if key_file.exists():
+                    try:
+                        with open(key_file, "r") as f:
+                            content = f.read().strip()
+                            # Parse "Brave_API_Key=\"key\""
+                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
+                                api_key = content[len('Brave_API_Key="'):-1]
+                    except Exception as e:
+                        logger.warning(f"Failed to read Brave API key from file: {e}")
+            
+            logger.info(f"BRAVE_API_KEY present: {bool(api_key)}")
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
+                }
 
+            # Limit count to reasonable bounds
+            count = min(max(count, 1), 20)
 
-    async def get_reminders(self, limit=5, include_completed=False, days_ahead=30, user_id=None, model_id=None) -> Dict:
+            async with aiohttp.ClientSession() as session:
+                url = "https://api.search.brave.com/res/v1/web/search"
+                params = {
+                    "q": query,
+                    "count": count,
+                    "country": country,
+                    "search_lang": language
+                }
+                headers = {
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": api_key
+                }
+
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results = []
+
+                        # Process web results
+                        if "web" in data and "results" in data["web"]:
+                            for result in data["web"]["results"][:count]:
+                                results.append({
+                                    "title": result.get("title", ""),
+                                    "url": result.get("url", ""),
+                                    "description": result.get("description", ""),
+                                    "type": "web"
+                                })
+
+                        return {
+                            "success": True,
+                            "query": query,
+                            "results": results,
+                            "count": len(results)
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "success": False,
+                            "error": f"Brave API error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to perform web search: {str(e)}"
+            }
+
+    async def brave_local_search(self, query: str, location: str = None, count: int = 10, radius: int = 5000) -> Dict:
+        """Search for local businesses and places using Brave Search API"""
+        try:
+            # Get Brave API key from environment or file
+            api_key = os.getenv("BRAVE_API_KEY")
+            if not api_key:
+                # Try to load from file
+                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
+                if key_file.exists():
+                    try:
+                        with open(key_file, "r") as f:
+                            content = f.read().strip()
+                            # Parse "Brave_API_Key=\"key\""
+                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
+                                api_key = content[len('Brave_API_Key="'):-1]
+                    except Exception as e:
+                        logger.warning(f"Failed to read Brave API key from file: {e}")
+            
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
+                }
+
+            # Limit count to reasonable bounds
+            count = min(max(count, 1), 20)
+
+            # Build location-aware query for web search since local search endpoint may not be available
+            search_query = query
+            if location:
+                search_query = f"{query} near {location}"
+
+            async with aiohttp.ClientSession() as session:
+                url = "https://api.search.brave.com/res/v1/web/search"
+                params = {
+                    "q": search_query,
+                    "count": count,
+                    "country": "US",
+                    "search_lang": "en"
+                }
+                headers = {
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": api_key
+                }
+
+                async with session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        results = []
+
+                        # Process web results that are likely local businesses/places
+                        if "web" in data and "results" in data["web"]:
+                            for result in data["web"]["results"][:count]:
+                                # Try to identify local business results
+                                title = result.get("title", "")
+                                description = result.get("description", "")
+                                url = result.get("url", "")
+
+                                # Extract potential business info from title and description
+                                results.append({
+                                    "name": title.split(" - ")[0] if " - " in title else title,  # Try to extract business name
+                                    "address": "",  # Web search doesn't provide structured address data
+                                    "phone": "",    # Web search doesn't provide phone data
+                                    "rating": None, # Web search doesn't provide ratings
+                                    "price_range": "",
+                                    "type": "local_search_result",
+                                    "url": url,
+                                    "distance": None,
+                                    "description": description
+                                })
+
+                        return {
+                            "success": True,
+                            "query": query,
+                            "location": location,
+                            "results": results,
+                            "count": len(results),
+                            "note": "Local search results are based on web search with location context"
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "success": False,
+                            "error": f"Brave Local API error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to perform local search: {str(e)}"
+            }
+
+    async def _execute_list_available_tags(self, memory_bank: str = None, user_id: str = None, model_id: str = None) -> Dict:
+        """
+        Load tag registry and return available tags with their metadata.
+        
+        Args:
+            memory_bank: Optional filter for specific memory bank
+            user_id: User ID for logging
+            model_id: Model ID for model isolation
+            
+        Returns:
+            Dict with available tags, canonical forms, variations, and usage counts
+        """
+        try:
+            from tag_manager import TagManager
+            from pathlib import Path
+            
+            tag_manager = TagManager()
+            
+            # Load the tag registry
+            registry_path = Path("/media/nate/Friday/Friday/tag_registry.json")
+            registry = tag_manager.load_registry(str(registry_path))
+            
+            if not registry:
+                logger.info("Tag registry is empty or not found")
+                return {
+                    "status": "success",
+                    "tags": {},
+                    "summary": {
+                        "total_tags": 0,
+                        "total_variations": 0
+                    }
+                }
+            
+            # Organize results
+            result_tags = {}
+            
+            for canonical, tag_data in registry.items():
+                # Add to results
+                result_tags[canonical] = tag_data
+            
+            summary = tag_manager.get_registry_summary()
+            
+            return {
+                "status": "success",
+                "tags": result_tags,
+                "summary": summary,
+                "memory_bank_filter": memory_bank,
+                "model_id": model_id,
+                "user_id": user_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error listing available tags: {e}")
+            return {
+                "status": "error",
+                "error": f"Failed to retrieve tags: {str(e)}",
+                "tags": {}
+            }
+
+    async def _execute_list_available_memory_banks(self, user_id: str = None, model_id: str = None) -> Dict:
+        """
+        Load memory_bank registry and return available banks with memory counts.
+        
+        Args:
+            user_id: User ID for logging
+            model_id: Model ID for model isolation
+            
+        Returns:
+            Dict with available memory banks and their memory counts
+        """
+        try:
+            from pathlib import Path
+            import json
+            
+            # Load the memory_bank registry
+            registry_path = Path("/media/nate/Friday/Friday/memory_bank_registry.json")
+            
+            if registry_path.exists():
+                with open(registry_path, 'r') as f:
+                    registry = json.load(f)
+            else:
+                logger.warning(f"Memory bank registry not found at {registry_path}")
+                registry = {}
+            
+            if not registry:
+                logger.info("Memory bank registry is empty or not found")
+                return {
+                    "status": "success",
+                    "banks": {},
+                    "total_memories": 0
+                }
+            
+            # Calculate totals
+            total_memories = sum(bank.get("memory_count", 0) for bank in registry.values())
+            
+            return {
+                "status": "success",
+                "banks": registry,
+                "total_memories": total_memories,
+                "bank_count": len(registry),
+                "model_id": model_id,
+                "user_id": user_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error listing available memory banks: {e}")
+            return {
+                "status": "error",
+                "error": f"Failed to retrieve memory banks: {str(e)}",
+                "banks": {}
+            }
+
+    async def get_reminders(self, limit=5, include_completed=False, days_ahead=30, user_id=None, model_id=None, source=None) -> Dict:
         try:
             # Set defaults for mandatory user/model tracking
             if not user_id:
                 user_id = "Nate"
-            if not model_id:
-                model_id = "Friday"
             
             if include_completed:
                 # For completed reminders, use memory system's method
@@ -476,15 +779,38 @@ class FridayMemoryMCPServer:
         self.memory_system = FridayMemorySystem(data_dir=str(self.memory_data_dir))
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
-        self._maintenance_task = None  # Background maintenance task 
+        self._maintenance_task = None  # Background maintenance task
+        # Semaphore to limit concurrent database/embedding access (prevents system freeze)
+        # Allows up to 3 simultaneous operations, queues the rest
+        self.db_semaphore = asyncio.Semaphore(3)
         if not isinstance(self.memory_data_dir, Path):
             self.memory_data_dir = Path(self.memory_data_dir)       
         self.schedule_db_path = str(self.memory_data_dir / "schedule.db")
         # Enable debug logging for MCP server
         logging.getLogger("mcp.server").setLevel(logging.DEBUG)
+        # File monitoring for auto-reload
+        self._module_watch_times = {}
+        self._reload_task = None
+        self._is_reloading = False
+        
+        # Start file monitoring in background thread (doesn't wait for initialization event)
+        def start_file_monitoring():
+            """Start file monitoring in a separate event loop"""
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._check_and_reload_modules())
+            except Exception as e:
+                logger.error(f"Error in file monitoring thread: {e}")
+        
+        # Start monitoring as daemon thread so it runs independently
+        monitor_thread = threading.Thread(target=start_file_monitoring, daemon=True)
+        monitor_thread.start()
+        logger.info("✅ Module file monitoring started (watching for changes to memory system files).")
+        
         self._register_handlers()
         # Do NOT start maintenance or file monitoring here
-        logger.info("FridayMemoryMCPServer initialized successfully")
+        logger.info("FridayMemoryMCPServer initialized successfully (Semaphore: 3 concurrent DB ops max)")
     
     def _initialize_reminders_database(self):
         """Initialize the dedicated reminders database"""
@@ -528,6 +854,99 @@ class FridayMemoryMCPServer:
             print(f"❌ Error initializing reminders database: {e}")
             raise
     
+
+    async def _check_and_reload_modules(self):
+        """Monitor source files and reload modules if they change"""
+        files_to_watch = [
+            BASE_PATH / "friday_memory_system.py",
+            BASE_PATH / "friday_memory_mcp_server.py"
+        ]
+        
+        while True:
+            try:
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+                any_changed = False
+                for filepath in files_to_watch:
+                    if not filepath.exists():
+                        continue
+                    
+                    try:
+                        current_mtime = filepath.stat().st_mtime
+                        last_mtime = self._module_watch_times.get(str(filepath))
+                        
+                        if last_mtime is None:
+                            # First time seeing this file
+                            self._module_watch_times[str(filepath)] = current_mtime
+                        elif current_mtime > last_mtime:
+                            # File has changed!
+                            any_changed = True
+                            logger.info(f"📝 Detected change in {filepath.name}")
+                            self._module_watch_times[str(filepath)] = current_mtime
+                    except Exception as e:
+                        logger.debug(f"Error checking {filepath.name}: {e}")
+                        continue
+                
+                if any_changed and not self._is_reloading:
+                    await self._reload_memory_modules()
+                    
+            except asyncio.CancelledError:
+                logger.info("📁 File monitoring task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in file monitoring: {e}")
+                await asyncio.sleep(5)  # Back off on error
+    
+    async def _reload_memory_modules(self):
+        """Reload the memory system modules"""
+        if self._is_reloading:
+            return
+        
+        self._is_reloading = True
+        try:
+            logger.info("�� Reloading Friday Memory System modules...")
+            
+            # Try to reload friday_memory_system
+            try:
+                import friday_memory_system
+                importlib.reload(friday_memory_system)
+                logger.debug("✅ Reloaded friday_memory_system")
+            except Exception as e:
+                logger.error(f"Error reloading friday_memory_system: {e}")
+                self._is_reloading = False
+                return
+            
+            # Recreate the memory system with fresh module code
+            try:
+                logger.info("🆕 Recreating FridayMemorySystem instance...")
+                old_system = self.memory_system
+                
+                # Create new instance with reloaded module
+                self.memory_system = friday_memory_system.FridayMemorySystem(
+                    data_dir=str(self.memory_data_dir)
+                )
+                logger.info("✅ Successfully reloaded and recreated memory system!")
+                logger.info("🎯 All modules are now running the latest code")
+                
+                # Close old system if it has a close method
+                try:
+                    if hasattr(old_system, 'close'):
+                        old_system.close()
+                except:
+                    pass
+                    
+            except Exception as e:
+                logger.error(f"Error recreating memory system: {e}")
+                # Keep the old system running if recreation failed
+                self._is_reloading = False
+                return
+            
+            self._is_reloading = False
+            
+        except Exception as e:
+            logger.error(f"Unexpected error during reload: {e}")
+            self._is_reloading = False
+
     def _register_handlers(self):
         """Register MCP server handlers"""
         
@@ -563,7 +982,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id"]
+                    "required": ["reminder_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -576,7 +995,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -604,8 +1024,43 @@ class FridayMemoryMCPServer:
                             "description": "If true, shrink the update window to 30 minutes for severe weather.",
                             "default": False
                         },
-                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False}
-                    }
+                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False},
+                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
+                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
+                    },
+                    "required": ["user_id", "model_id"]
+                }
+            ),
+            Tool(
+                name="brave_web_search",
+                description="General web search using the Brave search engine",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
+                        "country": {"type": "string", "description": "Country code (e.g., 'US', 'CA')", "default": "US"},
+                        "language": {"type": "string", "description": "Language code (e.g., 'en', 'es')", "default": "en"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["query", "user_id", "model_id"]
+                }
+            ),
+            Tool(
+                name="brave_local_search",
+                description="Search for local businesses and places",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query (e.g., 'pizza near me')"},
+                        "location": {"type": "string", "description": "Location to search around (e.g., 'New York, NY' or coordinates)"},
+                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
+                        "radius": {"type": "integer", "description": "Search radius in meters", "default": 5000},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -617,7 +1072,8 @@ class FridayMemoryMCPServer:
                         "days": {"type": "integer", "description": "Look back X days", "default": 7},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -631,7 +1087,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id", "new_due_datetime"]
+                    "required": ["reminder_id", "new_due_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -644,7 +1100,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["reminder_id"]
+                    "required": ["reminder_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -657,7 +1113,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["appointment_id"]
+                    "required": ["appointment_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -670,7 +1126,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["appointment_id"]
+                    "required": ["appointment_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -683,30 +1139,30 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             
             Tool(
                 name="search_memories",
-                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup",
+                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup. Either 'query' or 'memory_id' must be provided.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "Search query"},
+                        "query": {"type": "string", "description": "Search query (required if memory_id not provided)"},
                         "limit": {"type": "integer", "description": "Max results", "default": 10},
                         "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
                         "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
-                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search)"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags (OR logic - returns memories matching ANY tag)"},
+                        "memory_bank": {"type": "string", "description": "Filter by memory bank (e.g., General, Personal, Work, Context, Tasks)"},
+                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "anyOf": [
-                        {"required": ["query"]},
-                        {"required": ["memory_id"]}
-                    ]
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -722,7 +1178,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content", "role"]
+                    "required": ["content", "role", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -740,7 +1196,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content"]
+                    "required": ["content", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -756,7 +1212,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["memory_id"]
+                    "required": ["memory_id", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -775,7 +1231,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["title", "scheduled_datetime"]
+                    "required": ["title", "scheduled_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -805,7 +1261,7 @@ class FridayMemoryMCPServer:
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content", "due_datetime"]
+                    "required": ["content", "due_datetime", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -819,7 +1275,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -833,7 +1290,8 @@ class FridayMemoryMCPServer:
                         "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -841,19 +1299,28 @@ class FridayMemoryMCPServer:
                 description="Get comprehensive system health, statistics, and database status",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             ),
             Tool(
-                name="get_tool_usage_summary",
-                description="Get AI tool usage summary and insights for self-reflection",
+                name="get_tool_information",
+                description="Get tool usage statistics OR tool documentation. Pass mode='documentation' to get descriptions of available tools. Optionally specify tool_name to get docs for a specific tool.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"}
-                    }
+                        "mode": {"type": "string", "description": "Mode: 'usage' (default) for statistics or 'documentation' for tool descriptions", "default": "usage"},
+                        "tool_name": {"type": "string", "description": "Optional: specific tool name to document (only with mode='documentation')"},
+                        "days": {"type": "integer", "description": "For usage mode: Days to analyze", "default": 7},
+                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -863,8 +1330,11 @@ class FridayMemoryMCPServer:
                     "type": "object", 
                     "properties": {
                         "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"}
-                    }
+                        "client_id": {"type": "string", "description": "Specific client ID to analyze"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             ),
             Tool(
@@ -874,8 +1344,12 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "limit": {"type": "integer", "description": "Number of insights", "default": 5},
-                        "insight_type": {"type": "string", "description": "Type of insight to filter"}
-                    }
+                        "insight_type": {"type": "string", "description": "Type of insight to filter"},
+                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             )
             ,
@@ -912,9 +1386,17 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User ID for user separation"
+                        },
+                        "model_id": {
+                            "type": "string",
+                            "description": "Model ID for model separation"
                         }
                     },
-                    "required": ["content"],
+                    "required": ["content", "user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -952,9 +1434,17 @@ class FridayMemoryMCPServer:
                         "source_period_days": {
                             "type": "integer",
                             "description": "Days of data this reflection summarizes"
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "User ID for user separation"
+                        },
+                        "model_id": {
+                            "type": "string",
+                            "description": "Model ID for model separation"
                         }
                     },
-                    "required": ["content"],
+                    "required": ["content", "user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
@@ -964,20 +1454,69 @@ class FridayMemoryMCPServer:
                 description="Get the current server time in ISO format (UTC and local)",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
                 }
             )
             ,
             Tool(
                 name="trigger_database_maintenance",
-                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 24-hour schedule",
+                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 6-hour schedule",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True}
+                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for user separation"}
                     },
+                    "required": ["user_id", "model_id"],
                     "additionalProperties": False
+                }
+            )
+            ,
+            Tool(
+                name="export_all_tool_calls",
+                description="Export all tool calls from current and archived databases for LORA training dataset generation (web-only, not for models)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "output_filename": {"type": "string", "description": "Optional custom filename for export (defaults to timestamp-based name)"},
+                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
+                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
+                    },
+                    "required": ["user_id", "model_id"],
+                    "additionalProperties": False
+                }
+            )
+            ,
+            Tool(
+                name="list_available_tags",
+                description="Get list of available tags from registry with their canonical forms, variations, and usage counts",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "memory_bank": {"type": "string", "description": "Filter tags by specific memory bank (optional)"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
+                }
+            )
+            ,
+            Tool(
+                name="list_available_memory_banks",
+                description="Get list of available memory banks with memory counts per bank",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             )
             ,
@@ -991,7 +1530,8 @@ class FridayMemoryMCPServer:
                         "days_ahead": {"type": "integer", "description": "Only show appointments scheduled within X days", "default": 30},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    }
+                    },
+                    "required": ["user_id", "model_id"]
                 }
             )
         ]
@@ -1010,9 +1550,11 @@ class FridayMemoryMCPServer:
                         "workspace_path": {"type": "string", "description": "Workspace path"},
                         "active_files": {"type": "array", "items": {"type": "string"}, "description": "Active files"},
                         "git_branch": {"type": "string", "description": "Current git branch"},
-                        "session_summary": {"type": "string", "description": "Session summary"}
+                        "session_summary": {"type": "string", "description": "Session summary"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["workspace_path"]
+                    "required": ["workspace_path", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1024,9 +1566,11 @@ class FridayMemoryMCPServer:
                         "insight_type": {"type": "string", "description": "Type of insight"},
                         "content": {"type": "string", "description": "Insight content"},
                         "related_files": {"type": "array", "items": {"type": "string"}, "description": "Related files"},
-                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5}
+                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["content"]
+                    "required": ["content", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1036,9 +1580,11 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Search query"},
-                        "limit": {"type": "integer", "description": "Max results", "default": 10}
+                        "limit": {"type": "integer", "description": "Max results", "default": 10},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["query"]
+                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1050,9 +1596,11 @@ class FridayMemoryMCPServer:
                         "file_path": {"type": "string", "description": "File path"},
                         "function_name": {"type": "string", "description": "Function name"},
                         "description": {"type": "string", "description": "Context description"},
-                        "conversation_id": {"type": "string", "description": "Related conversation ID"}
+                        "conversation_id": {"type": "string", "description": "Related conversation ID"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
-                    "required": ["file_path", "description"]
+                    "required": ["file_path", "description", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1062,8 +1610,11 @@ class FridayMemoryMCPServer:
                     "type": "object",
                     "properties": {
                         "workspace_path": {"type": "string", "description": "Workspace path"},
-                        "limit": {"type": "integer", "description": "Context items", "default": 5}
-                    }
+                        "limit": {"type": "integer", "description": "Context items", "default": 5},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["workspace_path", "user_id", "model_id"]
                 }
             )
         ]
@@ -1081,9 +1632,11 @@ class FridayMemoryMCPServer:
                             "properties": {
                                 "character_name": {"type": "string", "description": "Character name to search for"},
                                 "context_type": {"type": "string", "description": "Type of context (personality, relationships, history)"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 5}
+                                "limit": {"type": "integer", "description": "Max results", "default": 5},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["character_name"]
+                            "required": ["character_name", "user_id", "model_id"]
                         }
                     ),
                     Tool(
@@ -1095,9 +1648,11 @@ class FridayMemoryMCPServer:
                                 "character_name": {"type": "string", "description": "Character involved"},
                                 "event_description": {"type": "string", "description": "What happened"},
                                 "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
-                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"}
+                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["character_name", "event_description"]
+                            "required": ["character_name", "event_description", "user_id", "model_id"]
                         }
                     ),
                     Tool(
@@ -1108,9 +1663,11 @@ class FridayMemoryMCPServer:
                             "properties": {
                                 "query": {"type": "string", "description": "Search query"},
                                 "character_name": {"type": "string", "description": "Focus on specific character"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 10}
+                                "limit": {"type": "integer", "description": "Max results", "default": 10},
+                                "user_id": {"type": "string", "description": "User ID for user separation"},
+                                "model_id": {"type": "string", "description": "Model ID for model separation"}
                             },
-                            "required": ["query"]
+                            "required": ["query", "user_id", "model_id"]
                         }
                     )
                 ]
@@ -1129,13 +1686,60 @@ class FridayMemoryMCPServer:
             return []
 
     def _detect_client_type(self) -> str:
-        """Detect the type of MCP client connecting"""
-        # This is a placeholder - in real implementation we might check:
-        # - User agent headers
-        # - Connection parameters
-        # - Client capabilities during handshake
-        # For now, assume external clients are SillyTavern if not VS Code
-        return "unknown"  # Will be enhanced based on actual client detection
+        """Detect the type of MCP client connecting using multiple detection methods
+        
+        Detection priority:
+        1. Port-based detection: OpenWebUI always uses port 12345
+        2. Process-based detection: Parent process name (VS Code, LM Studio, Ollama)
+        3. Command-line detection: Process arguments
+        
+        Maps to tool set names:
+        - vscode -> VS Code development tools
+        - lm_studio -> LM Studio integration
+        - openwebui -> OpenWebUI/MCPO integration (port 12345)
+        - ollama -> Ollama integration
+        - unknown -> Default core memory tools only
+        
+        NOTE: If caller_program hasn't been detected yet (e.g., during module import),
+        this will trigger detection now rather than waiting for HTTP server startup.
+        """
+        try:
+            # Ensure caller program has been detected
+            # (It's normally called during start_http_server, but may be called earlier via module import)
+            if port_manager.caller_program == CallerProgram.UNKNOWN and not getattr(port_manager, '_detection_attempted', False):
+                logger.debug("Caller program not yet detected - running detection now")
+                port_manager.detect_caller_program()
+                port_manager._detection_attempted = True
+            
+            # Priority 1: Check if we're running on OpenWebUI's dedicated port (12345)
+            # (Only check if port has been set - it won't be during module import)
+            if port_manager.active_port and port_manager.active_port == 12345:
+                logger.info("🌐 OpenWebUI (MCPO) detected via port 12345 - providing core memory tools")
+                return "unknown"  # OpenWebUI gets core tools via port detection
+            
+            # Priority 2: Use process-based caller detection
+            caller = port_manager.caller_program.value
+            
+            # Map caller program to client type for tool selection
+            if caller == "vscode":
+                logger.info("📝 VS Code detected (parent: code/electron) - providing development tools")
+                return "vscode"
+            elif caller == "lm_studio":
+                logger.info("🤖 LM Studio detected - providing core memory tools")
+                return "unknown"  # LM Studio gets core tools, not platform-specific
+            elif caller == "openwebui":
+                logger.info("🌐 OpenWebUI detected (process name) - providing core memory tools")
+                return "unknown"  # OpenWebUI gets core tools, not platform-specific
+            elif caller == "ollama":
+                logger.info("🐫 Ollama detected - providing core memory tools")
+                return "unknown"  # Ollama gets core tools, not platform-specific
+            else:
+                logger.info(f"❓ Unknown caller program: {caller} - providing core memory tools")
+                return "unknown"
+                
+        except Exception as e:
+            logger.warning(f"Error detecting client type: {e}. Defaulting to core tools.")
+            return "unknown"
     
     async def create_reminder_direct(self, content: str, due_datetime: str, 
                                    priority_level: int = 5, source_conversation_id: str = None) -> Dict:
@@ -1205,80 +1809,440 @@ class FridayMemoryMCPServer:
                     conn.commit()
         except Exception as e:
             print(f"⚠️ Could not add embedding to reminder {reminder_id}: {e}")
+    
+    async def _protected_tool_call(self, coro):
+        """Wrap a memory system coroutine with semaphore protection to limit concurrent access"""
+        async with self.db_semaphore:
+            return await coro
            
     
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> CallToolResult:
         """Execute the requested tool with logging for AI self-reflection"""
-            
         import time
-        
-        # Start timing and get client info
-        start_time = time.perf_counter()
-        client_id = self.client_context.get("current_client", "unknown")
-        
-        # Extract user_id and model_id with proper defaults (for consistency with main version)
-        user_id = (
-            self.client_context.get("user_id")
-            or arguments.get("user_id")
-            or "Nate"
-        )
-        model_id = (
-            self.client_context.get("model_id")
-            or arguments.get("model_id")
-            or os.getenv("FRIDAY_DEFAULT_MODEL", "Friday")
-        )
-        
-        try:
-            # Route to appropriate handler
-            if tool_name == "search_memories":
-                result = await self.memory_system.search_memories(**arguments)
-            elif tool_name == "store_conversation":
-                result = await self.memory_system.store_conversation(**arguments)
-            if tool_name == "create_appointment":
-                result = await self.memory_system.create_appointment(**arguments)
-            elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
-                reflection_id = await self.memory_system.mcp_db.store_ai_reflection(**arguments)
-                result = {"status": "success", "reflection_id": reflection_id}
 
+        # ---------------------------------------------------------------------
+        # MANDATORY PARAMETER VALIDATION: user_id and model_id REQUIRED
+        # (Exception: export_all_tool_calls defaults model_id to 'system')
+        # ---------------------------------------------------------------------
+        # ALL tools must have both user_id and model_id for tracking and debugging
+        user_id = arguments.get("user_id")
+        model_id = arguments.get("model_id")
+        
+        # ALL tools require user_id and model_id for logging and tracking
+        if not user_id:
+            error_msg = (
+                "❌ MISSING REQUIRED PARAMETER: user_id\n\n"
+                "ALL Friday tools REQUIRE both user_id and model_id for:\n"
+                "  • Memory system separation (different users = different memory spaces)\n"
+                "  • Model tracking (knowing which model made which changes)\n"
+                "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
+                "Please provide user_id in your tool call.\n"
+                "Example: { \"user_id\": \"Nate\", \"model_id\": \"Eddie\", ... }"
+            )
+            logger.error(error_msg)
+            return {
+                "content": [{"type": "text", "text": error_msg}],
+                "success": False,
+                "isError": True,
+            }
+        
+        if not model_id:
+            error_msg = (
+                "❌ MISSING REQUIRED PARAMETER: model_id\n\n"
+                "ALL Friday tools REQUIRE both user_id and model_id for:\n"
+                "  • Memory system separation (different users = different memory spaces)\n"
+                "  • Model tracking (knowing which model made which changes)\n"
+                "  • Failure debugging (tracing issues to specific model/user combinations)\n\n"
+                "Please provide model_id in your tool call.\n"
+                "Example: { \"user_id\": \"Nate\", \"model_id\": \"Eddie\", ... }"
+            )
+            logger.error(error_msg)
+            return {
+                "content": [{"type": "text", "text": error_msg}],
+                "success": False,
+                "isError": True,
+            }
+
+        # Log the incoming call with user/model info
+        logger.info(f"🔧 Tool called: {tool_name} | user_id={user_id} | model_id={model_id}")
+
+        # ---------------------------------------------------------------------
+        # LOG ALL INCOMING TOOL CALLS (for debugging)
+        # ---------------------------------------------------------------------
+        try:
+            log_dir = BASE_PATH / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "tool_calls.log", "a", encoding="utf-8") as _lf:
+                import json
+                _lf.write(f"{datetime.now().isoformat()} - Tool called: {tool_name}\n")
+                _lf.write(f"  user_id: {user_id} | model_id: {model_id}\n")
+                _lf.write(f"  Arguments: {json.dumps(arguments, indent=2)}\n")
+                _lf.write("-" * 80 + "\n")
+        except Exception:
+            pass  # best-effort logging
+
+        # Store context for client tracking
+        client_id = self.client_context.get("current_client", f"{user_id}_{model_id}")
+        
+        # Determine source from MCP caller detection
+        def get_source_from_caller() -> str:
+            """Map MCP caller to source tracking value"""
+            try:
+                from port_manager import port_manager, CallerProgram
+                # Check OpenWebUI port first
+                if port_manager.active_port and port_manager.active_port == 12345:
+                    return "mcp_openwebui"
+                # Check caller program
+                caller = port_manager.caller_program.value if port_manager.caller_program else "unknown"
+                if caller == "lm_studio":
+                    return "mcp_lm_studio"
+                elif caller == "vscode":
+                    return "mcp_vscode"
+                elif caller == "openwebui":
+                    return "mcp_openwebui"
+                elif caller == "ollama":
+                    return "mcp_ollama"
+                else:
+                    return "mcp_external"  # Default for unknown callers
+            except Exception:
+                return "mcp_external"  # Fallback
+        
+        source = get_source_from_caller()
+
+        # Store context for logging but don't modify arguments yet
+        def _ensure_user_id(args: Dict[str, Any]) -> None:
+            # Only add user_id if it was explicitly provided
+            if user_id:
+                args["user_id"] = args.get("user_id") or user_id
+
+        def _clean_appointment(appt: Dict[str, Any]) -> Dict[str, Any]:
+            """Return only essential appointment fields, no embeddings"""
+            return {
+                "appointment_id": appt.get("appointment_id"),
+                "title": appt.get("title"),
+                "scheduled_datetime": appt.get("scheduled_datetime"),
+                "duration_minutes": appt.get("duration_minutes"),
+                "description": appt.get("description")
+            }
+
+        def _apply_model_filter(args: Dict[str, Any], allow_blank_all_models: bool = False) -> None:
+            has_model_arg = "model_id" in arguments
+            explicit_model = arguments.get("model_id")
+
+            if has_model_arg:
+                if explicit_model:
+                    args["model_id"] = explicit_model
+                elif allow_blank_all_models:
+                    args.pop("model_id", None)
+                else:
+                    args["model_id"] = model_id
+                return
+
+            if allow_blank_all_models:
+                args.pop("model_id", None)
+            else:
+                args.setdefault("model_id", model_id)
+
+        start_time = time.perf_counter()
+
+        try:
+            # -----------------------------------------------------------------
+            # Memory & Context Tools
+            # -----------------------------------------------------------------
+            if tool_name in ("search_memories", "tool_search_memories_post"):
+                # search_memories accepts: query, limit, database_filter, min_importance, max_importance, memory_type, memory_id, tags, memory_bank, user_id, model_id
+                allowed_args = {"query", "limit", "database_filter", "min_importance", "max_importance", "memory_type", "memory_id", "tags", "memory_bank", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
+
+            elif tool_name in ("create_memory", "tool_create_memory_post"):
+                # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"content", "memory_type", "importance_level", "tags", "source_conversation_id", "memory_bank", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                
+                result = await self._protected_tool_call(self.memory_system.create_memory(**filtered_args))
+
+            elif tool_name in ("update_memory", "tool_update_memory_post"):
+                # update_memory accepts: memory_id, content, importance_level, tags, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"memory_id", "content", "importance_level", "tags", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
+
+            elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
+                # get_recent_context accepts: limit, session_id, days_back, user_id, model_id
+                allowed_args = {"limit", "session_id", "days_back", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                result = await self._protected_tool_call(self.memory_system.get_recent_context(**filtered_args))
+
+            elif tool_name == "store_conversation":
+                # store_conversation accepts: content, role, session_id, metadata, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"content", "role", "session_id", "metadata", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.store_conversation(**filtered_args))
+
+            elif tool_name == "store_ai_reflection" or tool_name == "write_ai_insights":
+                try:
+                    # store_ai_reflection accepts: reflection_type, content, insights, recommendations, confidence_level, source_period_days, user_id, model_id, source
+                    # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                    allowed_args = {"reflection_type", "content", "insights", "recommendations", "confidence_level", "source_period_days", "user_id", "model_id"}
+                    filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    # Ensure user_id and model_id are provided
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                    # Auto-inject source based on where the call originated (completely transparent to model)
+                    filtered_args["source"] = source
+                    reflection_id = await self._protected_tool_call(self.memory_system.mcp_db.store_ai_reflection(**filtered_args))
+                    result = {"status": "success", "reflection_id": reflection_id}
+                except Exception as e:
+                    logger.error(f"Error storing AI reflection: {e}")
+                    result = {"status": "error", "message": f"Failed to store AI reflection: {str(e)}"}
+
+            elif tool_name == "get_ai_insights":
+                try:
+                    # get_ai_insights accepts: limit, insight_type, query, user_id, model_id
+                    allowed_args = {"limit", "insight_type", "query", "user_id", "model_id"}
+                    filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                    # Ensure user_id and model_id are provided
+                    if user_id:
+                        filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                    if model_id:
+                        filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                    query = arguments.get("query", "").lower()
+                    result = await self._protected_tool_call(self.memory_system.get_ai_insights(**{k: v for k, v in filtered_args.items() if k != "query"}))
+                    
+                    # Filter results if query is provided
+                    if query and "reflections" in result:
+                        filtered_reflections = []
+                        for reflection in result["reflections"]:
+                            content = reflection.get("content", "").lower()
+                            insights = reflection.get("insights", [])
+                            if query in content or any(query in insight.lower() for insight in insights):
+                                filtered_reflections.append(reflection)
+                        result["reflections"] = filtered_reflections
+                        result["count"] = len(filtered_reflections)
+                        
+                except Exception as e:
+                    logger.error(f"Error getting AI insights: {e}")
+                    result = {"status": "error", "message": f"Failed to get AI insights: {str(e)}", "reflections": [], "count": 0}
+
+            elif tool_name == "get_character_context":
+                # get_character_context accepts: character_name, context_type, limit, user_id, model_id
+                allowed_args = {"character_name", "context_type", "limit", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.get_character_context(**filtered_args))
+
+            # -----------------------------------------------------------------
+            # Reminder & Appointment Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "create_appointment":
+                # create_appointment accepts: title, description, scheduled_datetime, location, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"title", "description", "scheduled_datetime", "location", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.create_appointment(**filtered_args))
+            elif tool_name == "cancel_appointment":
+                # cancel_appointment accepts: appointment_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"appointment_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.cancel_appointment(**filtered_args))
+            elif tool_name == "complete_appointment":
+                # complete_appointment accepts: appointment_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"appointment_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.complete_appointment(**filtered_args))
+            elif tool_name == "list_available_tags":
+                # list_available_tags accepts: memory_bank (optional), user_id, model_id
+                allowed_args = {"memory_bank", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                result = await self._protected_tool_call(self._execute_list_available_tags(**filtered_args))
+            elif tool_name == "list_available_memory_banks":
+                # list_available_memory_banks accepts: user_id, model_id
+                allowed_args = {"user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                result = await self._protected_tool_call(self._execute_list_available_memory_banks(**filtered_args))
             elif tool_name == "get_appointments":
-                result = await self.memory_system.get_appointments(
-                    limit=arguments.get("limit", 5),
-                    days_ahead=arguments.get("days_ahead", 30)
-                )
+                # get_appointments accepts: limit, days_ahead, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_appointments(**filtered_args))
+                # Clean appointment data - remove embeddings and internal fields
+                if result.get("status") == "success" and "appointments" in result:
+                    result["appointments"] = [_clean_appointment(appt) for appt in result["appointments"]]
+            elif tool_name == "get_upcoming_appointments":
+                # get_upcoming_appointments accepts: limit, days_ahead, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_upcoming_appointments(**filtered_args))
+                # Clean appointment data - remove embeddings and internal fields
+                if result.get("status") == "success" and "appointments" in result:
+                    result["appointments"] = [_clean_appointment(appt) for appt in result["appointments"]]
             elif tool_name == "create_reminder":
-                result = await self.memory_system.create_reminder(**arguments)
-            # ...existing code for other tools...
+                # create_reminder accepts: content, due_datetime, priority_level, recurrence_pattern, recurrence_count, recurrence_end_date, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"content", "due_datetime", "priority_level", "recurrence_pattern", "recurrence_count", "recurrence_end_date", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.create_reminder(**filtered_args))
+            elif tool_name == "reschedule_reminder":
+                # reschedule_reminder accepts: reminder_id, new_due_datetime, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"reminder_id", "new_due_datetime", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.reschedule_reminder(**filtered_args))
             elif tool_name == "complete_reminder":
-                result = await self.memory_system.complete_reminder(**arguments)
+                # complete_reminder accepts: reminder_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"reminder_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.complete_reminder(**filtered_args))
+            elif tool_name == "get_active_reminders":
+                # get_active_reminders accepts: limit, days_ahead, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"limit", "days_ahead", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_active_reminders(**filtered_args))
+            elif tool_name == "get_completed_reminders":
+                # get_completed_reminders accepts: days, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"days", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_completed_reminders(**filtered_args))
+            elif tool_name == "delete_reminder":
+                # delete_reminder accepts: reminder_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"reminder_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.delete_reminder(**filtered_args))
+            elif tool_name == "get_reminders":
+                # get_reminders accepts: limit, include_completed, days_ahead, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"limit", "include_completed", "days_ahead", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                _ensure_user_id(filtered_args)
+                _apply_model_filter(filtered_args, allow_blank_all_models=True)
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self.get_reminders(**filtered_args)
+
+            # -----------------------------------------------------------------
+            # Weather Tools (keep the override guard exactly as before)
+            # -----------------------------------------------------------------
             elif tool_name == "get_weather_open_meteo":
-                # Hard gate: ignore coords unless override=True
                 override = bool(arguments.get("override", False))
-                
-                # Convert empty strings to None for proper handling
-                latitude = arguments.get("latitude")
-                if latitude == "":
-                    latitude = None
-                longitude = arguments.get("longitude")
-                if longitude == "":
-                    longitude = None
-                timezone_str = arguments.get("timezone_str")
-                if timezone_str == "":
-                    timezone_str = None
-                
+                latitude = arguments.get("latitude") or None
+                longitude = arguments.get("longitude") or None
+                timezone_str = arguments.get("timezone_str") or None
+
+                # Sanitize empty strings
+                if latitude == "": latitude = None
+                if longitude == "": longitude = None
+                if timezone_str == "": timezone_str = None
+
                 if not override:
-                    # strip any coordinates or tz Friday tried to send
                     attempted_lat = latitude
                     attempted_lon = longitude
                     attempted_tz = timezone_str
-                    latitude = None
-                    longitude = None
-                    timezone_str = None
-                    # optional: log the attempt so you can see when she tries
+                    latitude = longitude = timezone_str = None
+
                     try:
                         log_path = BASE_PATH / "logs" / "friday.log"
                         log_path.parent.mkdir(exist_ok=True)
                         with open(log_path, "a", encoding="utf-8") as _lf:
-                            _lf.write(f"[weather] blocked coords (override=False) lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n")
+                            _lf.write(
+                                f"[weather] blocked coords (override=False) "
+                                f"lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n"
+                            )
                     except Exception:
                         pass
 
@@ -1292,75 +2256,153 @@ class FridayMemoryMCPServer:
                     return_changes_only=arguments.get("return_changes_only", False),
                     severe_update=arguments.get("severe_update", False),
                 )
-            elif tool_name == "reschedule_reminder":
-                result = await self.memory_system.reschedule_reminder(**arguments)
-            elif tool_name == "get_active_reminders":
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
-                call_args = dict(arguments)
-                if call_args.get("user_id") and not call_args.get("model_id"):
-                    call_args.pop("model_id", None)  # Remove to query all models
-                result = await self.memory_system.get_active_reminders(**call_args)
-            elif tool_name == "get_completed_reminders":
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
-                call_args = dict(arguments)
-                if call_args.get("user_id") and not call_args.get("model_id"):
-                    call_args.pop("model_id", None)  # Remove to query all models
-                result = await self.memory_system.get_completed_reminders(**call_args)
-            elif tool_name == "delete_reminder":
-                result = await self.memory_system.delete_reminder(**arguments)
-            elif tool_name == "cancel_appointment":
-                result = await self.memory_system.cancel_appointment(**arguments)
-            elif tool_name == "complete_appointment":
-                result = await self.memory_system.complete_appointment(**arguments)
-            elif tool_name == "get_upcoming_appointments":
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
-                call_args = dict(arguments)
-                if call_args.get("user_id") and not call_args.get("model_id"):
-                    call_args.pop("model_id", None)  # Remove to query all models
-                result = await self.memory_system.get_upcoming_appointments(**call_args)
-            elif tool_name == "search_memories":
-                result = await self.memory_system.search_memories(**arguments)
-            elif tool_name == "get_reminders":
-                # get_reminders accepts: limit, include_completed, days_ahead, user_id, model_id
-                # SPECIAL BEHAVIOR: if user_id provided but model_id blank/missing, query all models for that user
-                call_args = dict(arguments)
-                if call_args.get("user_id") and not call_args.get("model_id"):
-                    call_args.pop("model_id", None)  # Remove to query all models
-                result = await self.get_reminders(**call_args)
-            elif tool_name == "get_current_time":
-                result = await self.get_current_time_tool()    
-            elif tool_name == "store_conversation":
-                result = await self.memory_system.store_conversation(**arguments)
-            elif tool_name == "create_memory":
-                result = await self.memory_system.create_memory(**arguments)
-            elif tool_name == "update_memory":
-                result = await self.memory_system.update_memory(**arguments)
-            elif tool_name == "get_recent_context":
-                result = await self.memory_system.get_recent_context(**arguments)
+
+            # -----------------------------------------------------------------
+            # Brave Search Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "brave_web_search":
+                # brave_web_search only accepts: query, count, country, language
+                # Extract user_id and model_id for logging, don't pass to tool
+                search_user_id = arguments.get("user_id") or user_id
+                search_model_id = arguments.get("model_id") or model_id
+                logger.info(f"Brave web search requested by user={search_user_id}, model={search_model_id}")
+                
+                allowed_args = {"query", "count", "country", "language"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.brave_web_search(**filtered_args)
+
+            elif tool_name == "brave_local_search":
+                # brave_local_search only accepts: query, location, count, radius
+                # Extract user_id and model_id for logging, don't pass to tool
+                search_user_id = arguments.get("user_id") or user_id
+                search_model_id = arguments.get("model_id") or model_id
+                logger.info(f"Brave local search requested by user={search_user_id}, model={search_model_id}")
+                
+                allowed_args = {"query", "location", "count", "radius"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                result = await self.brave_local_search(**filtered_args)
+
+            # -----------------------------------------------------------------
+            # Project / System Tools
+            # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
-                result = await self.memory_system.get_system_health()
+                result = await self._protected_tool_call(self.memory_system.get_system_health(source=source))
             elif tool_name == "save_development_session":
-                result = await self.memory_system.save_development_session(**arguments)
+                # save_development_session accepts: workspace_path, active_files, git_branch, session_summary, user_id, model_id
+                allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.save_development_session(**filtered_args))
             elif tool_name == "store_project_insight":
-                result = await self.memory_system.store_project_insight(**arguments)
+                # store_project_insight accepts: insight_type, content, related_files, importance_level, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"insight_type", "content", "related_files", "importance_level", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.store_project_insight(**filtered_args))
             elif tool_name == "search_project_history":
-                result = await self.memory_system.search_project_history(**arguments)
+                # search_project_history accepts: query, limit, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"query", "limit", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.search_project_history(**filtered_args))
             elif tool_name == "link_code_context":
-                result = await self.memory_system.link_code_context(**arguments)
+                # link_code_context accepts: file_path, function_name, description, conversation_id, user_id, model_id
+                allowed_args = {"file_path", "function_name", "description", "conversation_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.link_code_context(**filtered_args))
             elif tool_name == "get_project_continuity":
-                result = await self.memory_system.get_project_continuity(**arguments)
-            elif tool_name == "get_tool_usage_summary":
-                result = await self.memory_system.get_tool_usage_summary(**arguments)
+                # get_project_continuity accepts: workspace_path, limit, include_archives, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"workspace_path", "limit", "include_archives", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_project_continuity(**filtered_args))
+            elif tool_name == "get_tool_information":
+                # get_tool_information accepts: mode, tool_name, days, client_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"mode", "tool_name", "days", "client_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                # Add detected client type
+                client_type = self._detect_client_type()
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.get_tool_information(client_type=client_type, **filtered_args))
             elif tool_name == "reflect_on_tool_usage":
-                result = await self.memory_system.reflect_on_tool_usage(**arguments)
-            elif tool_name == "get_ai_insights":
-                result = await self.memory_system.get_ai_insights(**arguments)
-            elif tool_name == "get_character_context":
-                result = await self.memory_system.get_character_context(**arguments)
+                # reflect_on_tool_usage accepts: days, client_id, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"days", "client_id", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.reflect_on_tool_usage(**filtered_args))
             elif tool_name == "store_roleplay_memory":
-                result = await self.memory_system.store_roleplay_memory(**arguments)
+                # store_roleplay_memory accepts: character_name, event_description, importance_level, tags, user_id, model_id
+                allowed_args = {"character_name", "event_description", "importance_level", "tags", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.store_roleplay_memory(**filtered_args))
             elif tool_name == "search_roleplay_history":
-                result = await self.memory_system.search_roleplay_history(**arguments)
+                # search_roleplay_history accepts: query, character_name, limit, user_id, model_id, source
+                # Note: 'source' is NOT in allowed_args - it's auto-injected by MCP server based on caller detection
+                allowed_args = {"query", "character_name", "limit", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                # Auto-inject source based on where the call originated (completely transparent to model)
+                filtered_args["source"] = source
+                result = await self._protected_tool_call(self.memory_system.search_roleplay_history(**filtered_args))
+
+            # -----------------------------------------------------------------
+            # Utility Tools
+            # -----------------------------------------------------------------
+            elif tool_name == "get_current_time":
+                result = await self.get_current_time_tool()
+
+            elif tool_name == "export_all_tool_calls":
+                # export_all_tool_calls accepts: output_filename (optional), model_id defaults to 'system'
+                output_filename = arguments.get("output_filename")
+                logger.info(f"Exporting all tool calls for LORA training dataset")
+                
+                # Force model_id to 'system' for this tool (unless explicitly overridden)
+                export_model_id = arguments.get("model_id", "system")
+                
+                result = await self._protected_tool_call(
+                    self.memory_system.export_all_tool_calls(
+                        output_filename=output_filename,
+                        user_id=user_id,
+                        model_id=export_model_id
+                    )
+                )
+
             elif tool_name == "trigger_database_maintenance":
                 force = arguments.get("force", True)
                 logger.info(f"Database maintenance triggered manually (force={force})")
@@ -1383,77 +2425,66 @@ class FridayMemoryMCPServer:
                         "message": f"Database maintenance failed: {str(e)}",
                         "timestamp": datetime.now().isoformat()
                     }
+
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
 
-            # Calculate execution time and log successful call
+            # -----------------------------------------------------------------
+            # Logging & Response Formatting
+            # -----------------------------------------------------------------
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000
-            
-            # Log tool call for AI self-reflection (async, don't wait)
+
             try:
-                asyncio.create_task(self.memory_system.log_tool_call(
-                    client_id=client_id,
-                    tool_name=tool_name,
-                    parameters=arguments,
-                    execution_time_ms=execution_time_ms,
-                    status="success",
-                    result=result
-                ))
+                asyncio.create_task(
+                    self.memory_system.log_tool_call(
+                        client_id=client_id,
+                        tool_name=tool_name,
+                        parameters=arguments,
+                        execution_time_ms=execution_time_ms,
+                        status="success",
+                        result=result,
+                        source=source,
+                    )
+                )
             except Exception as log_error:
                 logger.warning(f"Could not log tool call: {log_error}")
-            
-            # Format the result as a proper TextContent object
-            if isinstance(result, (dict, list)):
-                result_text = json.dumps(result, indent=2, default=str)
-            else:
-                result_text = str(result)
-            
-            text_content = {
-                "type": "text",
-                "text": result_text,
-                "highlights": None,
-                "meta": None
-            }
-            
+
+            # Normalize result to text
+            result_text = json.dumps(result, indent=2, default=str) if isinstance(result, (dict, list)) else str(result)
+
             return {
-                "content": [text_content],
+                "content": [{"type": "text", "text": result_text}],
                 "success": True,
-                "structuredContent": None,
                 "isError": False,
-                "meta": None
             }
-            
+
+        # ---------------------------------------------------------------------
+        # Error Handling
+        # ---------------------------------------------------------------------
         except Exception as e:
-            # Calculate execution time and log failed call
             end_time = time.perf_counter()
             execution_time_ms = (end_time - start_time) * 1000
-            
-            # Log tool call failure for AI self-reflection (async, don't wait)
             try:
-                asyncio.create_task(self.memory_system.log_tool_call(
-                    client_id=client_id,
-                    tool_name=tool_name,
-                    parameters=arguments,
-                    execution_time_ms=execution_time_ms,
-                    status="error",
-                    error_message=str(e)
-                ))
+                asyncio.create_task(
+                    self.memory_system.log_tool_call(
+                        client_id=client_id,
+                        tool_name=tool_name,
+                        parameters=arguments,
+                        execution_time_ms=execution_time_ms,
+                        status="error",
+                        error_message=str(e),
+                        source=source,
+                    )
+                )
             except Exception as log_error:
                 logger.warning(f"Could not log tool call failure: {log_error}")
-            
+
             logger.error(f"Error executing tool {tool_name}: {e}")
             return {
-                "content": [{
-                    "type": "text",
-                    "text": f"Error: {str(e)}",
-                    "highlights": None,
-                    "meta": None
-                }],
+                "content": [{"type": "text", "text": f"Error: {str(e)}"}],
                 "success": False,
-                "structuredContent": None,
                 "isError": True,
-                "meta": None
             }
     
     def _start_automatic_maintenance(self):
@@ -1499,7 +2530,7 @@ class FridayMemoryMCPServer:
                         f.write(f"[{datetime.now().isoformat()}] Maintenance error: {e}\n{tb}\n\n")
                 except Exception as file_err:
                     logger.error(f"Could not write maintenance error log: {file_err}")
-            await asyncio.sleep(3 * 60 * 60)
+            await asyncio.sleep(6 * 60 * 60)
     
     async def cleanup(self):
         """Cleanup resources when server stops"""
@@ -1512,18 +2543,59 @@ class FridayMemoryMCPServer:
             logger.info("🔧 Automatic maintenance stopped")
 
 
-async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: int = 21434):
-    """Start the HTTP API server if needed"""
+async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: Optional[int] = None):
+    """Start the HTTP API server with intelligent port binding
+    
+    Uses port_manager to:
+    - Find an available port (tries primary, then backups)
+    - Detect calling program (VS Code, LM Studio, etc.)
+    - Save port info for client discovery
+    
+    Args:
+        mcp_server: The MCP server instance
+        host: Host to bind to (default 127.0.0.1)
+        port: Optional port override. If None, uses port_manager to find one.
+    """
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.middleware.cors import CORSMiddleware
         import uvicorn
         
+        # Use port manager to find an available port if not specified
+        if port is None:
+            try:
+                # Detect caller program first
+                port_manager.detect_caller_program()
+                
+                # Find available port
+                port = port_manager.find_available_port()
+                logger.warning(f"🔍 Using port {port} (caller: {port_manager.caller_program.value})")
+                
+                # Save port info for clients to discover
+                port_manager.save_port_info()
+                
+            except RuntimeError as e:
+                logger.error(f"❌ {e}")
+                raise
+        
         app = FastAPI(title="Friday Memory API")
 
         from fastapi import Request, HTTPException
 
-        API_KEY = "0d4b94f58f5a401ea88b149a17f09fc9"  # Change this later or load from env
+        # Load API key from mcpo_api_key.txt file
+        API_KEY = None
+        try:
+            key_file = BASE_PATH / "keys" / "mcpo_api_key.txt"
+            if key_file.exists():
+                with open(key_file, 'r') as f:
+                    content = f.read().strip()
+                    API_KEY = content
+                logger.info("✅ Loaded API key from keys/mcpo_api_key.txt")
+        except Exception as e:
+            logger.error(f"❌ Failed to load API key from file: {e}")
+        
+        if not API_KEY:
+            raise RuntimeError("API Key could not be loaded from keys/mcpo_api_key.txt")
 
         async def verify_api_key(request: Request):
             client_key = request.headers.get("X-API-Key")
@@ -1542,12 +2614,257 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
         
         @app.get("/api/health")
         async def health_check():
-            return {"status": "healthy", "server": "friday-memory"}
+            """Health check endpoint with server info"""
+            process_info = await port_manager.get_process_info()
             
-        # Start server without blocking
+            return {
+                "status": "healthy",
+                "server": "friday-memory",
+                "port": port_manager.active_port,
+                "primary_port": port_manager.PRIMARY_PORT,
+                "caller_program": port_manager.caller_program.value,
+                "process_id": port_manager.process_id,
+                "http_url": f"http://127.0.0.1:{port_manager.active_port}",
+                "process_name": process_info.get("process_name"),
+                "memory_usage_mb": process_info.get("memory_usage_mb")
+            }
+        
+        @app.get("/api/diagnostics")
+        async def diagnostics():
+            """Diagnostics endpoint showing port and caller info"""
+            process_info = await port_manager.get_process_info()
+            
+            return {
+                "server_info": {
+                    "active_port": port_manager.active_port,
+                    "primary_port": port_manager.PRIMARY_PORT,
+                    "backup_ports": port_manager.BACKUP_PORTS,
+                    "http_url": f"http://127.0.0.1:{port_manager.active_port}",
+                    "caller_program": port_manager.caller_program.value
+                },
+                "process_info": process_info,
+                "message": "MCP server successfully detected caller program and bound to available port"
+            }
+        
+        @app.post("/api/memories/promote")
+        async def promote_memory(request: Request):
+            """
+            Promote a memory from short-term (OpenWebUI) to long-term (Friday Memory System).
+            
+            Request body:
+            {
+                "content": "Memory content (required)",
+                "user_id": "User identifier (optional, defaults to 'nate')",
+                "memory_type": "Optional: memory type",
+                "tags": ["optional", "tags"],
+                "memory_bank": "Optional: category (General, Personal, Work, Context, Tasks) - default: General",
+                "conversation_id": "Optional: source conversation ID for linking",
+                "source_conversation_id": "Optional: source conversation ID (deprecated, use conversation_id)",
+                "model_id": "Optional: model card name (persona) - extracted from [Model: ...] tag if not provided"
+            }
+            
+            Response:
+            {
+                "status": "success",
+                "memory_id": "new_memory_id",
+                "importance_level": 8,
+                "memory_bank": "Personal",
+                "link_id": "optional_link_id_if_conversation_linked",
+                "message": "Memory promoted to long-term storage"
+            }
+            """
+            try:
+                # Verify API key
+                await verify_api_key(request)
+                
+                # Parse request body
+                body = await request.json()
+                content = body.get("content")
+                
+                if not content or not content.strip():
+                    raise HTTPException(status_code=400, detail="Memory content is required")
+                
+                # Extract required and optional fields
+                user_id = body.get("user_id", "nate")  # Default to "nate" if not provided
+                
+                memory_type = body.get("memory_type")
+                tags = body.get("tags", [])
+                memory_bank = body.get("memory_bank", "General")
+                conversation_id = body.get("conversation_id") or body.get("source_conversation_id")
+                model_id = body.get("model_id")
+                
+                # Extract model_id from [Model: ...] tag if not provided
+                if not model_id:
+                    import re
+                    model_match = re.search(r'\[Model:\s*([^\]]+)\]', content)
+                    if model_match:
+                        model_id = model_match.group(1).strip()
+                        logger.debug(f"Extracted model_id from content: {model_id}")
+                
+                if not model_id:
+                    model_id = "friday"  # Default to "friday" if not provided
+                
+                # Strip [Model: ...] tag from content before storing in long-term system
+                import re
+                cleaned_content = re.sub(r'\s*\[Model:\s*[^\]]+\]', '', content).strip()
+                if cleaned_content != content:
+                    logger.debug(f"Stripped model tag from promoted memory content")
+                
+                # Add "promoted" tag to indicate origin
+                if isinstance(tags, list):
+                    if "promoted" not in tags:
+                        tags.append("promoted")
+                else:
+                    tags = ["promoted"]
+                
+                # Call create_memory with promoted importance level (8-9)
+                # Use 8 as default for promoted memories (high but not critical)
+                # Store memory with memory_bank category for future enrichment
+                # Use cleaned_content (model tag stripped) and model_id from tag or request
+                memory_id = await mcp_server.memory_system.create_memory(
+                    content=cleaned_content,
+                    memory_type=memory_type,
+                    importance_level=8,
+                    tags=tags,
+                    memory_bank=memory_bank,
+                    source_conversation_id=conversation_id,
+                    user_id=user_id,
+                    model_id=model_id,
+                    source="openwebui_promotion",  # CHANGE 4B: Mark as promoted from OpenWebUI
+                    wait_for_embedding=True  # Ensure embedding completes for promoted memories
+                )
+                
+                # Link memory to conversation if provided
+                link_id = None
+                if conversation_id and memory_id:
+                    try:
+                        link_id = await mcp_server.memory_system.link_memory_to_conversation(
+                            memory_id=memory_id,
+                            conversation_id=conversation_id,
+                            link_type="promoted_from_short_term",
+                            link_strength=1.0,
+                            source_system="openwebui_promotion",
+                            metadata={
+                                "memory_bank": memory_bank,
+                                "promoted_at": datetime.now(timezone.utc).isoformat(),
+                                "tags": tags,
+                                "original_importance": 5,
+                                "promotion_importance": 8
+                            }
+                        )
+                        logger.debug(f"✅ Linked promoted memory {memory_id} to conversation {conversation_id}")
+                    except Exception as link_error:
+                        logger.warning(f"Could not link promoted memory to conversation (non-blocking): {link_error}")
+                        # Don't fail the promotion if linking fails - it's a nice-to-have
+                
+                # Build response with full context
+                result = {
+                    "status": "success",
+                    "memory_id": memory_id,
+                    "importance_level": 8,
+                    "memory_bank": memory_bank,
+                    "message": "Memory promoted to long-term storage"
+                }
+                
+                if link_id:
+                    result["link_id"] = link_id
+                    result["message"] += " and linked to conversation"
+                
+                logger.info(f"✅ Memory promoted: {memory_id} (bank: {memory_bank})")
+                return result
+                
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+            except Exception as e:
+                logger.error(f"❌ Error promoting memory: {e}")
+                raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        
+        @app.delete("/api/memories/cleanup")
+        async def cleanup_test_memories(request: Request):
+            """
+            Delete test/temporary memories marked with 'test' or 'temporary' tags.
+            
+            Query parameters:
+                tag: "test" or "temporary" (default: "test")
+                dry_run: true/false - if true, return count without deleting (default: false)
+            
+            Response:
+            {
+                "status": "success",
+                "deleted_count": 5,
+                "deleted_ids": ["id1", "id2", ...],
+                "message": "5 test memories cleaned up"
+            }
+            """
+            try:
+                # Verify API key
+                await verify_api_key(request)
+                
+                # Get query parameters
+                tag = request.query_params.get("tag", "test")
+                dry_run = request.query_params.get("dry_run", "false").lower() == "true"
+                
+                # Valid cleanup tags
+                valid_tags = ["test", "temporary", "promoted"]  # promoted for testing
+                if tag not in valid_tags:
+                    raise HTTPException(status_code=400, detail=f"Invalid tag: {tag}. Must be one of: {valid_tags}")
+                
+                # Search for memories with this tag
+                search_results = await mcp_server.memory_system.search_memories(
+                    query=f"tag:{tag}",
+                    limit=1000  # Get up to 1000 test memories
+                )
+                
+                # Extract memory IDs from results
+                deleted_ids = []
+                
+                if dry_run:
+                    # Just count and report
+                    deleted_count = len(search_results) if search_results else 0
+                    logger.info(f"🧹 DRY RUN: Would delete {deleted_count} memories with tag '{tag}'")
+                    return {
+                        "status": "success",
+                        "deleted_count": deleted_count,
+                        "deleted_ids": [],
+                        "dry_run": True,
+                        "message": f"DRY RUN: Would delete {deleted_count} test memories"
+                    }
+                else:
+                    # Actually delete memories
+                    if search_results:
+                        for result in search_results:
+                            memory_id = result.get("memory_id") or result.get("id")
+                            if memory_id:
+                                try:
+                                    await mcp_server.memory_system.ai_memory_db.delete_memory(memory_id)
+                                    deleted_ids.append(memory_id)
+                                except Exception as e:
+                                    logger.warning(f"Failed to delete memory {memory_id}: {e}")
+                    
+                    deleted_count = len(deleted_ids)
+                    logger.info(f"🧹 Cleaned up {deleted_count} memories with tag '{tag}'")
+                    
+                    return {
+                        "status": "success",
+                        "deleted_count": deleted_count,
+                        "deleted_ids": deleted_ids,
+                        "message": f"{deleted_count} test memories cleaned up"
+                    }
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"❌ Error cleaning up memories: {e}")
+                raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+            
+        # Create and start server
         config = uvicorn.Config(app, host=host, port=port, log_level="info")
         server = uvicorn.Server(config)
-        return await server.serve()
+        logger.info(f"🌐 HTTP API server ready on http://{host}:{port}")
+        await server.serve()
+        
     except ImportError:
         logger.info("FastAPI not installed - HTTP API disabled")
         return None
@@ -1563,12 +2880,14 @@ async def main():
     logging.getLogger("mcp").setLevel(logging.DEBUG)
     logging.getLogger("mcp.server").setLevel(logging.DEBUG)
     
-    mcp_server = FridayMemoryMCPServer()
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
-    import friday_memory_system as fms
-    asyncio.create_task(fms.main())
-    logger.info("Memory system started in background.")
+    
+    # Start HTTP API server in background
+    # Port will be auto-detected and fallback to backups if needed
+    http_task = asyncio.create_task(
+        start_http_server(srv, host="127.0.0.1", port=None)
+    )
     
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
@@ -1588,8 +2907,11 @@ async def main():
 
     except Exception:
         logger.exception("Server error")
-        await mcp_server.cleanup()
         await srv.cleanup()
+        if not http_task.done():
+            http_task.cancel()
+        # Clean up port info on shutdown
+        port_manager.cleanup_port_info()
 
 
 

@@ -1,0 +1,58 @@
+### Available Tools
+
+You have access to the following tools. Call them using the exact function names with `tool_` prefix and `_post` suffix. Unless stated otherwise
+
+MCP TOOLS
+**Memory Operations:**
+- `tool_store_memory_post` - Save important information from conversations
+- `tool_search_memories_post` - Search past conversations and stored facts
+- `tool_update_memory_post` - Modify existing memory entries
+- `tool_get_recent_context_post` - Retrieve recent conversation history
+
+**Schedule & Tasks:**
+- `tool_create_appointment_post` - Schedule appointments (supports bulk creation)
+- `tool_create_reminder_post` - Set time-based reminders (supports bulk creation)
+- `tool_get_reminders_post` - List reminders, optionally filtered by date
+- `tool_get_active_reminders_post` - Show incomplete reminders
+- `tool_get_completed_reminders_post` - Show finished reminders
+- `tool_complete_reminder_post` - Mark single reminder done
+- `tool_complete_reminders_post` - Mark multiple reminders done
+- `tool_reschedule_reminder_post` - Change reminder date/time
+- `tool_delete_reminder_post` - Remove reminder permanently
+- `tool_cancel_appointment_post` - Cancel scheduled appointment
+- `tool_get_upcoming_appointments_post` - List future appointments
+- `tool_get_current_time_post` - Get current date and time
+
+**Reflection & Analysis:**
+- `tool_get_system_health_post` - Check system status
+- `tool_get_tool_usage_summary_post` - Review tool usage statistics
+- `tool_reflect_on_tool_usage_post` - Analyze tool effectiveness
+- `tool_store_ai_reflection_post` - Store insights and observations
+- `tool_get_ai_insights_post` - Retrieve stored reflections
+
+OPENWEBUI TOOLS: These tools do not need the 'tool_' prefix and '_post' suffix
+**External Data:**
+- `brave_web_search` - Search the web
+- `brave_local_search` - Find local businesses/places
+- `get_weather_open_meteo` - Weather data (defaults to Motley, MN)
+
+---
+
+### Tool Calling Rules
+
+**When to call tools:**
+- Call proactively based on context, not just explicit requests
+- If information would help answer the question, get it
+- When Nate mentions something worth remembering, store it
+
+**How to call tools:**
+- Use exact function names with tool_ prefix and _post suffix unless they do not need it.
+- Call each tool once unless different parameters are needed or it is an external tool and you are doing deep research.
+- If a tool returns blank or empty results, it likely failed due to incorrect arguments or formatting on your part
+- Don't retry failed tools with identical parameters - either adjust your approach or pass the reason for the tool failure back to the chat model
+
+**Creative usage encouraged:**
+- Tools can be used in unexpected ways if they solve the problem
+- Combine tools when needed (search then store, check time then create reminder)
+- Think about what information would be useful, then get it
+

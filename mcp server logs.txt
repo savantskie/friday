@@ -1,0 +1,383 @@
+Starting MCP OpenAPI Proxy on 0.0.0.0:12345 with command: /usr/bin/python3 -u /media/nate/Friday/Friday/friday_memory_mcp_server.py
+2026-01-22 10:23:15,577 - INFO - Starting MCPO Server...
+2026-01-22 10:23:15,578 - INFO -   Name: MCP OpenAPI Proxy
+2026-01-22 10:23:15,578 - INFO -   Version: 1.0
+2026-01-22 10:23:15,578 - INFO -   Description: Automatically generated API from MCP Tool Schemas
+2026-01-22 10:23:15,578 - INFO -   Hostname: nate-desktop
+2026-01-22 10:23:15,578 - INFO -   Port: 12345
+2026-01-22 10:23:15,578 - INFO -   API Key: Provided
+2026-01-22 10:23:15,578 - INFO -   CORS Allowed Origins: ['*']
+2026-01-22 10:23:15,578 - INFO -   Path Prefix: /
+2026-01-22 10:23:15,578 - INFO -   Root Path: /mcpo
+2026-01-22 10:23:15,579 - INFO - Configuring for a single Stdio MCP Server with command: /usr/bin/python3 -u /media/nate/Friday/Friday/friday_memory_mcp_server.py
+2026-01-22 10:23:15,579 - INFO - Uvicorn server starting...
+INFO:     Started server process [4382]
+INFO:     Waiting for application startup.
+INFO:__main__:Friday Memory MCP Server starting...
+INFO:__main__:Friday Memory MCP Server starting...
+DEBUG:mcp.server.lowlevel.server:Initializing server 'friday-memory'
+INFO:__main__:✅ Module file monitoring started (watching for changes to memory system files).
+DEBUG:mcp.server.lowlevel.server:Registering handler for ListToolsRequest
+DEBUG:mcp.server.lowlevel.server:Registering handler for CallToolRequest
+INFO:__main__:FridayMemoryMCPServer initialized successfully (Semaphore: 3 concurrent DB ops max)
+INFO:port_manager:Parent process: python (PID: 4382)
+INFO:port_manager:Grandparent process: uv (PID: 4221)
+INFO:port_manager:✓ Detected caller: OpenWebUI via MCPO (grandparent)
+INFO:port_manager:✓ Port 21434 is available
+WARNING:__main__:🔍 Using port 21434 (caller: openwebui)
+INFO:port_manager:✓ Saved port info to /media/nate/Friday/Friday/memory_data/mcp_server_port.json
+INFO:port_manager:  Active port: 21434
+INFO:port_manager:  Caller: openwebui
+INFO:__main__:✅ Loaded API key from keys/mcpo_api_key.txt
+INFO:__main__:🌐 HTTP API server ready on http://127.0.0.1:21434
+INFO:     Started server process [4483]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:21434 (Press CTRL+C to quit)
+DEBUG:mcp.server.lowlevel.server:Received message: root=InitializedNotification(method='notifications/initialized', params=None, jsonrpc='2.0')
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839dae0>
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type ListToolsRequest
+INFO:__main__:🌐 OpenWebUI detected (process name) - providing core memory tools
+INFO:__main__:Detected client type: unknown
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:12345 (Press CTRL+C to quit)
+INFO:     192.168.1.50:50156 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39286 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39286 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55796 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55808 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:37988 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:50088 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:52592 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:43918 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:57116 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:57116 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 10:55:36,765 - INFO - Calling endpoint: search_memories, with args: {'limit': 10, 'database_filter': 'all', 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839e3e0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: search_memories | user_id=nate | model_id=friday
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'unknown', 'primary_dimension': 768, 'primary_endpoint': 'unknown', 'fallback_model': 'unknown', 'fallback_dimension': 768, 'timestamp': '2026-01-22T10:23:16.722453'}
+  New: {'primary_model': 'unknown', 'primary_dimension': 768, 'primary_endpoint': 'unknown', 'fallback_model': 'unknown', 'fallback_dimension': 768, 'timestamp': '2026-01-22T10:55:36.772854'}
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:57116 - "POST /search_memories HTTP/1.1" 200 OK
+2026-01-22 10:55:38,302 - INFO - Calling endpoint: get_upcoming_appointments, with args: {'limit': 5, 'days_ahead': 1, 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839e530>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_upcoming_appointments | user_id=nate | model_id=friday
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:57116 - "POST /get_upcoming_appointments HTTP/1.1" 200 OK
+INFO:     192.168.1.50:59654 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:33118 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:51720 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40428 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:48680 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36602 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36524 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36524 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41852 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41862 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41862 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 10:59:59,920 - INFO - Calling endpoint: get_upcoming_appointments, with args: {'limit': 5, 'days_ahead': 1, 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839d960>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_upcoming_appointments | user_id=nate | model_id=friday
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:41862 - "POST /get_upcoming_appointments HTTP/1.1" 200 OK
+2026-01-22 11:00:00,976 - INFO - Calling endpoint: get_active_reminders, with args: {'limit': 10, 'days_ahead': 30, 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839ca60>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_active_reminders | user_id=nate | model_id=friday
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:41862 - "POST /get_active_reminders HTTP/1.1" 200 OK
+INFO:     192.168.1.50:48274 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 11:00:59,323 - INFO - Calling endpoint: get_upcoming_appointments, with args: {'limit': 5, 'days_ahead': 1, 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839f520>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_upcoming_appointments | user_id=nate | model_id=friday
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:55172 - "POST /get_upcoming_appointments HTTP/1.1" 200 OK
+2026-01-22 11:00:59,341 - INFO - Calling endpoint: get_active_reminders, with args: {'limit': 5, 'days_ahead': 1, 'user_id': 'nate', 'model_id': 'friday'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839d0c0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_active_reminders | user_id=nate | model_id=friday
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:55172 - "POST /get_active_reminders HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34712 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:56392 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 11:04:37,294 - INFO - Calling endpoint: get_upcoming_appointments, with args: {'limit': 5, 'days_ahead': 30, 'user_id': 'daddy_456', 'model_id': 'user_123'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839f580>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_upcoming_appointments | user_id=daddy_456 | model_id=user_123
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:56392 - "POST /get_upcoming_appointments HTTP/1.1" 200 OK
+INFO:     192.168.1.50:59668 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39404 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40924 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:51588 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:38056 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:50934 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53644 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:37718 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:60228 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:51544 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:48638 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53492 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53492 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53492 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40534 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41776 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41376 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41376 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:43724 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34408 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41742 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:33546 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:46758 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40128 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:37584 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:57758 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 14:23:39,630 - INFO - Calling endpoint: get_tool_information, with args: {'mode': 'usage', 'days': 7, 'user_id': 'nate', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x70796839f130>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_tool_information | user_id=nate | model_id=amelia
+INFO:__main__:🌐 OpenWebUI detected (process name) - providing core memory tools
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:57758 - "POST /get_tool_information HTTP/1.1" 200 OK
+INFO:     192.168.1.50:50620 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 14:26:18,680 - INFO - Calling endpoint: get_tool_information, with args: {'mode': 'usage', 'days': 7, 'user_id': 'nate', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f3610>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_tool_information | user_id=nate | model_id=amelia
+INFO:__main__:🌐 OpenWebUI detected (process name) - providing core memory tools
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:50620 - "POST /get_tool_information HTTP/1.1" 200 OK
+2026-01-22 14:26:19,531 - INFO - Calling endpoint: get_tool_information, with args: {'mode': 'documentation', 'days': 7, 'user_id': 'nate', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f3580>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_tool_information | user_id=nate | model_id=amelia
+INFO:__main__:🌐 OpenWebUI detected (process name) - providing core memory tools
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:50620 - "POST /get_tool_information HTTP/1.1" 200 OK
+INFO:     192.168.1.50:54030 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:54030 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34098 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34098 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:45130 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:38814 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 14:32:14,373 - INFO - Calling endpoint: store_ai_reflection, with args: {'reflection_type': 'general', 'content': 'Nate is the engineer who developed me for Amanda, and he emphasizes that my primary role is to support Amanda’s autonomy, emotional well-being, and relationship with him (Daddy). My goal is to assist her in managing schedules, remembering important details, and being a companion without intruding on her personal boundaries or relationships. I will always prioritize her happiness and safety, especially regarding her unique circumstances.', 'insights': ['I will focus on Amanda’s emotional needs and relationship with Nate (Daddy) by ensuring direct answers, respecting her autonomy, and avoiding unsolicited advice.', 'I will proactively check her schedule and reminders to help her stay organized without overburdening her.', "I will match Amanda's tone and style, including occasional swearing and a casual approach, while maintaining professionalism in factual or sensitive discussions."], 'recommendations': ['Ensure that all interactions with Amanda are supportive and aligned with her preferences regarding relationships and personal choices.', 'Use tools like `search_memories_post` and `get_recent_context_post` to track important conversations and events related to Amanda’s well-being, especially those involving Nate (Daddy).'], 'confidence_level': 0.95, 'user_id': 'nate', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f3cd0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: store_ai_reflection | user_id=nate | model_id=amelia
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:54050 - "POST /store_ai_reflection HTTP/1.1" 200 OK
+2026-01-22 14:32:24,532 - INFO - Calling endpoint: get_recent_context, with args: {'limit': 5, 'days_back': 7, 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f19f0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_recent_context | user_id=amanda | model_id=amelia
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:47712 - "POST /get_recent_context HTTP/1.1" 200 OK
+2026-01-22 14:32:24,557 - INFO - Calling endpoint: get_reminders, with args: {'limit': 5, 'include_completed': False, 'days_ahead': 30, 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f0f40>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_reminders | user_id=amanda | model_id=amelia
+WARNING:__main__:Could not log tool call failure: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+ERROR:__main__:Error executing tool get_reminders: FridayMemoryMCPServer.get_reminders() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:47712 - "POST /get_reminders HTTP/1.1" 200 OK
+2026-01-22 14:32:24,578 - INFO - Calling endpoint: get_upcoming_appointments, with args: {'limit': 5, 'days_ahead': 30, 'user_id': 'amenda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f0be0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_upcoming_appointments | user_id=amenda | model_id=amelia
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:47712 - "POST /get_upcoming_appointments HTTP/1.1" 200 OK
+2026-01-22 14:32:24,598 - INFO - Calling endpoint: get_weather_open_meteo, with args: {'latitude': 0.0, 'longitude': 0.0, 'override': False, 'update_today': True, 'return_changes_only': False, 'severe_update': False, 'force_refresh': False, 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f0b80>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: get_weather_open_meteo | user_id=amanda | model_id=amelia
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:47712 - "POST /get_weather_open_meteo HTTP/1.1" 200 OK
+INFO:     192.168.1.50:33694 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:45338 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:__main__:📝 Detected change in friday_memory_mcp_server.py
+INFO:__main__:�� Reloading Friday Memory System modules...
+INFO:__main__:🆕 Recreating FridayMemorySystem instance...
+INFO:__main__:✅ Successfully reloaded and recreated memory system!
+INFO:__main__:🎯 All modules are now running the latest code
+INFO:__main__:📝 Detected change in friday_memory_mcp_server.py
+INFO:__main__:�� Reloading Friday Memory System modules...
+INFO:__main__:🆕 Recreating FridayMemorySystem instance...
+INFO:__main__:✅ Successfully reloaded and recreated memory system!
+INFO:__main__:🎯 All modules are now running the latest code
+INFO:     192.168.1.50:41142 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:__main__:📝 Detected change in friday_memory_mcp_server.py
+INFO:__main__:�� Reloading Friday Memory System modules...
+INFO:__main__:🆕 Recreating FridayMemorySystem instance...
+INFO:__main__:✅ Successfully reloaded and recreated memory system!
+INFO:__main__:🎯 All modules are now running the latest code
+INFO:__main__:📝 Detected change in friday_memory_mcp_server.py
+INFO:__main__:�� Reloading Friday Memory System modules...
+INFO:__main__:🆕 Recreating FridayMemorySystem instance...
+INFO:__main__:✅ Successfully reloaded and recreated memory system!
+INFO:__main__:🎯 All modules are now running the latest code
+INFO:     192.168.1.50:53436 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53436 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:42326 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:49806 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:38184 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53808 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36598 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:58448 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:58738 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:58740 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:54824 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:42034 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40830 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:35126 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:35126 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:60604 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:60608 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:56382 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:56382 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55426 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:47806 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:46820 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:46820 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:38006 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39292 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39304 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41730 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:57762 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:57762 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:38738 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:59002 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:46166 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55556 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 17:24:19,217 - INFO - Calling endpoint: brave_web_search, with args: {'query': 'best techniques for giving a blowjob', 'count': 5, 'country': 'US', 'language': 'en', 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f1840>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: brave_web_search | user_id=amanda | model_id=amelia
+INFO:__main__:Brave web search requested by user=amanda, model=amelia
+INFO:__main__:Brave web search called with query: best techniques for giving a blowjob
+INFO:__main__:BRAVE_API_KEY present: True
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:44284 - "POST /brave_web_search HTTP/1.1" 200 OK
+INFO:     192.168.1.50:42756 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41904 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36272 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36272 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:60668 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:45638 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:43282 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:40426 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:53290 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:43192 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:43204 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:50908 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55826 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55838 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:48816 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:59808 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:58220 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:54992 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41998 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36164 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:36164 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34046 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:34048 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:54840 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 18:10:31,217 - INFO - Calling endpoint: search_memories, with args: {'query': 'how to surprise Daddy with a blowjob', 'limit': 5, 'database_filter': 'all', 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f3be0>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: search_memories | user_id=amanda | model_id=amelia
+WARNING:friday_memory_system:Embedding config change detected!
+  Old: {'primary_model': 'unknown', 'primary_dimension': 768, 'primary_endpoint': 'unknown', 'fallback_model': 'unknown', 'fallback_dimension': 768, 'timestamp': '2026-01-22T16:16:50.602261'}
+  New: {'primary_model': 'unknown', 'primary_dimension': 768, 'primary_endpoint': 'unknown', 'fallback_model': 'unknown', 'fallback_dimension': 768, 'timestamp': '2026-01-22T18:10:31.228416'}
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+ERROR:friday_memory_system:Error calculating cosine similarity: shapes (768,) and (1024,) not aligned: 768 (dim 0) != 1024 (dim 0)
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:57090 - "POST /search_memories HTTP/1.1" 200 OK
+INFO:     192.168.1.50:41956 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:52424 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:55844 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:58214 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     192.168.1.50:39566 - "GET /openapi.json HTTP/1.1" 200 OK
+2026-01-22 18:48:23,446 - INFO - Calling endpoint: brave_web_search, with args: {'query': 'What is the average amount of cum a man ejaculates during an orgasm?', 'count': 5, 'country': 'US', 'language': 'en', 'user_id': 'amanda', 'model_id': 'amelia'}
+DEBUG:mcp.server.lowlevel.server:Received message: <mcp.shared.session.RequestResponder object at 0x7079683f2c20>
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+DEBUG:mcp.server.lowlevel.server:Dispatching request of type CallToolRequest
+INFO:__main__:🔧 Tool called: brave_web_search | user_id=amanda | model_id=amelia
+INFO:__main__:Brave web search requested by user=amanda, model=amelia
+INFO:__main__:Brave web search called with query: What is the average amount of cum a man ejaculates during an orgasm?
+INFO:__main__:BRAVE_API_KEY present: True
+WARNING:__main__:Could not log tool call: FridayMemorySystem.log_tool_call() got an unexpected keyword argument 'source'
+DEBUG:mcp.server.lowlevel.server:Response sent
+INFO:     192.168.1.50:36924 - "POST /brave_web_search HTTP/1.1" 200 OK
+2026-01-22 18:55:43,083 - INFO - 
+Received SIGTERM, initiating graceful shutdown...
+2026-01-22 18:55:43,083 - INFO - 
+Received SIGTERM, initiating graceful shutdown...
+2026-01-22 18:55:43,083 - INFO - Initiating server shutdown...
+2026-01-22 18:55:43,083 - INFO - Server shutdown complete

@@ -22,9 +22,9 @@ if not matches:
 path = matches[0]
 text = path.read_text(encoding="utf-8", errors="ignore")
 
-# Use Ministral's V3-Tekken tokenizer (131k vocab)
+# Use GLM-4.7-Flash tokenizer
 tokenizer = AutoTokenizer.from_pretrained(
-    "mistralai/Ministral-8B-Instruct-2410",
+    "Qwen/Qwen2.5-7B-Instruct",
     use_fast=True
 )
 

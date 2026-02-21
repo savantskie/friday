@@ -141,6 +141,8 @@ class ConversationDatabase(DatabaseManager):
                     end_timestamp TEXT,
                     topic_summary TEXT,
                     embedding BLOB,
+                    user_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES sessions (session_id)
                 )
@@ -151,7 +153,7 @@ class ConversationDatabase(DatabaseManager):
             expected_columns = [
                 'message_id', 'conversation_id', 'timestamp', 'role', 'content', 'source_type',
                 'source_id', 'source_url', 'source_metadata', 'sync_status', 'last_sync',
-                'metadata', 'embedding', 'created_at', 'source'
+                'metadata', 'embedding', 'created_at', 'source', 'user_id', 'model_id'
             ]
             # Get current columns
             cur = conn.execute("PRAGMA table_info(messages)")
@@ -187,6 +189,8 @@ class ConversationDatabase(DatabaseManager):
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         source TEXT DEFAULT 'direct',
+                        user_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
                         FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
                     )
                 """)
@@ -227,6 +231,9 @@ class ConversationDatabase(DatabaseManager):
                         metadata TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        source TEXT DEFAULT 'direct',
+                        user_id TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
                         FOREIGN KEY (conversation_id) REFERENCES conversations (conversation_id)
                     )
                 """)
@@ -691,7 +698,7 @@ class AIMemoryDatabase(DatabaseManager):
             expected_columns = [
                 'memory_id', 'timestamp_created', 'timestamp_updated', 'source_conversation_id',
                 'source_message_ids', 'memory_type', 'content', 'importance_level', 'tags',
-                'embedding', 'embedding_dimension', 'user_id', 'model_id', 'memory_bank', 'created_at', 'updated_at'
+                'embedding', 'embedding_dimension', 'user_id', 'model_id', 'memory_bank', 'source', 'created_at', 'updated_at'
             ]
 
             # --- Check and migrate existing table ---
@@ -705,6 +712,8 @@ class AIMemoryDatabase(DatabaseManager):
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
             if "memory_bank" not in current_columns:
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN memory_bank TEXT DEFAULT 'General'")
+            if "source" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN source TEXT DEFAULT 'direct'")
             if "embedding_dimension" not in current_columns:
                 conn.execute("ALTER TABLE curated_memories ADD COLUMN embedding_dimension INTEGER")
             if "updated_at" not in current_columns:
@@ -776,6 +785,7 @@ class AIMemoryDatabase(DatabaseManager):
                         user_id TEXT,
                         model_id TEXT DEFAULT 'Friday',
                         memory_bank TEXT DEFAULT 'General',
+                        source TEXT DEFAULT 'direct',
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                     )
@@ -846,7 +856,7 @@ class AIMemoryDatabase(DatabaseManager):
         return memory_id
     
     async def update_memory(self, memory_id: str, content: str = None, 
-                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None, source: str = None) -> bool:
+                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None, source: str = "direct") -> bool:
         """Update an existing memory"""
         
         if not user_id or not model_id:
@@ -870,6 +880,10 @@ class AIMemoryDatabase(DatabaseManager):
         if tags is not None:
             updates.append("tags = ?")
             params.append(json.dumps(tags))
+        
+        if source is not None:
+            updates.append("source = ?")
+            params.append(source)
         
         params.append(memory_id)
         params.append(user_id)
@@ -1099,8 +1113,9 @@ class ScheduleDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR REMINDERS TABLE ---
             reminders_expected = [
                 'reminder_id', 'timestamp_created', 'due_datetime', 'content', 'priority_level',
-                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'embedding', 'created_at',
-                'user_id', 'model_id'
+                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'conversation_title',
+                'urgency_level', 'notification_sent_at', 'notification_status', 'escalation_count',
+                'last_escalated_at', 'embedding', 'created_at', 'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(reminders)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1125,6 +1140,12 @@ class ScheduleDatabase(DatabaseManager):
                         is_completed INTEGER DEFAULT 0,
                         completed_at TEXT,
                         source_conversation_id TEXT,
+                        conversation_title TEXT,
+                        urgency_level INTEGER DEFAULT 1,
+                        notification_sent_at TEXT,
+                        notification_status TEXT CHECK(notification_status IN ('pending', 'sent', 'read', 'dismissed')),
+                        escalation_count INTEGER DEFAULT 0,
+                        last_escalated_at TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         user_id TEXT NOT NULL DEFAULT 'unknown',
@@ -1145,6 +1166,14 @@ class ScheduleDatabase(DatabaseManager):
                                 row_dict[col] = row_dict.get('completed', 0)  # Copy from completed field
                             elif col == 'completed_at':
                                 row_dict[col] = None  # No completion timestamp for migrated reminders
+                            elif col == 'conversation_title':
+                                row_dict[col] = None  # Will be populated on next interaction
+                            elif col == 'urgency_level':
+                                row_dict[col] = 1  # Default to low urgency
+                            elif col == 'notification_sent_at' or col == 'notification_status' or col == 'last_escalated_at':
+                                row_dict[col] = None  # These will be set by escalation process
+                            elif col == 'escalation_count':
+                                row_dict[col] = 0  # Start with no escalations
                             else:
                                 row_dict[col] = None
                     conn.execute(
@@ -1161,13 +1190,39 @@ class ScheduleDatabase(DatabaseManager):
                         content TEXT NOT NULL,
                         priority_level INTEGER DEFAULT 5,
                         completed INTEGER DEFAULT 0,
+                        is_completed INTEGER DEFAULT 0,
+                        completed_at TEXT,
                         source_conversation_id TEXT,
+                        conversation_title TEXT,
+                        urgency_level INTEGER DEFAULT 1,
+                        notification_sent_at TEXT,
+                        notification_status TEXT CHECK(notification_status IN ('pending', 'sent', 'read', 'dismissed')),
+                        escalation_count INTEGER DEFAULT 0,
+                        last_escalated_at TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         user_id TEXT NOT NULL DEFAULT 'unknown',
                         model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
+            conn.commit()
+            
+            # --- CREATE REMINDER_NOTIFICATIONS TRACKING TABLE ---
+            # This table tracks active notification states separately from reminders
+            # Uses composite key (reminder_id, urgency_level) to allow one entry per urgency tier per reminder
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS reminder_notifications (
+                    notification_id TEXT PRIMARY KEY,
+                    reminder_id TEXT NOT NULL,
+                    urgency_level INTEGER NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    user_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    UNIQUE(reminder_id, urgency_level, user_id, model_id),
+                    FOREIGN KEY (reminder_id) REFERENCES reminders(reminder_id)
+                )
+            """)
             conn.commit()
     
     async def create_appointment(self, title: str, scheduled_datetime: str, 
@@ -1275,7 +1330,7 @@ class ScheduleDatabase(DatabaseManager):
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
                             recurrence_end_date: str = None, user_id: str = None,
-                            model_id: str = None, source: str = "direct") -> Union[str, List[str]]:
+                            model_id: str = None, source: str = "direct", conversation_title: str = None) -> Union[str, List[str]]:
         """Create a new reminder or multiple recurring reminders"""
         
         # If no recurrence pattern, create a single reminder
@@ -1285,9 +1340,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id, user_id, model_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id)
             )
             
             return reminder_id
@@ -1347,9 +1402,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id, user_id, model_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id, conversation_title, user_id, model_id)
             )
             
             reminder_ids.append(reminder_id)
@@ -1695,7 +1750,8 @@ class VSCodeProjectDatabase(DatabaseManager):
     
     async def store_development_conversation(self, content: str, session_id: str = None,
                                           chat_context_id: str = None, decisions_made: str = None,
-                                          code_changes: Dict = None) -> str:
+                                          code_changes: Dict = None, user_id: str = None, model_id: str = None,
+                                          source: str = "direct") -> str:
         """Store a development conversation from VS Code
         
         Args:
@@ -1704,6 +1760,9 @@ class VSCodeProjectDatabase(DatabaseManager):
             chat_context_id: Optional VS Code chat context ID
             decisions_made: Summary of decisions made in conversation
             code_changes: Dictionary of files changed and their changes
+            user_id: User ID for scoping
+            model_id: Model ID for scoping
+            source: Source of the tool call (default: direct)
         """
         conversation_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
@@ -1712,17 +1771,21 @@ class VSCodeProjectDatabase(DatabaseManager):
         if not session_id:
             session_id = await self.save_development_session(
                 workspace_path=os.getcwd(),  # Current workspace
-                session_summary="Auto-created session for development conversation"
+                session_summary="Auto-created session for development conversation",
+                user_id=user_id or "unknown",
+                model_id=model_id or "unknown",
+                source=source
             )
         
         # Store conversation
         await self.execute_update(
             """INSERT INTO development_conversations 
                (conversation_id, session_id, timestamp, chat_context_id,
-                conversation_content, decisions_made, code_changes)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                conversation_content, decisions_made, code_changes, user_id, model_id, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (conversation_id, session_id, timestamp, chat_context_id,
-             content, decisions_made, json.dumps(code_changes) if code_changes else None)
+             content, decisions_made, json.dumps(code_changes) if code_changes else None,
+             user_id or "unknown", model_id or "unknown", source)
         )
         
         return conversation_id
@@ -4936,6 +4999,10 @@ class FridayMemorySystem:
             except Exception as e:
                 logger.error(f"Error initializing file monitor: {e}")
                 raise
+        
+        # Initialize reminder escalation background task
+        self._escalation_task = None
+        self._escalation_running = False
     
     # === Embedding Configuration Management ===
     def _capture_embedding_config(self) -> Dict[str, Any]:
@@ -4983,8 +5050,11 @@ class FridayMemorySystem:
             # Capture new config
             new_config = self._capture_embedding_config()
             
-            # Compare with last known config
-            if new_config != self._last_embedding_config:
+            # Compare with last known config (excluding timestamp - it's for logging only)
+            new_config_compare = {k: v for k, v in new_config.items() if k != "timestamp"}
+            last_config_compare = {k: v for k, v in self._last_embedding_config.items() if k != "timestamp"} if self._last_embedding_config else {}
+            
+            if new_config_compare != last_config_compare:
                 logger.warning(
                     f"Embedding config change detected!\n"
                     f"  Old: {self._last_embedding_config}\n"
@@ -5155,7 +5225,7 @@ class FridayMemorySystem:
         def _select_by_due(due: str):
             with sqlite3.connect(str(db_path)) as conn:
                 cur = conn.execute(
-                    "SELECT reminder_id, title, due_datetime "
+                    "SELECT reminder_id, conversation_title, due_datetime "
                     "FROM reminders "
                     "WHERE due_datetime = ? AND (completed IS NULL OR completed = 0) AND user_id = ? AND model_id = ?",
                     (due, user_id, model_id)
@@ -5216,7 +5286,7 @@ class FridayMemorySystem:
 
         # Multiple matches — return options and instruct caller to pass selection_id on the next call.
         options = [
-            {"reminder_id": row[0], "title": row[1], "due_datetime": row[2]}
+            {"reminder_id": row[0], "conversation_title": row[1], "due_datetime": row[2]}
             for row in matches
         ]
         return {
@@ -5329,6 +5399,186 @@ class FridayMemorySystem:
                 for r in rows
             ]
         }
+
+    async def _escalate_due_reminders(self, grace_period_minutes: int = 15) -> Dict[str, int]:
+        """
+        Background process to escalate reminder notifications as deadline approaches.
+        Calculates urgency levels and manages reminder_notifications entries.
+        
+        Urgency levels:
+        - 1: upcoming (> 4 hours away)
+        - 3: soon (1-4 hours away)
+        - 5: urgent (< 1 hour away)
+        
+        Returns count of escalations and cleanups performed.
+        """
+        import uuid
+        from datetime import datetime, timedelta
+        
+        try:
+            now = datetime.now(get_local_timezone())
+            escalations_count = 0
+            cleanups_count = 0
+            
+            # Query all non-completed reminders
+            all_reminders = await self.schedule_db.execute_query(
+                "SELECT reminder_id, due_datetime, user_id, model_id FROM reminders WHERE completed = 0 AND is_completed = 0"
+            )
+            
+            if not all_reminders:
+                logger.debug("No active reminders to escalate")
+                return {"escalations": 0, "cleanups": 0}
+            
+            for reminder_row in all_reminders:
+                try:
+                    reminder_id = reminder_row[0]
+                    due_datetime_str = reminder_row[1]
+                    user_id = reminder_row[2]
+                    model_id = reminder_row[3]
+                    
+                    # Parse due datetime
+                    if due_datetime_str.endswith('Z'):
+                        due_dt = datetime. fromisoformat(due_datetime_str[:-1]).replace(tzinfo=pytz.UTC)
+                    else:
+                        due_dt = datetime.fromisoformat(due_datetime_str)
+                        if due_dt.tzinfo is None:
+                            due_dt = get_local_timezone().localize(due_dt)
+                    
+                    time_until_due = due_dt - now
+                    grace_period = timedelta(minutes=grace_period_minutes)
+                    
+                    # Determine urgency level based on time remaining
+                    if time_until_due < timedelta(hours=0):  # Past due
+                        if time_until_due < -grace_period:  # Past grace period
+                            # Clean up this reminder's notifications
+                            await self.schedule_db.execute_update(
+                                "DELETE FROM reminder_notifications WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
+                                (reminder_id, user_id, model_id)
+                            )
+                            cleanups_count += 1
+                        else:  # Still in grace period
+                            urgency_level = 5  # Keep as urgent
+                    elif time_until_due < timedelta(hours=1):
+                        urgency_level = 5  # Urgent
+                    elif time_until_due < timedelta(hours=4):
+                        urgency_level = 3  # Soon
+                    else:
+                        urgency_level = 1  # Upcoming
+                    
+                    # Skip cleanup for past reminders still in grace period - they should remain urgent
+                    if time_until_due >= -grace_period:
+                        # Check if notification already exists for this urgency level
+                        existing = await self.schedule_db.execute_query(
+                            "SELECT notification_id FROM reminder_notifications WHERE reminder_id = ? AND urgency_level = ? AND user_id = ? AND model_id = ?",
+                            (reminder_id, urgency_level, user_id, model_id)
+                        )
+                        
+                        if not existing:
+                            # Create new notification entry for this urgency level
+                            notification_id = str(uuid.uuid4())
+                            now_iso = get_current_timestamp()
+                            await self.schedule_db.execute_update(
+                                """INSERT INTO reminder_notifications (notification_id, reminder_id, urgency_level, created_at, updated_at, user_id, model_id)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                (notification_id, reminder_id, urgency_level, now_iso, now_iso, user_id, model_id)
+                            )
+                            escalations_count += 1
+                            logger.debug(f"Created notification for reminder {reminder_id} at urgency level {urgency_level}")
+                        else:
+                            # Update timestamp of existing notification
+                            await self.schedule_db.execute_update(
+                                "UPDATE reminder_notifications SET updated_at = ? WHERE reminder_id = ? AND urgency_level = ? AND user_id = ? AND model_id = ?",
+                                (get_current_timestamp(), reminder_id, urgency_level, user_id, model_id)
+                            )
+                
+                except Exception as e:
+                    logger.warning(f"Error processing reminder {reminder_row[0]} during escalation: {e}")
+                    continue
+            
+            logger.info(f"Reminder escalation complete: {escalations_count} escalations, {cleanups_count} cleanups")
+            return {"escalations": escalations_count, "cleanups": cleanups_count}
+            
+        except Exception as e:
+            logger.error(f"Error in _escalate_due_reminders: {e}\n{traceback.format_exc()}")
+            return {"escalations": 0, "cleanups": 0, "error": str(e)}
+
+    async def get_active_reminders_for_injection(self, user_id: str = None, model_id: str = None) -> Dict:
+        """
+        Get active reminders grouped by urgency tier for context injection into conversations.
+        Used to build the [Active Reminders] section in the conversation context.
+        
+        Returns dict with keys: "urgent", "soon", "upcoming" containing reminder details.
+        """
+        try:
+            if not user_id or not model_id:
+                return {}
+            
+            now = datetime.now(get_local_timezone())
+            
+            # Query all non-completed reminders that have active notifications
+            reminders = await self.schedule_db.execute_query(
+                """SELECT r.reminder_id, r.content, r.due_datetime, r.priority_level, r.conversation_title, n.urgency_level
+                   FROM reminders r
+                   INNER JOIN reminder_notifications n ON r.reminder_id = n.reminder_id
+                   WHERE r.completed = 0 AND r.is_completed = 0 AND r.user_id = ? AND r.model_id = ?
+                   ORDER BY r.due_datetime ASC""",
+                (user_id, model_id)
+            )
+            
+            if not reminders:
+                return {}
+            
+            # Group by urgency level
+            grouped = {"urgent": [], "soon": [], "upcoming": []}
+            urgency_names = {5: "urgent", 3: "soon", 1: "upcoming"}
+            
+            for reminder in reminders:
+                try:
+                    reminder_id = reminder[0]
+                    content = reminder[1]
+                    due_datetime_str = reminder[2]
+                    priority = reminder[3]
+                    conversation_title = reminder[4]
+                    urgency_level = reminder[5]
+                    
+                    # Calculate time until due
+                    if due_datetime_str.endswith('Z'):
+                        due_dt = datetime.fromisoformat(due_datetime_str[:-1]).replace(tzinfo=pytz.UTC)
+                    else:
+                        due_dt = datetime.fromisoformat(due_datetime_str)
+                        if due_dt.tzinfo is None:
+                            due_dt = get_local_timezone().localize(due_dt)
+                    
+                    time_until_due = due_dt - now
+                    
+                    # Format time until due
+                    if time_until_due.total_seconds() < 0:
+                        time_str = f"OVERDUE {abs(time_until_due.total_seconds() // 60):.0f}m ago"
+                    elif time_until_due.total_seconds() < 3600:
+                        time_str = f"{time_until_due.total_seconds() / 60:.0f}m"
+                    elif time_until_due.total_seconds() < 86400:
+                        time_str = f"{time_until_due.total_seconds() / 3600:.1f}h"
+                    else:
+                        time_str = f"{time_until_due.total_seconds() / 86400:.1f}d"
+                    
+                    # Format reminder for display
+                    reminder_display = f"{content}"
+                    if conversation_title:
+                        reminder_display += f" (from: {conversation_title})"
+                    reminder_display += f" • Due in {time_str}"
+                    
+                    urgency_name = urgency_names.get(urgency_level, "upcoming")
+                    grouped[urgency_name].append(reminder_display)
+                    
+                except Exception as e:
+                    logger.warning(f"Error formatting reminder for injection: {e}")
+                    continue
+            
+            return grouped
+            
+        except Exception as e:
+            logger.error(f"Error in get_active_reminders_for_injection: {e}\n{traceback.format_exc()}")
+            return {}
 
     async def reschedule_reminder(self, reminder_id: str, new_due_datetime: str, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """Reschedule a reminder to a new due datetime"""
@@ -5696,8 +5946,8 @@ class FridayMemorySystem:
                         )
                         if not existing_conv:
                             await self.conversations_db.execute_update(
-                                "INSERT INTO conversations (conversation_id, session_id, start_timestamp) VALUES (?, ?, ?)",
-                                (conversation_id, conversation_id, timestamp)
+                                "INSERT INTO conversations (conversation_id, session_id, start_timestamp, user_id, model_id) VALUES (?, ?, ?, ?, ?)",
+                                (conversation_id, conversation_id, timestamp, str(user_id), model_name)
                             )
                     except Exception as e:
                         logger.warning(f"Error creating session/conversation for {conversation_id}: {e}")
@@ -5705,9 +5955,9 @@ class FridayMemorySystem:
                     # Store message with unique message_id (using hash so no duplicates)
                     try:
                         await self.conversations_db.execute_update(
-                            """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata)
-                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                            (msg_hash, conversation_id, timestamp, role, content, 'openwebui', json.dumps(metadata))
+                            """INSERT INTO messages (message_id, conversation_id, timestamp, role, content, source_type, metadata, user_id, model_id)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (msg_hash, conversation_id, timestamp, role, content, 'openwebui', json.dumps(metadata), str(user_id), model_name)
                         )
                         imported_count += 1
                         existing_hashes.add(msg_hash)  # Add to tracking set
@@ -6372,13 +6622,13 @@ class FridayMemorySystem:
                                recurrence_pattern: str = None,
                                recurrence_count: int = None,
                                recurrence_end_date: str = None, user_id: str = None,
-                               model_id: str = None) -> Dict:
+                               model_id: str = None, source: str = "direct") -> Dict:
         """Create an appointment, optionally recurring"""
         
         appointment_result = await self.schedule_db.create_appointment(
             title, scheduled_datetime, description, location, source_conversation_id,
             recurrence_pattern, recurrence_count, recurrence_end_date,
-            user_id=user_id, model_id=model_id
+            user_id=user_id, model_id=model_id, source=source
         )
         
         # Handle the result based on whether it's a single ID or list of IDs
@@ -6406,13 +6656,29 @@ class FridayMemorySystem:
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
                             recurrence_end_date: str = None, user_id: str = None,
-                            model_id: str = None) -> Dict:
+                            model_id: str = None, source: str = "direct") -> Dict:
         """Create a reminder or multiple recurring reminders"""
+        
+        # Lookup conversation title if source_conversation_id is provided
+        conversation_title = None
+        if source_conversation_id:
+            try:
+                conversation_result = await self.conversations_db.execute_query(
+                    """SELECT COALESCE(topic_summary, '[Untitled Conversation]') as title
+                       FROM conversations 
+                       WHERE conversation_id = ?""",
+                    (source_conversation_id,)
+                )
+                if conversation_result:
+                    conversation_title = conversation_result[0][0]
+                    logger.debug(f"Retrieved conversation title '{conversation_title}' for reminder")
+            except Exception as e:
+                logger.warning(f"Could not retrieve conversation title for {source_conversation_id}: {e}")
         
         reminder_result = await self.schedule_db.create_reminder(
             content, due_datetime, priority_level, source_conversation_id,
             recurrence_pattern, recurrence_count, recurrence_end_date,
-            user_id=user_id, model_id=model_id
+            user_id=user_id, model_id=model_id, source=source, conversation_title=conversation_title
         )
         
         # Handle embedding generation for single or multiple reminders
@@ -6705,9 +6971,9 @@ class FridayMemorySystem:
         # Store the code context
         await self.vscode_db.execute_update(
             """INSERT INTO code_context 
-               (context_id, timestamp, file_path, function_name, description, user_id, model_id) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description, user_id, model_id)
+               (context_id, timestamp, file_path, function_name, description, user_id, model_id, source) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description, user_id, model_id, source)
         )
         
         # Generate and store embedding for the description
@@ -8407,7 +8673,7 @@ Return JSON:
             "requested_by": {"user_id": user_id, "model_id": model_id}
         }
     
-    async def export_all_tool_calls(self, output_filename: str = None, user_id: str = "unknown", model_id: str = "system") -> Dict:
+    async def export_all_tool_calls(self, output_filename: str = None, user_id: str = "unknown", model_id: str = "system", source: str = "direct") -> Dict:
         """Export all tool calls from current and archived databases to a text file.
         
         This tool is for LORA training dataset generation. It exports all tool calls
@@ -8417,6 +8683,7 @@ Return JSON:
             output_filename: Optional custom filename. Defaults to timestamp-based name.
             user_id: User requesting the export (for logging)
             model_id: Model ID (defaults to 'system')
+            source: Source of the tool call (default: direct)
         
         Returns:
             Dictionary with status, file path, and count of exported tool calls

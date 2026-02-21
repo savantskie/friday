@@ -36,6 +36,8 @@ After ANY architectural decision, file creation, or significant code change, com
 **Active Decision Documents:**
 - `Decisions_Folder/COMPREHENSIVE_IMPLEMENTATION_FINDINGS_2025_11_09.md` - Master decision document for all implementation findings. If a new decision has been made, make sure to make a new decision document and create a new master document that references all decisions with code verification (line numbers and file paths).
 - `Decisions_Folder/VLLM_FORK_REFINED_ARCHITECTURE_2025_11_11.md` - Final refined architecture for vLLM fork project (updated with latest feedback)
+- `Decisions_Folder/ACTIVE_TODO_HARDENING_20250113.md` - Friday Short Term Memory system hardening (COMPLETED 01/13/26)
+- `Decisions_Folder/FRIDAY_SHORT_TERM_HARDENING_COMPLETION_20260113.md` - Completion summary with all details
 **Active Actions Documents:**
 - IF THE NO FILE OR FOLDER EXISTS yet, create a FOLDER IN THE MAIN WORKSPACE and a file named 'ACTIVE_ACTIONS WITH THE DATE AT THE END. For example, ACTIVE_ACTIONS_20251124.md
 - Use this file to track any active actions Nate has requested that are in progress. Update it as needed.

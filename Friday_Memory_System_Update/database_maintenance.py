@@ -12,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import os
+import json
+
+from tag_manager import TagManager
 
 logger = logging.getLogger(__name__)
 
@@ -45,34 +48,39 @@ class DatabaseMaintenance:
         # Retention policies for cleanup
         self.retention_policies = {
             "conversations": {
-                "max_age_days": 90,  # Keep conversations for 3 months
-                "max_count": 10000,  # Keep max 10k conversations
-                "preserve_important": True  # Keep high-importance items
+                "max_age_days": None,  # No age limit - keep ALL conversations indefinitely
+                "max_count": None,     # No count limit - keep all conversations
+                "preserve_important": True  # Keep all conversations (no pruning)
             },
             "curated_memories": {
-                "max_age_days": 365,  # Keep memories for 1 year
-                "max_count": 5000,   # Keep max 5k memories
-                "preserve_important": True
+                "max_age_days": None,  # No age limit - keep all memories indefinitely
+                "max_count": None,     # No count limit - keep all memories
+                "preserve_important": True  # Keep all memories (no pruning)
             },
             "schedule": {
-                "max_age_days": 30,  # Keep old appointments/reminders for 1 month
+                "max_age_days": 90,  # Keep old appointments/reminders for 3 months
                 "cleanup_completed": True  # Remove completed items
             },
             "mcp_tool_calls": {
-                "max_age_days": 30,  # Keep tool call logs for 1 month
-                "max_count": 50000   # Keep max 50k tool calls
+                "max_age_days": None,  # No age limit - keep ALL tool calls indefinitely
+                "max_count": None      # No count limit - keep all tool calls
             },
             "memory_conversation_links": {
-                "max_age_days": 365,  # Keep links for 1 year (same as memories)
-                "cleanup_orphaned": True  # Remove links to deleted memories/conversations
+                "max_age_days": None,  # No age limit - keep ALL links indefinitely
+                "cleanup_orphaned": True  # Remove links to deleted memories/conversations (only orphaned)
             },
             "memory_processing_queue": {
-                "max_age_days": 30,  # Keep processed queue entries for 1 month
+                "max_age_days": 90,  # Keep processed queue entries for 3 months
                 "cleanup_completed": True  # Remove completed processing records
             },
             "memory_processing_log": {
                 "max_age_days": 90,  # Keep processing logs for 3 months
                 "max_count": 100000  # Keep max 100k log entries
+            },
+            "image_database": {
+                "max_age_days": None,  # No age limit - keep all images (memories reference them)
+                "max_count": None,     # No count limit - keep all images
+                "preserve_important": True  # Keep all images (linked to memories)
             }
         }
     
@@ -99,7 +107,8 @@ class DatabaseMaintenance:
             "ai_memories": "ai_memories*.db",
             "schedule": "schedule*.db",
             "mcp_tool_calls": "mcp_tool_calls*.db",
-            "vscode_project": "vscode_project*.db"
+            "vscode_project": "vscode_project*.db",
+            "image_database": "image_database*.db"
         }
         
         for db_type, pattern in db_patterns.items():
@@ -727,6 +736,7 @@ class DatabaseMaintenance:
             
             conn.close()
             logger.debug(f"Inserted {len(record_tuples)} records into {table_name} in {Path(target_db_path).name}")
+            
             
         except Exception as e:
             logger.error(f"Error inserting records: {e}")
@@ -1805,6 +1815,14 @@ class DatabaseMaintenance:
             logger.info("📊 Collecting statistics...")
             results["statistics"] = await self._collect_statistics()
             
+            # 6. Build tag registries from all memories
+            logger.info("🏷️  Building tag registries...")
+            results["tag_registry"] = await self._build_tag_registries()
+            
+            # 7. Build memory_bank registries
+            logger.info("🏦 Building memory_bank registries...")
+            results["memory_bank_registry"] = await self._build_memory_bank_registries()
+            
             logger.info("✅ Database maintenance completed successfully")
             
         except Exception as e:
@@ -1841,87 +1859,48 @@ class DatabaseMaintenance:
         return cleanup_results
     
     async def _cleanup_conversations(self) -> Dict:
-        """Clean up old conversation data"""
+        """Clean up old conversation data (disabled - keeping all conversations indefinitely)"""
         policy = self.retention_policies["conversations"]
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
         
-        # Get conversation statistics before cleanup
         before_stats = await self._get_conversation_stats()
         
-        # Delete old conversations (but preserve important ones)
-        if policy.get("preserve_important"):
-            # Keep conversations with high engagement or marked as important
-            delete_query = """
-                DELETE FROM conversations 
-                WHERE start_timestamp < ? 
-                AND conversation_id NOT IN (
-                    SELECT DISTINCT conversation_id FROM messages 
-                    WHERE json_extract(metadata, '$.importance_level') >= 7
-                    OR json_extract(metadata, '$.preserve') = 'true'
-                )
-                AND conversation_id NOT IN (
-                    SELECT conversation_id FROM conversations c
-                    WHERE (
-                        SELECT COUNT(*) FROM messages m 
-                        WHERE m.conversation_id = c.conversation_id
-                    ) >= 10  -- Keep conversations with 10+ messages
-                )
-            """
-        else:
-            delete_query = "DELETE FROM conversations WHERE start_timestamp < ?"
+        # All conversations are kept indefinitely - no deletion
+        # Only log the count
         
-        # Execute cleanup
-        deleted_conversations = await self.memory_system.conversations_db.execute_update(
-            delete_query, (cutoff_date.isoformat(),)
-        )
-        
-        # Clean up orphaned messages
-        await self.memory_system.conversations_db.execute_update(
-            "DELETE FROM messages WHERE conversation_id NOT IN (SELECT conversation_id FROM conversations)"
-        )
-        
-        # Get statistics after cleanup
-        after_stats = await self._get_conversation_stats()
+        after_stats = before_stats  # No changes made
         
         return {
             "policy_applied": policy,
-            "cutoff_date": cutoff_date.isoformat(),
+            "cutoff_date": "No cutoff (indefinite retention)",
             "conversations_before": before_stats["conversation_count"],
             "conversations_after": after_stats["conversation_count"],
-            "conversations_deleted": before_stats["conversation_count"] - after_stats["conversation_count"],
+            "conversations_deleted": 0,  # No pruning - keeping all conversations
             "messages_before": before_stats["message_count"],
             "messages_after": after_stats["message_count"],
-            "messages_deleted": before_stats["message_count"] - after_stats["message_count"]
+            "messages_deleted": 0,  # No pruning - keeping all messages
+            "note": "All conversations are preserved indefinitely with no pruning"
         }
     
     async def _cleanup_ai_memories(self) -> Dict:
-        """Clean up old AI memory data (more conservative)"""
+        """Clean up old AI memory data (disabled for long-term storage - no pruning)"""
         policy = self.retention_policies["curated_memories"]
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
         
         before_count = len(await self.memory_system.ai_memory_db.execute_query(
             "SELECT memory_id FROM curated_memories", ()
         ))
         
-        # Only delete low-importance, old memories
-        deleted = await self.memory_system.ai_memory_db.execute_update(
-            """DELETE FROM curated_memories 
-               WHERE created_at < ? 
-               AND importance_level < 5 
-               AND memory_type NOT IN ('safety', 'critical', 'preference')""",
-            (cutoff_date.isoformat(),)
-        )
+        # Long-term storage: No pruning - keep all memories indefinitely
+        # Only log the count, don't delete anything
         
-        after_count = len(await self.memory_system.ai_memory_db.execute_query(
-            "SELECT memory_id FROM curated_memories", ()
-        ))
+        after_count = before_count  # No changes made
         
         return {
             "policy_applied": policy,
-            "cutoff_date": cutoff_date.isoformat(),
+            "cutoff_date": "No cutoff (indefinite retention)",
             "memories_before": before_count,
             "memories_after": after_count,
-            "memories_deleted": before_count - after_count
+            "memories_deleted": 0,  # No pruning in long-term storage
+            "note": "Long-term curated memories are preserved indefinitely with no pruning"
         }
     
     async def _cleanup_schedule(self) -> Dict:
@@ -1958,42 +1937,36 @@ class DatabaseMaintenance:
         }
     
     async def _cleanup_tool_calls(self) -> Dict:
-        """Clean up old tool call logs"""
+        """Clean up old tool call logs (disabled - keeping all tool calls indefinitely)"""
         policy = self.retention_policies["mcp_tool_calls"]
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
         
         before_count = len(await self.memory_system.mcp_db.execute_query(
             "SELECT call_id FROM tool_calls", ()
         ))
         
-        # Delete old tool calls
-        deleted = await self.memory_system.mcp_db.execute_update(
-            "DELETE FROM tool_calls WHERE timestamp < ?",
-            (cutoff_date.isoformat(),)
-        )
+        # All tool calls are kept indefinitely - no deletion
+        # Only log the count
         
-        after_count = len(await self.memory_system.mcp_db.execute_query(
-            "SELECT call_id FROM tool_calls", ()
-        ))
+        after_count = before_count  # No changes made
         
         return {
             "policy_applied": policy,
-            "cutoff_date": cutoff_date.isoformat(),
+            "cutoff_date": "No cutoff (indefinite retention)",
             "tool_calls_before": before_count,
             "tool_calls_after": after_count,
-            "tool_calls_deleted": before_count - after_count
+            "tool_calls_deleted": 0,  # No pruning - keeping all tool calls
+            "note": "All tool call logs are preserved indefinitely with no pruning"
         }
     
     async def _cleanup_memory_links(self) -> Dict:
-        """Clean up memory-conversation links and remove orphaned entries"""
+        """Clean up memory-conversation links and remove only orphaned entries (disabled time-based deletion)"""
         policy = self.retention_policies["memory_conversation_links"]
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=policy["max_age_days"])
         
         before_count = len(await self.memory_system.conversations_db.execute_query(
             "SELECT link_id FROM memory_conversation_links", ()
         ))
         
-        # Remove links to non-existent memories or conversations
+        # Remove links to non-existent memories or conversations (orphaned links only)
         if policy.get("cleanup_orphaned"):
             orphaned_deleted = await self.memory_system.conversations_db.execute_update(
                 """DELETE FROM memory_conversation_links 
@@ -2001,12 +1974,11 @@ class DatabaseMaintenance:
                    OR conversation_id NOT IN (SELECT conversation_id FROM conversations)""",
                 ()
             )
+        else:
+            orphaned_deleted = 0
         
-        # Also remove very old links
-        old_deleted = await self.memory_system.conversations_db.execute_update(
-            "DELETE FROM memory_conversation_links WHERE created_at < ?",
-            (cutoff_date.isoformat(),)
-        )
+        # No time-based deletion - keep all valid links indefinitely
+        old_deleted = 0
         
         after_count = len(await self.memory_system.conversations_db.execute_query(
             "SELECT link_id FROM memory_conversation_links", ()
@@ -2014,12 +1986,13 @@ class DatabaseMaintenance:
         
         return {
             "policy_applied": policy,
-            "cutoff_date": cutoff_date.isoformat(),
+            "cutoff_date": "No cutoff (indefinite retention)",
             "links_before": before_count,
             "links_after": after_count,
             "links_deleted": before_count - after_count,
-            "orphaned_links_removed": orphaned_deleted if policy.get("cleanup_orphaned") else 0,
-            "old_links_removed": old_deleted
+            "orphaned_links_removed": orphaned_deleted,
+            "old_links_removed": 0,  # No time-based deletion
+            "note": "All valid conversation-memory links are preserved indefinitely"
         }
     
     async def _cleanup_processing_queue(self) -> Dict:
@@ -2122,7 +2095,7 @@ class DatabaseMaintenance:
         duplicate_messages = await self.memory_system.conversations_db.execute_update(dedup_query_messages)
         results["duplicate_messages_removed"] = duplicate_messages
 
-        # Deduplicate curated memories by (content, memory_type, source_conversation_id), keep entry with earliest timestamp_created
+        # Deduplicate curated memories by (content, memory_type, source_conversation_id, memory_bank), keep entry with earliest timestamp_created
         dedup_query_memories = '''
             DELETE FROM curated_memories
             WHERE memory_id NOT IN (
@@ -2135,6 +2108,7 @@ class DatabaseMaintenance:
                         WHERE m2.content = m1.content
                           AND m2.memory_type = m1.memory_type
                           AND (m2.source_conversation_id IS m1.source_conversation_id OR (m2.source_conversation_id IS NULL AND m1.source_conversation_id IS NULL))
+                          AND (m2.memory_bank IS m1.memory_bank OR (m2.memory_bank IS NULL AND m1.memory_bank IS NULL))
                     )
                 )
             )
@@ -2316,6 +2290,158 @@ class DatabaseMaintenance:
             logger.error(f"Error during schema upgrades: {e}")
             
         return upgrades_applied
+
+    async def _build_tag_registries(self) -> Dict:
+        """
+        Build tag registries from all memories and sync to both locations.
+        
+        Returns:
+            Dict with registry building results
+        """
+        results = {
+            "main_registry_path": str(Path("/media/nate/Friday/Friday/tag_registry.json")),
+            "docker_registry_path": str(Path("/media/nate/Friday/OpenWebUI/data/tag_registry.json")),
+            "tags_found": 0,
+            "memories_scanned": 0,
+            "errors": []
+        }
+        
+        try:
+            tag_manager = TagManager()
+            
+            # Collect memories from main database
+            memories_to_process = []
+            
+            try:
+                # Query main database
+                query = "SELECT memory_id, content, tags FROM curated_memories"
+                memories = await self.memory_system.ai_memories_db.execute_query(query, ())
+                
+                if memories:
+                    memories_to_process.extend(memories)
+                    results["memories_scanned"] = len(memories)
+                    logger.info(f"Scanned {len(memories)} memories from main database")
+                    
+            except Exception as e:
+                logger.warning(f"Could not scan main database for tag building: {e}")
+                results["errors"].append(f"Main DB scan error: {str(e)}")
+            
+            # Build registry from all collected memories
+            if memories_to_process:
+                registry = tag_manager.build_tag_registry(memories_to_process)
+                results["tags_found"] = len(registry)
+                
+                # Save to both locations
+                main_path = Path("/media/nate/Friday/Friday/tag_registry.json")
+                docker_path = Path("/media/nate/Friday/OpenWebUI/data/tag_registry.json")
+                
+                # Save main location
+                if tag_manager.save_registry(registry, str(main_path)):
+                    logger.info(f"✅ Saved tag registry to {main_path} ({len(registry)} tags)")
+                else:
+                    results["errors"].append(f"Failed to save main registry at {main_path}")
+                
+                # Save Docker location (sync)
+                if tag_manager.save_registry(registry, str(docker_path)):
+                    logger.info(f"✅ Saved tag registry to {docker_path} ({len(registry)} tags)")
+                else:
+                    results["errors"].append(f"Failed to save Docker registry at {docker_path}")
+                
+                # Log tag summary
+                summary = tag_manager.get_registry_summary()
+                results["summary"] = summary
+                logger.info(f"Tag registry built: {summary['total_tags']} canonical forms, {summary['total_variations']} total variations")
+                
+            else:
+                logger.warning("No memories found to build tag registry from")
+                results["tags_found"] = 0
+                
+        except Exception as e:
+            logger.error(f"Error building tag registries: {e}")
+            results["errors"].append(f"Registry build error: {str(e)}")
+        
+        return results
+
+    async def _build_memory_bank_registries(self) -> Dict:
+        """
+        Build memory_bank registries showing available banks and memory counts.
+        
+        Returns:
+            Dict with memory_bank registry building results
+        """
+        results = {
+            "main_registry_path": str(Path("/media/nate/Friday/Friday/memory_bank_registry.json")),
+            "docker_registry_path": str(Path("/media/nate/Friday/OpenWebUI/data/memory_bank_registry.json")),
+            "banks_found": 0,
+            "total_memories": 0,
+            "errors": []
+        }
+        
+        try:
+            # Build registry from all memories grouped by memory_bank
+            memory_bank_registry = {}
+            total_memories = 0
+            
+            try:
+                # Query main database for memory counts per bank
+                query = """
+                    SELECT memory_bank, COUNT(*) as count 
+                    FROM curated_memories 
+                    GROUP BY memory_bank
+                """
+                results_from_db = await self.memory_system.ai_memories_db.execute_query(query, ())
+                
+                if results_from_db:
+                    for row in results_from_db:
+                        bank_name = row.get('memory_bank', 'General')
+                        count = row.get('count', 0)
+                        memory_bank_registry[bank_name] = {
+                            "name": bank_name,
+                            "memory_count": count
+                        }
+                        total_memories += count
+                    
+                    results["banks_found"] = len(memory_bank_registry)
+                    results["total_memories"] = total_memories
+                    logger.info(f"Found {len(memory_bank_registry)} memory banks with {total_memories} total memories")
+                    
+            except Exception as e:
+                logger.warning(f"Could not scan database for memory_bank registry: {e}")
+                results["errors"].append(f"Database scan error: {str(e)}")
+                return results
+            
+            # Save to both locations
+            main_path = Path("/media/nate/Friday/Friday/memory_bank_registry.json")
+            docker_path = Path("/media/nate/Friday/OpenWebUI/data/memory_bank_registry.json")
+            
+            try:
+                # Save main location
+                main_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(main_path, 'w') as f:
+                    json.dump(memory_bank_registry, f, indent=2, sort_keys=True)
+                logger.info(f"✅ Saved memory_bank registry to {main_path} ({len(memory_bank_registry)} banks)")
+            except Exception as e:
+                results["errors"].append(f"Failed to save main registry at {main_path}: {str(e)}")
+                logger.error(f"Error saving main memory_bank registry: {e}")
+            
+            try:
+                # Save Docker location (sync)
+                docker_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(docker_path, 'w') as f:
+                    json.dump(memory_bank_registry, f, indent=2, sort_keys=True)
+                logger.info(f"✅ Saved memory_bank registry to {docker_path} ({len(memory_bank_registry)} banks)")
+            except Exception as e:
+                results["errors"].append(f"Failed to save Docker registry at {docker_path}: {str(e)}")
+                logger.error(f"Error saving Docker memory_bank registry: {e}")
+            
+            # Log summary
+            logger.info(f"Memory bank registry built: {results}")
+            
+        except Exception as e:
+            logger.error(f"Error building memory_bank registries: {e}")
+            results["errors"].append(f"Registry build error: {str(e)}")
+        
+        return results
 
     async def _get_conversation_stats(self) -> Dict:
         """Get current conversation statistics"""

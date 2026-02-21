@@ -6,5 +6,8 @@ echo "Starting LM Studio..."
 echo "Press Ctrl+C to stop LM Studio"
 echo "========================================="
 
-# Start LM Studio pinned to cores 2-7
+Get gpus recocgnized
+export HSA_OVERRIDE_GFX_VERSION=9.0.6:11.0.0
+
+# Start LM Studio
 /media/nate/Friday/lmstudio/squashfs-root/lm-studio

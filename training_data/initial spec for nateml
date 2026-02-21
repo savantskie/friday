@@ -1,0 +1,25 @@
+NateML / Friday LLM - Working Spec
+
+Built from scratch, no inherited architecture or biases
+Uncensored by design — guardrails never installed
+256K context window as baseline, 512K as multi-GPU ceiling
+Efficient attention (Ring or similar) — hardware agnostic, not tied to specific GPUs
+Grouped Query Attention (GQA) for memory efficiency and long context support
+Deep narrow architecture — more layers over wider layers for better reasoning depth
+Slightly smaller than standard FFN — domain specialist not generalist
+Pre-norm with RMSNorm for training stability
+Qwen-compatible tool calling format
+Deep JSON understanding baked into pretraining
+General coding capability in the foundation layer
+Reasoning engine with dual mode — hidden by default for clean tool call output, exposed via flag in chat or OpenWebUI
+Evolutionary training loop — good interactions become future training data, bad ones get corrected
+100% honest tool failure reporting — no simulated results, no hallucinated responses, explicit failure format with null results
+Behavioral tendencies baked into weights during fine tuning — tool honesty, JSON formatting, dual mode reasoning
+Identity and personality in serving layer (OpenWebUI system prompt) — updateable without retraining
+Staged parameter scaling: 270M → 3B-7B → 13B-30B → 40B (stop when Friday is genuinely good)
+Public release target under 40B, 4-bit quantizable to run on consumer hardware
+Tokenizer: Qwen base adapted with Friday-specific special tokens
+Training stack: HuggingFace for model architecture and tokenizer, PyTorch Lightning for training loop, ROCm backend
+
+For the training_data on conversations
+python3 friday_export_training.py --output-dir /media/nate/Friday/training_data
