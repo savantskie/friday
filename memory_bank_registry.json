@@ -1,1 +1,34 @@
-{}
+{
+  "context": {
+    "memory_count": 58,
+    "name": "Context"
+  },
+  "general": {
+    "memory_count": 7978,
+    "name": "General"
+  },
+  "personal": {
+    "memory_count": 3970,
+    "name": "Personal"
+  },
+  "preferences": {
+    "memory_count": 9,
+    "name": "Preferences"
+  },
+  "projects": {
+    "memory_count": 8,
+    "name": "Projects"
+  },
+  "tasks": {
+    "memory_count": 19,
+    "name": "Tasks"
+  },
+  "technical": {
+    "memory_count": 25,
+    "name": "Technical"
+  },
+  "work": {
+    "memory_count": 185,
+    "name": "Work"
+  }
+}

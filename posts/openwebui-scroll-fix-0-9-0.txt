@@ -1,0 +1,19 @@
+Title: I think I fixed the scroll jumping in Open WebUI 0.9.0 (with help from AI, because I don't know Svelte)
+
+I run Open WebUI on bare metal (not Docker) for my personal AI assistant and I was having the same scrolling problem everyone else has been reporting since 0.9.0. When a model is streaming a response, the scroll position jumps around randomly. Sometimes it snaps to the bottom while you're trying to read, sometimes it bounces back and forth for a few seconds. On Firefox it's especially bad and you get scroll anchoring errors in the console. Brave and Safari do it too from what I can see in the GitHub reports.
+
+I had my AI coding assistant (Eddie, but really it doesn't matter which one) compare the code between 0.8.2 and 0.9.0. Two things changed that caused this. The first was that scrollToBottom was changed to use requestAnimationFrame batching to avoid too many layout reflows during streaming. The second was that they added virtual scrolling to the message list (only rendering messages near the viewport and using spacer divs for the rest). Both were done to improve performance with long chats, but they fight each other during streaming. The spacer calculations from the virtual scrolling change while content is still being written to the DOM because each streaming token changes the height of the message being rendered, which changes the spacer size, which changes the total scroll height, which causes scroll anchoring to freak out.
+
+The fix was three things in two files inside src/lib/components/chat.
+
+One, I added contain: layout as a CSS style on the messages container div. This tells the browser to isolate that container's layout from the rest of the page and stops Firefox from complaining about scroll anchoring.
+
+Two, I made the virtual scrolling system aware of when the model is actually generating a response. Open WebUI already has a boolean called generating that tracks this, it just wasn't being passed to the Messages component. During streaming, the virtual scroller now shows all messages and uses zero-height spacers. The message heights still get measured and cached in the background so the data is ready for later, but the spacers can't fight with the streaming content because they are not there.
+
+Three, when the model finishes generating, the virtual scroller waits one animation frame and then re-calculates the visible range normally using the now-stable heights. This means off-screen messages still get unloaded in long chats, just not while the model is still writing.
+
+If you scroll up while the model is still writing, it stays where you left it. When the model finishes, the scroll position does not snap to the bottom unless you were already at the bottom. This is the same autoScroll behavior that already existed, it just wasnt working properly because the virtual scroll spacers were overriding it during streaming.
+
+I do not know Svelte. I told the AI what the problem felt like from a user perspective, it compared the two versions, found the root cause, and walked me through the fix. The code changes are four guards and a CSS property spread across two files, about 15 lines total. If you want to fix it yourself, look at Chat.svelte around line 2908 for the contain: layout change and around line 2938 for the generating prop, then look at Messages.svelte lines 57, 98-106, 139, and 261-275 for the virtual scroll guards.
+
+If Open WebUI ships an actual fix for this, I will probably just revert mine and take theirs. But for now this works on my instance.

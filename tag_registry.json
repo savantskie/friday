@@ -1,1 +1,52 @@
-{}
+{
+  "__embedding_model:text_embedding_nomic_embed_text_v1_5_768d": {
+    "canonical": "__embedding_model:text_embedding_nomic_embed_text_v1_5_768d",
+    "usage_count": 1,
+    "variations": [
+      "__embedding_model:text_embedding_nomic_embed_text_v1_5_768d"
+    ],
+    "word_components": [
+      "text",
+      "nomic",
+      "embed",
+      "model:text",
+      "768d",
+      "v1",
+      "embedding",
+      "5"
+    ]
+  },
+  "assistant_perspective": {
+    "canonical": "assistant_perspective",
+    "usage_count": 1,
+    "variations": [
+      "assistant_perspective"
+    ],
+    "word_components": [
+      "perspective",
+      "assistant"
+    ]
+  },
+  "friday_observation": {
+    "canonical": "friday_observation",
+    "usage_count": 1,
+    "variations": [
+      "friday_observation"
+    ],
+    "word_components": [
+      "friday",
+      "observation"
+    ]
+  },
+  "technical_state": {
+    "canonical": "technical_state",
+    "usage_count": 1,
+    "variations": [
+      "technical_state"
+    ],
+    "word_components": [
+      "state",
+      "technical"
+    ]
+  }
+}

@@ -20,6 +20,9 @@
 		},
 		{
 			"path": "../../Games/Openwebuifork"
+		},
+		{
+			"path": "../../Games"
 		}
 	],
 	"settings": {
@@ -37,6 +40,42 @@
 		},
 		"powershell.cwd": "Friday",
 		"editor.scrollbar.horizontal": "visible",
-		"CodeGPT.apiKey": "Ollama"
+		"CodeGPT.apiKey": "Ollama",
+		"workbench.colorTheme": "Monokai",
+		"editor.comments.ignoreEmptyLines": true,
+		"workbench.preferredDarkColorTheme": "Tomorrow Night Blue",
+		"workbench.preferredHighContrastColorTheme": "Tomorrow Night Blue",
+		"workbench.preferredHighContrastLightColorTheme": "Tomorrow Night Blue",
+		"workbench.preferredLightColorTheme": "Tomorrow Night Blue",
+		"chat.tools.terminal.autoApprove": {
+			"/^python3 -m py_compile /media/nate/Friday/Friday/Friday_Memory_System_Update/friday_memory_system\\.py 2>&1 \\| head -20$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python3 -m py_compile /media/nate/Friday/Friday/Tests/test_search_source_attribution\\.py 2>&1 \\| head -20$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python3 Tests/test_search_source_attribution\\.py 2>&1 \\| tail -80$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python -m py_compile friday_memory_short_term\\.py && echo \"✓ Syntax is valid\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python Friday_Memory_System_Update/test_markdown_stripping\\.py$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python3 -c \"import friday_memory_short_term; print\\(f'✓ File imports successfully'\\); print\\('✓ Version: 0\\.0\\.22'\\); print\\('✓ New function exists:', hasattr\\(friday_memory_short_term\\.FridayShortTermMemory, '_strip_markdown_json_response'\\)\\)\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^python3 -m py_compile /media/nate/Friday/Friday/friday_memory_short_term\\.py && echo \"✓ Syntax valid\" && grep -m 1 \"version: 0\\.0\\.22\" /media/nate/Friday/Friday/friday_memory_short_term\\.py && echo \"✓ Version updated\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
 	}
 }

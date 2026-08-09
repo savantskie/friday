@@ -15,7 +15,7 @@
     "lm_studio": {
       "model": "text-embedding-nomic-embed-text-v1.5",
       "dimension": 768,
-      "endpoint": "http://172.17.0.1:1234/v1/embeddings"
+      "endpoint": "http://192.168.1.50:1234/v1/embeddings"
     }
   }
 }

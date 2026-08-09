@@ -1,0 +1,8 @@
+1. give friday a way to look at older conversations if we still have them, or tie into the openwebui tools to search conversations, though that might just need system prompt calling out [Done]
+2. does the short term system even save importance or some level of importance or rank | [Done]
+3. retroactively go through old memories, and assign relevance score, if memory has the conversation tag, if not search through conversations stored of that memories date and time written and try to parse relevance score. [Done]
+4. move all fms files into persistent-ai-memory and genericise it for persistent-ai-memory
+5. Recency weighting in dedup — older similar memories should have less blocking power than recent ones. A memory from 8 months ago that's semantically similar to a new one currently blocks it entirely. Add a time decay factor so the older the existing memory, the lower the effective similarity threshold needed for the new one to get through.
+6. Importance score feedback loop — track how often each memory gets accessed via search_memories and search_memories_by_date. Periodically bump the importance score of frequently accessed memories upward since access frequency is a strong signal that the memory is more valuable than its initial score suggested. This makes the importance system self-improving over time rather than static after initial scoring.
+
+

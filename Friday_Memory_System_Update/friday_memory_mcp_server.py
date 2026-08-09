@@ -267,7 +267,7 @@ class FridayMemoryMCPServer:
         t = threading.Thread(target=run_background, daemon=True)
         t.start()
 
-    async def get_current_time_tool(self) -> Dict:
+    async def get_current_time_tool(self, source: str = "direct") -> Dict:
         """Return the current server time in ISO format (system local time only)"""
         try:
             now_local = datetime.now().isoformat()
@@ -319,302 +319,8 @@ class FridayMemoryMCPServer:
                 asyncio.create_task(openwebui_import_loop())
         asyncio.create_task(delayed_start())    
 
-    async def get_weather_open_meteo(self,
-                                    latitude: float | None = None,
-                                    longitude: float | None = None,
-                                    timezone_str: str | None = None,
-                                    force_refresh: bool = False,
-                                    override: bool = False,
-                                    update_today: bool = True,
-                                    return_changes_only: bool = False,
-                                    severe_update: bool = False) -> dict:
-        # Lock to home unless explicitly overridden
-        if ENFORCE_HOME_COORDS and not override:
-            lat = float(HOME_LAT)
-            lon = float(HOME_LON)
-            tz  = HOME_TZ if timezone_str is None else timezone_str
-        else:
-            lat = float(HOME_LAT if latitude is None else latitude)
-            lon = float(HOME_LON if longitude is None else longitude)
-            tz  = timezone_str or HOME_TZ
 
-        cpath = _wx_cache_path(tz, lat, lon)
-        cached = _wx_load(cpath)
-
-        # -------- single-file-per-day, rename after ≥4h logic --------
-        now_local = datetime.now(ZoneInfo(tz))
-
-        latest_path = _wx_find_today_latest_file(tz)   # e.g., ...\openmeteo_08-27-2025.json or ..._0900.json
-        cached = _wx_load(latest_path) if latest_path else None
-
-        # If we already have today's file and we're not forcing a refresh
-        if cached and not force_refresh:
-            last_upd = _wx_last_updated_iso(cached)
-            within_4h = bool(last_upd and (now_local - last_upd) < timedelta(hours=4))
-
-        # decide the window (4h normal, 30m for severe)
-        window_minutes = SEVERE_UPDATE_WINDOW_MIN if severe_update else DEFAULT_UPDATE_WINDOW_MIN
-
-        last_upd = _wx_last_updated_iso(cached) if cached else None
-        within_window = bool(last_upd and (now_local - last_upd) < timedelta(minutes=window_minutes))
-
-        if cached and not force_refresh:
-            if within_window:
-                cached["_via_cache"] = True
-                # If return_changes_only is True, return just the changes summary
-                if return_changes_only:
-                    return {"success": True, "changes": {}, "updated": False, "via_cache": True}
-                return {"success": True, "data": cached, "updated": False}
-            
-            # outside window and update_today is True -> fetch/rename/update
-            if update_today:
-                # ≥4h since last update -> fetch fresh, write to a new timestamped filename and delete the old one
-                fresh = _wx_fetch_openmeteo(lat, lon, tz)
-                diff = _wx_diff_summ(cached, fresh)
-
-                # stamp metadata
-                fresh["first_saved_at"] = cached.get("first_saved_at") or now_local.isoformat(timespec="seconds")
-                fresh["last_updated_at"] = now_local.isoformat(timespec="seconds")
-                fresh["update_count"] = int(cached.get("update_count", 0)) + 1
-
-                # new filename with HHMM
-                new_path = _wx_timestamped_file_today(tz, now_local)
-                _wx_save(new_path, fresh)
-
-                # delete any other files for today so exactly one remains
-                for p in glob(_wx_today_glob_mdy(tz)):
-                    if p != new_path:
-                        try:
-                            os.remove(p)
-                        except Exception:
-                            pass
-
-                # If return_changes_only is True, return just the changes
-                if return_changes_only:
-                    return {"success": True, "changes": diff, "updated": True, "via_cache": False}
-                
-                if diff:
-                    fresh["_via_cache"] = False
-                    fresh["changes"] = diff
-                    return {"success": True, "data": fresh, "updated": True}
-                else:
-                    fresh["_via_cache"] = False
-                    fresh["changes"] = {}
-                    return {"success": True, "data": fresh, "updated": True}
-            else:
-                # update_today is False, return cached data
-                cached["_via_cache"] = True
-                if return_changes_only:
-                    return {"success": True, "changes": {}, "updated": False, "via_cache": True}
-                return {"success": True, "data": cached, "updated": False}
-
-        # No file for today yet, or force refresh -> create the base MM-DD-YYYY.json
-        fresh = _wx_fetch_openmeteo(lat, lon, tz)
-        now_iso = now_local.isoformat(timespec="seconds")
-        fresh.setdefault("first_saved_at", now_iso)
-        fresh["last_updated_at"] = now_iso
-        fresh["update_count"] = 1
-
-        base_path = _wx_base_file_today(tz)  # openmeteo_MM-DD-YYYY.json
-        _wx_save(base_path, fresh)
-
-        # ensure only this base file exists for today
-        for p in glob(_wx_today_glob_mdy(tz)):
-            if p != base_path:
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-
-        fresh["_via_cache"] = False
-        
-        # If return_changes_only is True, return empty changes since this is a new file
-        if return_changes_only:
-            return {"success": True, "changes": {}, "updated": True, "via_cache": False}
-            
-        return {"success": True, "data": fresh, "updated": True}
-
-
-    async def brave_web_search(self, query: str, count: int = 10, country: str = "US", language: str = "en") -> Dict:
-        """Perform a general web search using Brave Search API"""
-        logger.info(f"Brave web search called with query: {query}")
-        # Also write a simple append-only log for quick debugging (separate from python logging)
-        try:
-            log_dir = BASE_PATH / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            with open(log_dir / "brave_search.log", "a", encoding="utf-8") as _lf:
-                _lf.write(f"{datetime.now().isoformat()} - brave_web_search called - query={query!r}, count={count}, country={country}, language={language}\n")
-        except Exception:
-            # best-effort logging; do not fail the search if logging can't write
-            pass
-        try:
-            # Get Brave API key from environment or file
-            api_key = os.getenv("BRAVE_API_KEY")
-            if not api_key:
-                # Try to load from file
-                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
-                if key_file.exists():
-                    try:
-                        with open(key_file, "r") as f:
-                            content = f.read().strip()
-                            # Parse "Brave_API_Key=\"key\""
-                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
-                                api_key = content[len('Brave_API_Key="'):-1]
-                    except Exception as e:
-                        logger.warning(f"Failed to read Brave API key from file: {e}")
-            
-            logger.info(f"BRAVE_API_KEY present: {bool(api_key)}")
-            if not api_key:
-                return {
-                    "success": False,
-                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
-                }
-
-            # Limit count to reasonable bounds
-            count = min(max(count, 1), 20)
-
-            async with aiohttp.ClientSession() as session:
-                url = "https://api.search.brave.com/res/v1/web/search"
-                params = {
-                    "q": query,
-                    "count": count,
-                    "country": country,
-                    "search_lang": language
-                }
-                headers = {
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                    "X-Subscription-Token": api_key
-                }
-
-                async with session.get(url, params=params, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results = []
-
-                        # Process web results
-                        if "web" in data and "results" in data["web"]:
-                            for result in data["web"]["results"][:count]:
-                                results.append({
-                                    "title": result.get("title", ""),
-                                    "url": result.get("url", ""),
-                                    "description": result.get("description", ""),
-                                    "type": "web"
-                                })
-
-                        return {
-                            "success": True,
-                            "query": query,
-                            "results": results,
-                            "count": len(results)
-                        }
-                    else:
-                        error_text = await response.text()
-                        return {
-                            "success": False,
-                            "error": f"Brave API error {response.status}: {error_text}"
-                        }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to perform web search: {str(e)}"
-            }
-
-    async def brave_local_search(self, query: str, location: str = None, count: int = 10, radius: int = 5000) -> Dict:
-        """Search for local businesses and places using Brave Search API"""
-        try:
-            # Get Brave API key from environment or file
-            api_key = os.getenv("BRAVE_API_KEY")
-            if not api_key:
-                # Try to load from file
-                key_file = BASE_PATH / "keys" / "brave_api_key.txt"
-                if key_file.exists():
-                    try:
-                        with open(key_file, "r") as f:
-                            content = f.read().strip()
-                            # Parse "Brave_API_Key=\"key\""
-                            if content.startswith('Brave_API_Key="') and content.endswith('"'):
-                                api_key = content[len('Brave_API_Key="'):-1]
-                    except Exception as e:
-                        logger.warning(f"Failed to read Brave API key from file: {e}")
-            
-            if not api_key:
-                return {
-                    "success": False,
-                    "error": "Brave API key not configured. Please set BRAVE_API_KEY environment variable or ensure /keys/brave_api_key.txt exists."
-                }
-
-            # Limit count to reasonable bounds
-            count = min(max(count, 1), 20)
-
-            # Build location-aware query for web search since local search endpoint may not be available
-            search_query = query
-            if location:
-                search_query = f"{query} near {location}"
-
-            async with aiohttp.ClientSession() as session:
-                url = "https://api.search.brave.com/res/v1/web/search"
-                params = {
-                    "q": search_query,
-                    "count": count,
-                    "country": "US",
-                    "search_lang": "en"
-                }
-                headers = {
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                    "X-Subscription-Token": api_key
-                }
-
-                async with session.get(url, params=params, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results = []
-
-                        # Process web results that are likely local businesses/places
-                        if "web" in data and "results" in data["web"]:
-                            for result in data["web"]["results"][:count]:
-                                # Try to identify local business results
-                                title = result.get("title", "")
-                                description = result.get("description", "")
-                                url = result.get("url", "")
-
-                                # Extract potential business info from title and description
-                                results.append({
-                                    "name": title.split(" - ")[0] if " - " in title else title,  # Try to extract business name
-                                    "address": "",  # Web search doesn't provide structured address data
-                                    "phone": "",    # Web search doesn't provide phone data
-                                    "rating": None, # Web search doesn't provide ratings
-                                    "price_range": "",
-                                    "type": "local_search_result",
-                                    "url": url,
-                                    "distance": None,
-                                    "description": description
-                                })
-
-                        return {
-                            "success": True,
-                            "query": query,
-                            "location": location,
-                            "results": results,
-                            "count": len(results),
-                            "note": "Local search results are based on web search with location context"
-                        }
-                    else:
-                        error_text = await response.text()
-                        return {
-                            "success": False,
-                            "error": f"Brave Local API error {response.status}: {error_text}"
-                        }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to perform local search: {str(e)}"
-            }
-
-    async def _execute_list_available_tags(self, memory_bank: str = None, user_id: str = None, model_id: str = None) -> Dict:
+    async def _execute_list_available_tags(self, memory_bank: str = None, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """
         Load tag registry and return available tags with their metadata.
         
@@ -673,7 +379,7 @@ class FridayMemoryMCPServer:
                 "tags": {}
             }
 
-    async def _execute_list_available_memory_banks(self, user_id: str = None, model_id: str = None) -> Dict:
+    async def _execute_list_available_memory_banks(self, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """
         Load memory_bank registry and return available banks with memory counts.
         
@@ -780,6 +486,7 @@ class FridayMemoryMCPServer:
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
         self._maintenance_task = None  # Background maintenance task
+        self._http_server_task = None  # HTTP API server task (for graceful shutdown)
         # Semaphore to limit concurrent database/embedding access (prevents system freeze)
         # Allows up to 3 simultaneous operations, queues the rest
         self.db_semaphore = asyncio.Semaphore(3)
@@ -792,6 +499,7 @@ class FridayMemoryMCPServer:
         self._module_watch_times = {}
         self._reload_task = None
         self._is_reloading = False
+        self._monitoring_thread = None  # File monitoring thread reference
         
         # Start file monitoring in background thread (doesn't wait for initialization event)
         def start_file_monitoring():
@@ -804,8 +512,8 @@ class FridayMemoryMCPServer:
                 logger.error(f"Error in file monitoring thread: {e}")
         
         # Start monitoring as daemon thread so it runs independently
-        monitor_thread = threading.Thread(target=start_file_monitoring, daemon=True)
-        monitor_thread.start()
+        self._monitoring_thread = threading.Thread(target=start_file_monitoring, daemon=True)
+        self._monitoring_thread.start()
         logger.info("✅ Module file monitoring started (watching for changes to memory system files).")
         
         self._register_handlers()
@@ -898,54 +606,53 @@ class FridayMemoryMCPServer:
                 await asyncio.sleep(5)  # Back off on error
     
     async def _reload_memory_modules(self):
-        """Reload the memory system modules"""
+        """Reload the memory system modules by restarting the entire server"""
         if self._is_reloading:
             return
         
         self._is_reloading = True
         try:
-            logger.info("�� Reloading Friday Memory System modules...")
+            logger.info("Detected file changes - restarting MCP server to load latest code...")
+            await asyncio.sleep(0.5)  # Brief delay to ensure logs are written
             
-            # Try to reload friday_memory_system
-            try:
-                import friday_memory_system
-                importlib.reload(friday_memory_system)
-                logger.debug("✅ Reloaded friday_memory_system")
-            except Exception as e:
-                logger.error(f"Error reloading friday_memory_system: {e}")
-                self._is_reloading = False
-                return
-            
-            # Recreate the memory system with fresh module code
-            try:
-                logger.info("🆕 Recreating FridayMemorySystem instance...")
-                old_system = self.memory_system
-                
-                # Create new instance with reloaded module
-                self.memory_system = friday_memory_system.FridayMemorySystem(
-                    data_dir=str(self.memory_data_dir)
-                )
-                logger.info("✅ Successfully reloaded and recreated memory system!")
-                logger.info("🎯 All modules are now running the latest code")
-                
-                # Close old system if it has a close method
+            # Cancel HTTP server task if running
+            if self._http_server_task and not self._http_server_task.done():
+                logger.info("🌐 Cancelling HTTP API server...")
+                self._http_server_task.cancel()
                 try:
-                    if hasattr(old_system, 'close'):
-                        old_system.close()
-                except:
+                    await asyncio.wait_for(self._http_server_task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
-                    
-            except Exception as e:
-                logger.error(f"Error recreating memory system: {e}")
-                # Keep the old system running if recreation failed
-                self._is_reloading = False
-                return
             
-            self._is_reloading = False
+            # Cancel maintenance task if running
+            if self._maintenance_task and not self._maintenance_task.done():
+                logger.info("🔧 Cancelling maintenance task...")
+                self._maintenance_task.cancel()
+                try:
+                    await asyncio.wait_for(self._maintenance_task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Perform cleanup with timeout
+            try:
+                logger.info("🧹 Running cleanup...")
+                await asyncio.wait_for(self.cleanup(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.error("Cleanup timeout - forcing exit")
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+            
+            logger.info("Gracefully shutting down to restart with latest code...")
+            await asyncio.sleep(0.5)  # Allow shutdown logs to flush
+            
+            # Exit gracefully - parent process will restart
+            import sys
+            sys.exit(0)
             
         except Exception as e:
-            logger.error(f"Unexpected error during reload: {e}")
+            logger.error(f"Error during restart sequence: {e}")
             self._is_reloading = False
+
 
     def _register_handlers(self):
         """Register MCP server handlers"""
@@ -997,70 +704,6 @@ class FridayMemoryMCPServer:
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
                     "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_weather_open_meteo",
-                description="Open-Meteo forecast (no API key). Defaults to Motley, MN and caches once per local day.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "latitude":  {"type": ["number","null"], "description": "Ignored unless override=True"},
-                        "longitude": {"type": ["number","null"], "description": "Ignored unless override=True"},
-                        "timezone_str": {"type": ["string","null"], "description": "Ignored unless override=True"},
-                        "override": {"type": "boolean", "description": "Set to true to use custom coordinates", "default": False},
-                        "update_today": {
-                            "type": "boolean",
-                            "description": "If true (default), fetch and merge changes into today's file before returning.",
-                            "default": True
-                        },
-                        "return_changes_only": {
-                            "type": "boolean",
-                            "description": "If true, return only a summary of changed fields for today.",
-                            "default": False
-                        },
-                        "severe_update": {
-                            "type": "boolean",
-                            "description": "If true, shrink the update window to 30 minutes for severe weather.",
-                            "default": False
-                        },
-                        "force_refresh": {"type": "boolean", "description": "Ignore same-day cache", "default": False},
-                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
-                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="brave_web_search",
-                description="General web search using the Brave search engine",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
-                        "country": {"type": "string", "description": "Country code (e.g., 'US', 'CA')", "default": "US"},
-                        "language": {"type": "string", "description": "Language code (e.g., 'en', 'es')", "default": "en"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["query", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="brave_local_search",
-                description="Search for local businesses and places",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query (e.g., 'pizza near me')"},
-                        "location": {"type": "string", "description": "Location to search around (e.g., 'New York, NY' or coordinates)"},
-                        "count": {"type": "integer", "description": "Number of results to return", "default": 10, "maximum": 20},
-                        "radius": {"type": "integer", "description": "Search radius in meters", "default": 5000},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["query", "user_id", "model_id"]
                 }
             ),
             Tool(
@@ -1209,6 +852,20 @@ class FridayMemoryMCPServer:
                         "content": {"type": "string", "description": "Updated content"},
                         "importance_level": {"type": "integer", "description": "Updated importance"},
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["memory_id", "user_id", "model_id"]
+                }
+            ),
+            Tool(
+                name="get_conversation_context",
+                description="Retrieve conversation context linked to a memory in three modes: snippet (4 msgs before/after), summary (count, date range, first/last msgs), or full (all messages)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {"type": "string", "description": "ID of the memory to get linked conversation for"},
+                        "mode": {"type": "string", "enum": ["snippet", "summary", "full"], "description": "Mode: snippet (default, 4 msgs before/after), summary (overview), or full (all messages)", "default": "snippet"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
@@ -1958,6 +1615,24 @@ class FridayMemoryMCPServer:
                 if model_id:
                     filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
+                
+                # Add source attribution to each result for transparency
+                if result.get("status") == "success" and result.get("results"):
+                    for search_result in result["results"]:
+                        result_type = search_result.get("type", "").lower()
+                        if "ai_memory" in result_type or result_type == "memory":
+                            # Try to determine if this is short-term or long-term based on other indicators
+                            # If it has importance_level field, it's likely long-term curated
+                            if search_result.get("data", {}).get("importance_level"):
+                                search_result["source"] = "long_term"
+                            else:
+                                search_result["source"] = "short_term"
+                        elif "conversation" in result_type:
+                            search_result["source"] = "conversation"
+                        elif result_type in ("appointment", "reminder"):
+                            search_result["source"] = "schedule"
+                        else:
+                            search_result["source"] = "unknown"
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
                 # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id, source
@@ -1982,6 +1657,132 @@ class FridayMemoryMCPServer:
                 # Auto-inject source based on where the call originated (completely transparent to model)
                 filtered_args["source"] = source
                 result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
+
+            elif tool_name in ("get_conversation_context", "tool_get_conversation_context_post"):
+                # get_conversation_context accepts: memory_id, mode, user_id, model_id
+                allowed_args = {"memory_id", "mode", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                
+                # Get mode parameter (default: snippet)
+                mode = filtered_args.get("mode", "snippet")
+                memory_id = filtered_args.get("memory_id")
+                
+                if not memory_id:
+                    result = {
+                        "error": "memory_id is required",
+                        "success": False
+                    }
+                else:
+                    try:
+                        from friday_memory_system import ConversationDatabase, get_base_path
+                        from pathlib import Path
+                        conv_db = ConversationDatabase(
+                            str(Path(get_base_path()) / "memory_data" / "conversations.db")
+                        )
+                        
+                        # Look up memory in memory_conversation_links
+                        links = await conv_db.execute_query(
+                            "SELECT conversation_id, metadata FROM memory_conversation_links WHERE memory_id = ? LIMIT 1",
+                            (memory_id,)
+                        )
+                        
+                        if not links:
+                            result = {
+                                "error": "no linked conversation found for this memory",
+                                "memory_id": memory_id,
+                                "success": False
+                            }
+                        else:
+                            link_record = links[0]
+                            conversation_id = link_record.get("conversation_id")
+                            link_metadata = link_record.get("metadata", {})
+                            if isinstance(link_metadata, str):
+                                import json
+                                try:
+                                    link_metadata = json.loads(link_metadata)
+                                except:
+                                    link_metadata = {}
+                            memory_timestamp = link_metadata.get("timestamp", None)
+                            
+                            # Query messages from this conversation
+                            messages = await conv_db.execute_query(
+                                "SELECT id, role, content, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp",
+                                (conversation_id,)
+                            )
+                            
+                            if mode == "snippet":
+                                # 4 messages before and 4 after the memory's timestamp
+                                snippet_messages = []
+                                if memory_timestamp:
+                                    found_idx = None
+                                    for idx, msg in enumerate(messages):
+                                        if msg.get("timestamp") == memory_timestamp:
+                                            found_idx = idx
+                                            break
+                                    if found_idx is not None:
+                                        start_idx = max(0, found_idx - 4)
+                                        end_idx = min(len(messages), found_idx + 5)
+                                        snippet_messages = messages[start_idx:end_idx]
+                                    else:
+                                        # If exact match not found, take last 8
+                                        snippet_messages = messages[-8:] if len(messages) >= 8 else messages
+                                else:
+                                    snippet_messages = messages[-8:] if len(messages) >= 8 else messages
+                                
+                                result = {
+                                    "mode": "snippet",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "message_count": len(snippet_messages),
+                                    "messages": [{"role": m.get("role"), "content": m.get("content"), "timestamp": m.get("timestamp")} for m in snippet_messages],
+                                    "success": True
+                                }
+                            
+                            elif mode == "summary":
+                                # Count, date range, first and last messages
+                                first_msg = messages[0] if messages else None
+                                last_msg = messages[-1] if messages else None
+                                date_range = None
+                                if first_msg and last_msg:
+                                    date_range = f"{first_msg.get('timestamp', 'unknown')} to {last_msg.get('timestamp', 'unknown')}"
+                                
+                                result = {
+                                    "mode": "summary",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "total_messages": len(messages),
+                                    "date_range": date_range,
+                                    "first_message": {"role": first_msg.get("role"), "content": first_msg.get("content")[:200]} if first_msg else None,
+                                    "last_message": {"role": last_msg.get("role"), "content": last_msg.get("content")[:200]} if last_msg else None,
+                                    "success": True
+                                }
+                            
+                            elif mode == "full":
+                                # All messages chronologically
+                                result = {
+                                    "mode": "full",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "message_count": len(messages),
+                                    "messages": [{"role": m.get("role"), "content": m.get("content"), "timestamp": m.get("timestamp")} for m in messages],
+                                    "success": True
+                                }
+                            else:
+                                result = {
+                                    "error": f"unknown mode: {mode}",
+                                    "success": False
+                                }
+                    except Exception as e:
+                        logger.error(f"Error retrieving conversation context: {e}\n{traceback.format_exc()}")
+                        result = {
+                            "error": str(e),
+                            "memory_id": memory_id,
+                            "success": False
+                        }
 
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
                 # get_recent_context accepts: limit, session_id, days_back, user_id, model_id
@@ -2216,77 +2017,12 @@ class FridayMemoryMCPServer:
                 result = await self.get_reminders(**filtered_args)
 
             # -----------------------------------------------------------------
-            # Weather Tools (keep the override guard exactly as before)
-            # -----------------------------------------------------------------
-            elif tool_name == "get_weather_open_meteo":
-                override = bool(arguments.get("override", False))
-                latitude = arguments.get("latitude") or None
-                longitude = arguments.get("longitude") or None
-                timezone_str = arguments.get("timezone_str") or None
-
-                # Sanitize empty strings
-                if latitude == "": latitude = None
-                if longitude == "": longitude = None
-                if timezone_str == "": timezone_str = None
-
-                if not override:
-                    attempted_lat = latitude
-                    attempted_lon = longitude
-                    attempted_tz = timezone_str
-                    latitude = longitude = timezone_str = None
-
-                    try:
-                        log_path = BASE_PATH / "logs" / "friday.log"
-                        log_path.parent.mkdir(exist_ok=True)
-                        with open(log_path, "a", encoding="utf-8") as _lf:
-                            _lf.write(
-                                f"[weather] blocked coords (override=False) "
-                                f"lat={attempted_lat} lon={attempted_lon} tz={attempted_tz}\n"
-                            )
-                    except Exception:
-                        pass
-
-                result = await self.get_weather_open_meteo(
-                    latitude=latitude,
-                    longitude=longitude,
-                    timezone_str=timezone_str,
-                    force_refresh=arguments.get("force_refresh", False),
-                    override=override,
-                    update_today=arguments.get("update_today", True),
-                    return_changes_only=arguments.get("return_changes_only", False),
-                    severe_update=arguments.get("severe_update", False),
-                )
-
-            # -----------------------------------------------------------------
-            # Brave Search Tools
-            # -----------------------------------------------------------------
-            elif tool_name == "brave_web_search":
-                # brave_web_search only accepts: query, count, country, language
-                # Extract user_id and model_id for logging, don't pass to tool
-                search_user_id = arguments.get("user_id") or user_id
-                search_model_id = arguments.get("model_id") or model_id
-                logger.info(f"Brave web search requested by user={search_user_id}, model={search_model_id}")
-                
-                allowed_args = {"query", "count", "country", "language"}
-                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.brave_web_search(**filtered_args)
-
-            elif tool_name == "brave_local_search":
-                # brave_local_search only accepts: query, location, count, radius
-                # Extract user_id and model_id for logging, don't pass to tool
-                search_user_id = arguments.get("user_id") or user_id
-                search_model_id = arguments.get("model_id") or model_id
-                logger.info(f"Brave local search requested by user={search_user_id}, model={search_model_id}")
-                
-                allowed_args = {"query", "location", "count", "radius"}
-                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
-                result = await self.brave_local_search(**filtered_args)
-
-            # -----------------------------------------------------------------
             # Project / System Tools
             # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
                 result = await self._protected_tool_call(self.memory_system.get_system_health(source=source))
+            elif tool_name == "get_error_summary":
+                result = await self._protected_tool_call(self.memory_system.get_error_summary(source=source))
             elif tool_name == "save_development_session":
                 # save_development_session accepts: workspace_path, active_files, git_branch, session_summary, user_id, model_id
                 allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary", "user_id", "model_id"}
@@ -2533,14 +2269,31 @@ class FridayMemoryMCPServer:
             await asyncio.sleep(6 * 60 * 60)
     
     async def cleanup(self):
-        """Cleanup resources when server stops"""
-        if self._maintenance_task and not self._maintenance_task.done():
-            self._maintenance_task.cancel()
-            try:
-                await self._maintenance_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("🔧 Automatic maintenance stopped")
+        """Cleanup resources when server stops with timeout protection"""
+        try:
+            # Release maintenance claim
+            if hasattr(self, '_maintenance_coordinator'):
+                self._maintenance_coordinator.release_claim()
+            
+            # Cancel HTTP server task if still running
+            if self._http_server_task and not self._http_server_task.done():
+                self._http_server_task.cancel()
+                try:
+                    await asyncio.wait_for(self._http_server_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Cancel maintenance task if still running
+            if self._maintenance_task and not self._maintenance_task.done():
+                self._maintenance_task.cancel()
+                try:
+                    await asyncio.wait_for(self._maintenance_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            logger.info("🔧 Cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
 
 async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.0.0.1", port: Optional[int] = None):
@@ -2883,9 +2636,18 @@ async def main():
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
     
+    # Claim maintenance ownership — if we win, start background services
+    from task_coordinator import TaskCoordinator
+    srv._maintenance_coordinator = TaskCoordinator()
+    if srv._maintenance_coordinator.setup_claim(str(srv.memory_data_dir)):
+        logger.info("MCP server won maintenance claim — starting background services")
+        asyncio.create_task(srv.memory_system.background_main())
+    else:
+        logger.info("Short-term plugin owns maintenance — MCP server skipping background services")
+    
     # Start HTTP API server in background
     # Port will be auto-detected and fallback to backups if needed
-    http_task = asyncio.create_task(
+    srv._http_server_task = asyncio.create_task(
         start_http_server(srv, host="127.0.0.1", port=None)
     )
     
@@ -2908,8 +2670,6 @@ async def main():
     except Exception:
         logger.exception("Server error")
         await srv.cleanup()
-        if not http_task.done():
-            http_task.cancel()
         # Clean up port info on shutdown
         port_manager.cleanup_port_info()
 

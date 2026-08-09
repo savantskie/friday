@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "created_at": "2026-03-23T19:54:11.297380+00:00",
+  "banks": [
+    {
+      "name": "general",
+      "registered_at": "2026-03-23T19:54:11.297392+00:00"
+    },
+    {
+      "name": "personal",
+      "registered_at": "2026-03-23T19:54:11.297395+00:00"
+    },
+    {
+      "name": "work",
+      "registered_at": "2026-03-23T19:54:11.297398+00:00"
+    },
+    {
+      "name": "context",
+      "registered_at": "2026-03-23T20:28:01.916816+00:00"
+    },
+    {
+      "name": "projects",
+      "registered_at": "2026-03-23T20:28:01.917340+00:00"
+    },
+    {
+      "name": "tasks",
+      "registered_at": "2026-03-23T20:28:01.917726+00:00"
+    },
+    {
+      "name": "technical",
+      "registered_at": "2026-03-24T01:38:13.042922+00:00"
+    },
+    {
+      "name": "intimate",
+      "registered_at": "2026-03-24T04:43:47.249158+00:00"
+    },
+    {
+      "name": "preferences",
+      "registered_at": "2026-03-24T05:04:45.782924+00:00"
+    },
+    {
+      "name": "research",
+      "registered_at": "2026-03-25T13:34:28.681318+00:00"
+    },
+    {
+      "name": "patterns",
+      "registered_at": "2026-03-26T22:18:41.830802+00:00"
+    },
+    {
+      "name": "relationships",
+      "registered_at": "2026-03-27T02:47:10.520565+00:00"
+    },
+    {
+      "name": "goals",
+      "registered_at": "2026-03-30T23:18:13.029861+00:00"
+    },
+    {
+      "name": "character_interaction",
+      "registered_at": "2026-03-31T01:50:22.819410+00:00"
+    },
+    {
+      "name": "character",
+      "registered_at": "2026-03-31T06:38:43.360778+00:00"
+    },
+    {
+      "name": "pattern",
+      "registered_at": "2026-05-03T14:37:09.283428+00:00"
+    },
+    {
+      "name": "adult_content",
+      "registered_at": "2026-06-29T04:12:30.695259+00:00"
+    },
+    {
+      "name": "temporary",
+      "registered_at": "2026-08-06T00:36:31.990611+00:00"
+    }
+  ]
+}

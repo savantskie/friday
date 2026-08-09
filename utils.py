@@ -12,7 +12,7 @@ def get_local_timezone() -> ZoneInfo:
     try:
         import time
         return ZoneInfo(time.tzname[0])
-    except:
+    except Exception:
         # Fallback to a common timezone if detection fails
         return ZoneInfo("America/Chicago")  # Minnesota is in Central Time
 

@@ -56,9 +56,22 @@ from port_manager import PortManager, CallerProgram
 # Initialize with dynamic path
 BASE_PATH = get_base_path()
 memory_system = FridayMemorySystem(data_dir=str(BASE_PATH / "memory_data"))
+memory_system.set_llm_config(
+    llm_endpoint=os.getenv("LLM_API_ENDPOINT", "http://192.168.1.50:8080/v1/chat/completions"),
+    llm_model=os.getenv("LLM_MODEL", "Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced"),
+    llm_provider=os.getenv("LLM_PROVIDER", "openai_compatible"),
+    llm_api_key=os.getenv("LLM_API_KEY")
+)
 
 # Initialize port manager
 port_manager = PortManager(memory_data_path=str(BASE_PATH / "memory_data"))
+
+# Custom exception for clean server restart signaling
+# Using a regular Exception (not BaseException like SystemExit) allows it to
+# propagate cleanly through asyncio tasks without corrupting the event loop.
+# The sys.exit(0) is deferred to the outermost level where it is safe to call.
+class ServerRestartSignal(Exception):
+    """Raised to signal a clean server restart without calling sys.exit() mid-task."""
 
 # ---------- Friday Weather (Open-Meteo) with same-day cache ----------
 # Defaults for Motley, MN (no API key; Open-Meteo requires lat/lon)
@@ -306,735 +319,20 @@ class FridayMemoryMCPServer:
                 logger.info("✅ Maintenance scheduled.")
             except Exception as e:
                 logger.error(f"❌ Error starting maintenance: {e}")
-                # Start OpenWebUI chat import loop
-                async def openwebui_import_loop():
-                    while True:
-                        try:
-                            logger.info("⏳ Importing OpenWebUI chat history...")
-                            await self.memory_system.import_openwebui_chat_history()
-                            logger.info("✅ OpenWebUI chat import complete.")
-                        except Exception as e:
-                            logger.error(f"❌ Error importing OpenWebUI chat: {e}")
-                        await asyncio.sleep(3 * 60 * 60)  # 3 hours
-                asyncio.create_task(openwebui_import_loop())
+
+            # Start OpenWebUI chat import loop
+            async def openwebui_import_loop():
+                while True:
+                    try:
+                        logger.info("⏳ Importing OpenWebUI chat history...")
+                        await self.memory_system.import_openwebui_chat_history()
+                        logger.info("✅ OpenWebUI chat import complete.")
+                    except Exception as e:
+                        logger.error(f"❌ Error importing OpenWebUI chat: {e}")
+                    await asyncio.sleep(3 * 60 * 60)  # 3 hours
+            asyncio.create_task(openwebui_import_loop())
         asyncio.create_task(delayed_start())    
 
-    async def _get_client_tools(self) -> List[Tool]:
-        """Return tools available to the current client"""
-        logger.debug("Getting client tools")
-        
-        # Detect client type based on user agent or connection context
-        client_type = self._detect_client_type()
-        logger.info(f"Detected client type: {client_type}")
-        
-        try:
-            # Common tools available to all clients (SillyTavern, VS Code, LM Studio, etc.)
-            common_tools = [
-            
-            Tool(
-                name="complete_reminder",
-                description="Mark a reminder as completed",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "reminder_id": {"type": "string", "description": "ID of the reminder to complete"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["reminder_id", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_active_reminders",
-                description="Get active (not completed) reminders",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of reminders to return", "default": 10},
-                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_completed_reminders",
-                description="Get recently completed reminders",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "days": {"type": "integer", "description": "Look back X days", "default": 7},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="reschedule_reminder",
-                description="Update the due date of a reminder",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "reminder_id": {"type": "string", "description": "ID of the reminder"},
-                        "new_due_datetime": {"type": "string", "description": "New ISO datetime (e.g., 2025-08-03T14:00:00Z)"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["reminder_id", "new_due_datetime", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="delete_reminder",
-                description="Permanently delete a reminder",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "reminder_id": {"type": "string", "description": "ID of the reminder to delete"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["reminder_id", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="cancel_appointment",
-                description="Cancel a scheduled appointment",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "appointment_id": {"type": "string", "description": "ID of the appointment to cancel"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["appointment_id", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="complete_appointment",
-                description="Mark an appointment as completed",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "appointment_id": {"type": "string", "description": "ID of the appointment to complete"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["appointment_id", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_upcoming_appointments",
-                description="Get upcoming appointments (not cancelled)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number to return", "default": 5},
-                        "days_ahead": {"type": "integer", "description": "Only show within X days", "default": 30},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            
-            Tool(
-                name="search_memories",
-                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup. Either 'query' or 'memory_id' must be provided.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query (required if memory_id not provided)"},
-                        "limit": {"type": "integer", "description": "Max results", "default": 10},
-                        "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
-                        "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
-                        "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
-                        "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
-                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags (OR logic - returns memories matching ANY tag)"},
-                        "memory_bank": {"type": "string", "description": "Filter by memory bank (e.g., General, Personal, Work, Context, Tasks)"},
-                        "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="store_conversation",
-                description="Store conversation automatically",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "content": {"type": "string", "description": "Conversation content"},
-                        "role": {"type": "string", "description": "Role (user/assistant)"},
-                        "session_id": {"type": "string", "description": "Session identifier"},
-                        "metadata": {"type": "object", "description": "Additional metadata"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["content", "role", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="create_memory",
-                description="Create a curated memory entry",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "content": {"type": "string", "description": "Memory content"},
-                        "memory_type": {"type": "string", "description": "Type of memory"},
-                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
-                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Memory tags"},
-                        "source_conversation_id": {"type": "string", "description": "Source conversation ID"},
-                        "memory_bank": {"type": "string", "description": "Memory category (General, Personal, Work, Context, Tasks)", "default": "General"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["content", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="update_memory",
-                description="Update an existing curated memory",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "memory_id": {"type": "string", "description": "Memory ID to update"},
-                        "content": {"type": "string", "description": "Updated content"},
-                        "importance_level": {"type": "integer", "description": "Updated importance"},
-                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["memory_id", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="create_appointment",
-                description="Create an appointment, optionally recurring (e.g., weekly mental health appointments)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string", "description": "Appointment title"},
-                        "description": {"type": "string", "description": "Appointment description"},
-                        "scheduled_datetime": {"type": "string", "description": "ISO format datetime for first appointment"},
-                        "location": {"type": "string", "description": "Location"},
-                        "recurrence_pattern": {"type": "string", "description": "Recurrence pattern: 'daily', 'weekly', 'monthly', 'yearly'", "enum": ["daily", "weekly", "monthly", "yearly"]},
-                        "recurrence_count": {"type": "integer", "description": "Number of appointments to create (including first), e.g., 12 for 12 weeks", "minimum": 1},
-                        "recurrence_end_date": {"type": "string", "description": "End date for recurrences (ISO format), alternative to recurrence_count"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["title", "scheduled_datetime", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="create_reminder",
-                description="Create a reminder or multiple recurring reminders",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "content": {"type": "string", "description": "Reminder content"},
-                        "due_datetime": {"type": "string", "description": "ISO format datetime"},
-                        "priority_level": {"type": "integer", "description": "Priority (1-10)", "default": 5},
-                        "recurrence_pattern": {
-                            "type": "string", 
-                            "enum": ["daily", "weekly", "monthly", "yearly"],
-                            "description": "Optional: Pattern for recurring reminders"
-                        },
-                        "recurrence_count": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 365,
-                            "description": "Optional: Number of recurring reminders to create"
-                        },
-                        "recurrence_end_date": {
-                            "type": "string",
-                            "description": "Optional: ISO format datetime to stop recurring reminders"
-                        },
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["content", "due_datetime", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_reminders",
-                description="Get recent reminders, optionally filtered by date range",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of reminders to return", "default": 5},
-                        "include_completed": {"type": "boolean", "description": "Include completed reminders", "default": False},
-                        "days_ahead": {"type": "integer", "description": "Only show reminders due within X days", "default": 30},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_recent_context",
-                description="Get recent conversation context from the last N days",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of recent items", "default": 5},
-                        "session_id": {"type": "string", "description": "Specific session ID"},
-                        "days_back": {"type": "integer", "description": "Only show messages from the last N days", "default": 7},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_system_health",
-                description="Get comprehensive system health, statistics, and database status",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            ),
-            Tool(
-                name="get_tool_information",
-                description="Get tool usage statistics OR tool documentation. Pass mode='documentation' to get descriptions of available tools. Optionally specify tool_name to get docs for a specific tool.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "mode": {"type": "string", "description": "Mode: 'usage' (default) for statistics or 'documentation' for tool descriptions", "default": "usage"},
-                        "tool_name": {"type": "string", "description": "Optional: specific tool name to document (only with mode='documentation')"},
-                        "days": {"type": "integer", "description": "For usage mode: Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "For usage mode: Specific client ID to analyze"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="reflect_on_tool_usage",
-                description="AI self-reflection on tool usage patterns and effectiveness",
-                inputSchema={
-                    "type": "object", 
-                    "properties": {
-                        "days": {"type": "integer", "description": "Days to analyze", "default": 7},
-                        "client_id": {"type": "string", "description": "Specific client ID to analyze"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_ai_insights",
-                description="Get recent AI self-reflection insights and patterns",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of insights", "default": 5},
-                        "insight_type": {"type": "string", "description": "Type of insight to filter"},
-                        "query": {"type": "string", "description": "Search query for keywords or phrases in insights"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            )
-            ,
-            Tool(
-                name="store_ai_reflection",
-                description="Store an AI self-reflection/insight record (manual write)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "reflection_type": {
-                            "type": "string",
-                            "description": "Category (e.g., tool_usage_analysis, memory, general)",
-                            "default": "general"
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "Freeform write-up of the reflection"
-                        },
-                        "insights": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Bullet insights derived from the analysis"
-                        },
-                        "recommendations": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Recommended next actions"
-                        },
-                        "confidence_level": {
-                            "type": "number",
-                            "description": "Confidence 0.0–1.0",
-                            "default": 0.7
-                        },
-                        "source_period_days": {
-                            "type": "integer",
-                            "description": "Days of data this reflection summarizes"
-                        },
-                        "user_id": {
-                            "type": "string",
-                            "description": "User ID for user separation"
-                        },
-                        "model_id": {
-                            "type": "string",
-                            "description": "Model ID for model separation"
-                        }
-                    },
-                    "required": ["content", "user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            )
-            ,
-            Tool(
-                name="write_ai_insights",
-                description="Alias of store_ai_reflection — write an AI self-reflection/insight record",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "reflection_type": {
-                            "type": "string",
-                            "description": "Category (e.g., tool_usage_analysis, memory, general)",
-                            "default": "general"
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "Freeform write-up of the reflection"
-                        },
-                        "insights": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Bullet insights derived from the analysis"
-                        },
-                        "recommendations": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Recommended next actions"
-                        },
-                        "confidence_level": {
-                            "type": "number",
-                            "description": "Confidence 0.0–1.0",
-                            "default": 0.7
-                        },
-                        "source_period_days": {
-                            "type": "integer",
-                            "description": "Days of data this reflection summarizes"
-                        },
-                        "user_id": {
-                            "type": "string",
-                            "description": "User ID for user separation"
-                        },
-                        "model_id": {
-                            "type": "string",
-                            "description": "Model ID for model separation"
-                        }
-                    },
-                    "required": ["content", "user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            )
-            ,
-            Tool(
-                name="get_current_time",
-                description="Get the current server time in ISO format (UTC and local)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            )
-            ,
-            Tool(
-                name="trigger_database_maintenance",
-                description="Manually trigger database maintenance (archival, repairs, optimization) outside of the regular 6-hour schedule",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "force": {"type": "boolean", "description": "Force maintenance to run immediately, bypassing any running checks", "default": True},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for user separation"}
-                    },
-                    "required": ["user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            )
-            ,
-            Tool(
-                name="export_all_tool_calls",
-                description="Export all tool calls from current and archived databases for LORA training dataset generation (web-only, not for models)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "output_filename": {"type": "string", "description": "Optional custom filename for export (defaults to timestamp-based name)"},
-                        "user_id": {"type": "string", "description": "User ID for logging (required)"},
-                        "model_id": {"type": "string", "description": "Model ID for logging (required)"}
-                    },
-                    "required": ["user_id", "model_id"],
-                    "additionalProperties": False
-                }
-            )
-            ,
-            Tool(
-                name="list_available_tags",
-                description="Get list of available tags from registry with their canonical forms, variations, and usage counts",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "memory_bank": {"type": "string", "description": "Filter tags by specific memory bank (optional)"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            )
-            ,
-            Tool(
-                name="list_available_memory_banks",
-                description="Get list of available memory banks with memory counts per bank",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            )
-            ,
-            Tool(
-                name="get_appointments",
-                description="Get recent appointments, optionally filtered by date range",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Number of appointments to return", "default": 5},
-                        "days_ahead": {"type": "integer", "description": "Only show appointments scheduled within X days", "default": 30},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["user_id", "model_id"]
-                }
-            )
-        ]
-        except Exception as e:
-            logger.error(f"Error creating common tools: {e}")
-            common_tools = []
-        
-        # VS Code specific tools
-        vscode_tools = [
-            Tool(
-                name="save_development_session",
-                description="Save VS Code development session context",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "workspace_path": {"type": "string", "description": "Workspace path"},
-                        "active_files": {"type": "array", "items": {"type": "string"}, "description": "Active files"},
-                        "git_branch": {"type": "string", "description": "Current git branch"},
-                        "session_summary": {"type": "string", "description": "Session summary"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["workspace_path", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="store_project_insight",
-                description="Store development insight or decision",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "insight_type": {"type": "string", "description": "Type of insight"},
-                        "content": {"type": "string", "description": "Insight content"},
-                        "related_files": {"type": "array", "items": {"type": "string"}, "description": "Related files"},
-                        "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["content", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="search_project_history",
-                description="Search VS Code project development history",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "limit": {"type": "integer", "description": "Max results", "default": 10},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["query", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="link_code_context",
-                description="Link conversation to specific code context",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "file_path": {"type": "string", "description": "File path"},
-                        "function_name": {"type": "string", "description": "Function name"},
-                        "description": {"type": "string", "description": "Context description"},
-                        "conversation_id": {"type": "string", "description": "Related conversation ID"},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["file_path", "description", "user_id", "model_id"]
-                }
-            ),
-            Tool(
-                name="get_project_continuity",
-                description="Get context to continue development work",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "workspace_path": {"type": "string", "description": "Workspace path"},
-                        "limit": {"type": "integer", "description": "Context items", "default": 5},
-                        "user_id": {"type": "string", "description": "User ID for user separation"},
-                        "model_id": {"type": "string", "description": "Model ID for model separation"}
-                    },
-                    "required": ["workspace_path", "user_id", "model_id"]
-                }
-            )
-        ]
-        
-        try:
-            # Return appropriate tools based on client type
-            if client_type == "sillytavern":
-                # SillyTavern gets memory tools + character/roleplay specific tools
-                sillytavern_tools = [
-                    Tool(
-                        name="get_character_context",
-                        description="Get relevant context about characters from memory",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "character_name": {"type": "string", "description": "Character name to search for"},
-                                "context_type": {"type": "string", "description": "Type of context (personality, relationships, history)"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 5},
-                                "user_id": {"type": "string", "description": "User ID for user separation"},
-                                "model_id": {"type": "string", "description": "Model ID for model separation"}
-                            },
-                            "required": ["character_name", "user_id", "model_id"]
-                        }
-                    ),
-                    Tool(
-                        name="store_roleplay_memory",
-                        description="Store important roleplay moments or character developments",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "character_name": {"type": "string", "description": "Character involved"},
-                                "event_description": {"type": "string", "description": "What happened"},
-                                "importance_level": {"type": "integer", "description": "Importance (1-10)", "default": 5},
-                                "tags": {"type": "array", "items": {"type": "string"}, "description": "Relevant tags"},
-                                "user_id": {"type": "string", "description": "User ID for user separation"},
-                                "model_id": {"type": "string", "description": "Model ID for model separation"}
-                            },
-                            "required": ["character_name", "event_description", "user_id", "model_id"]
-                        }
-                    ),
-                    Tool(
-                        name="search_roleplay_history",
-                        description="Search past roleplay interactions and character development",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string", "description": "Search query"},
-                                "character_name": {"type": "string", "description": "Focus on specific character"},
-                                "limit": {"type": "integer", "description": "Max results", "default": 10},
-                                "user_id": {"type": "string", "description": "User ID for user separation"},
-                                "model_id": {"type": "string", "description": "Model ID for model separation"}
-                            },
-                            "required": ["query", "user_id", "model_id"]
-                        }
-                    )
-                ]
-                return common_tools + sillytavern_tools
-            
-            elif client_type == "vscode":
-                # VS Code gets development-specific tools
-                return common_tools + vscode_tools
-            
-            else:
-                # Default: LM Studio, Ollama UIs, etc. get core memory tools only
-                return common_tools
-                
-        except Exception as e:
-            logger.error(f"Error combining tool lists: {e}")
-            return []
-
-    def _detect_client_type(self) -> str:
-        """Detect the type of MCP client connecting using multiple detection methods
-        
-        Detection priority:
-        1. Port-based detection: OpenWebUI always uses port 12345
-        2. Process-based detection: Parent process name (VS Code, LM Studio, Ollama)
-        3. Command-line detection: Process arguments
-        
-        Maps to tool set names:
-        - vscode -> VS Code development tools
-        - lm_studio -> LM Studio integration
-        - openwebui -> OpenWebUI/MCPO integration (port 12345)
-        - ollama -> Ollama integration
-        - unknown -> Default core memory tools only
-        
-        NOTE: If caller_program hasn't been detected yet (e.g., during module import),
-        this will trigger detection now rather than waiting for HTTP server startup.
-        """
-        try:
-            # Ensure caller program has been detected
-            # (It's normally called during start_http_server, but may be called earlier via module import)
-            if port_manager.caller_program == CallerProgram.UNKNOWN and not getattr(port_manager, '_detection_attempted', False):
-                logger.debug("Caller program not yet detected - running detection now")
-                port_manager.detect_caller_program()
-                port_manager._detection_attempted = True
-            
-            # Priority 1: Check if we're running on OpenWebUI's dedicated port (12345)
-            # (Only check if port has been set - it won't be during module import)
-            if port_manager.active_port and port_manager.active_port == 12345:
-                logger.info("🌐 OpenWebUI (MCPO) detected via port 12345 - providing core memory tools")
-                return "unknown"  # OpenWebUI gets core tools via port detection
-            
-            # Priority 2: Use process-based caller detection
-            caller = port_manager.caller_program.value
-            
-            # Map caller program to client type for tool selection
-            if caller == "vscode":
-                logger.info("📝 VS Code detected (parent: code/electron) - providing development tools")
-                return "vscode"
-            elif caller == "lm_studio":
-                logger.info("🤖 LM Studio detected - providing core memory tools")
-                return "unknown"  # LM Studio gets core tools, not platform-specific
-            elif caller == "openwebui":
-                logger.info("🌐 OpenWebUI detected (process name) - providing core memory tools")
-                return "unknown"  # OpenWebUI gets core tools, not platform-specific
-            elif caller == "ollama":
-                logger.info("🐫 Ollama detected - providing core memory tools")
-                return "unknown"  # Ollama gets core tools, not platform-specific
-            else:
-                logger.info(f"❓ Unknown caller program: {caller} - providing core memory tools")
-                return "unknown"
-                
-        except Exception as e:
-            logger.warning(f"Error detecting client type: {e}. Defaulting to core tools.")
-            return "unknown"
 
     async def _execute_list_available_tags(self, memory_bank: str = None, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """
@@ -1199,6 +497,12 @@ class FridayMemoryMCPServer:
     def __init__(self):
         self.memory_data_dir = BASE_PATH / "memory_data"
         self.memory_system = FridayMemorySystem(data_dir=str(self.memory_data_dir))
+        self.memory_system.set_llm_config(
+            llm_endpoint=os.getenv("LLM_API_ENDPOINT", "http://192.168.1.50:8080/v1/chat/completions"),
+            llm_model=os.getenv("LLM_MODEL", "Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced"),
+            llm_provider=os.getenv("LLM_PROVIDER", "openai_compatible"),
+            llm_api_key=os.getenv("LLM_API_KEY")
+        )
         self.server = Server("friday-memory")
         self.client_context = {}  # Track client-specific context
         self._maintenance_task = None  # Background maintenance task
@@ -1215,22 +519,7 @@ class FridayMemoryMCPServer:
         self._module_watch_times = {}
         self._reload_task = None
         self._is_reloading = False
-        self._monitoring_thread = None  # File monitoring thread reference
-        
-        # Start file monitoring in background thread (doesn't wait for initialization event)
-        def start_file_monitoring():
-            """Start file monitoring in a separate event loop"""
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._check_and_reload_modules())
-            except Exception as e:
-                logger.error(f"Error in file monitoring thread: {e}")
-        
-        # Start monitoring as daemon thread so it runs independently
-        self._monitoring_thread = threading.Thread(target=start_file_monitoring, daemon=True)
-        self._monitoring_thread.start()
-        logger.info("✅ Module file monitoring started (watching for changes to memory system files).")
+        # File monitoring runs on the main event loop via asyncio.gather in main()
         
         self._register_handlers()
         # Do NOT start maintenance or file monitoring here
@@ -1360,10 +649,12 @@ class FridayMemoryMCPServer:
             
             logger.info("Gracefully shutting down to restart with latest code...")
             await asyncio.sleep(0.5)  # Allow shutdown logs to flush
-            
-            # Exit gracefully - parent process will restart
-            import sys
-            sys.exit(0)
+
+            # Signal restart at the outermost level instead of calling sys.exit() in-task
+            # ServerRestartSignal propagates up through asyncio cleanly (it is a regular
+            # Exception) and is caught by the main block's except handler, which calls
+            # sys.exit(0) at the outermost level where it is safe.
+            raise ServerRestartSignal()
             
         except Exception as e:
             logger.error(f"Error during restart sequence: {e}")
@@ -1505,19 +796,38 @@ class FridayMemoryMCPServer:
             
             Tool(
                 name="search_memories",
-                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup. Either 'query' or 'memory_id' must be provided.",
+                description="Search memories using semantic similarity with importance and type filtering, or direct ID lookup. Searches across long-term curated memories, short-term memories, conversations, and schedule. Each result includes a 'source' field (short_term, long_term, conversation, or schedule) for transparency. Either 'query' or 'memory_id' must be provided.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "Search query (required if memory_id not provided)"},
                         "limit": {"type": "integer", "description": "Max results", "default": 10},
-                        "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
+                        "database_filter": {"type": "string", "description": "Filter by database type — ai_memories includes both long-term curated and short-term memories", "enum": ["conversations", "ai_memories", "schedule", "all"], "default": "all"},
                         "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Minimum importance level to include (1-10)"},
                         "max_importance": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum importance level to include (1-10)"},
                         "memory_type": {"type": "string", "description": "Filter by memory type (e.g., 'safety', 'preference', 'skill', 'general')"},
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Filter by tags (OR logic - returns memories matching ANY tag)"},
                         "memory_bank": {"type": "string", "description": "Filter by memory bank (e.g., General, Personal, Work, Context, Tasks)"},
                         "memory_id": {"type": "string", "description": "Direct lookup by memory ID (bypasses semantic search, required if query not provided)"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"]
+                }
+            ),
+            Tool(
+                name="search_memories_by_date",
+                description="Search all memories and conversations chronologically within a date range. If a query is provided, results are filtered by semantic relevance first then sorted by date. If no query, returns everything in the date range oldest-first. Searches short-term memories, long-term curated memories, and conversation history.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "start_date": {"type": "string", "description": "Start of date range in ISO format e.g. '2024-10-01'"},
+                        "end_date": {"type": "string", "description": "End of date range in ISO format e.g. '2024-12-31'"},
+                        "query": {"type": "string", "description": "Optional semantic search query to filter results by relevance within the date range"},
+                        "limit": {"type": "integer", "description": "Max results to return", "default": 20},
+                        "database_filter": {"type": "string", "description": "Filter by database type", "enum": ["all", "ai_memories", "conversations"], "default": "all"},
+                        "memory_bank": {"type": "string", "description": "Optional filter by memory bank"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional filter by tags"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
@@ -1568,6 +878,20 @@ class FridayMemoryMCPServer:
                         "content": {"type": "string", "description": "Updated content"},
                         "importance_level": {"type": "integer", "description": "Updated importance"},
                         "tags": {"type": "array", "items": {"type": "string"}, "description": "Updated tags"},
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["memory_id", "user_id", "model_id"]
+                }
+            ),
+            Tool(
+                name="get_conversation_context",
+                description="Retrieve conversation context linked to a memory in three modes: snippet (4 msgs before/after), summary (count, date range, first/last msgs), or full (all messages)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {"type": "string", "description": "ID of the memory to get linked conversation for"},
+                        "mode": {"type": "string", "enum": ["snippet", "summary", "full"], "description": "Mode: snippet (default, 4 msgs before/after), summary (overview), or full (all messages)", "default": "snippet"},
                         "user_id": {"type": "string", "description": "User ID for user separation"},
                         "model_id": {"type": "string", "description": "Model ID for model separation"}
                     },
@@ -1656,6 +980,19 @@ class FridayMemoryMCPServer:
             Tool(
                 name="get_system_health",
                 description="Get comprehensive system health, statistics, and database status",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID for user separation"},
+                        "model_id": {"type": "string", "description": "Model ID for model separation"}
+                    },
+                    "required": ["user_id", "model_id"],
+                    "additionalProperties": False
+                }
+            ),
+            Tool(
+                name="get_error_summary",
+                description="Get recent error summary from the short-term memory system — failed operations, LLM errors, embedding failures, and JSON parse issues",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -2317,6 +1654,24 @@ class FridayMemoryMCPServer:
                 if model_id:
                     filtered_args["model_id"] = filtered_args.get("model_id") or model_id
                 result = await self._protected_tool_call(self.memory_system.search_memories(**filtered_args))
+                
+                # Add source attribution to each result for transparency
+                if result.get("status") == "success" and result.get("results"):
+                    for search_result in result["results"]:
+                        result_type = search_result.get("type", "").lower()
+                        if "ai_memory" in result_type or result_type == "memory":
+                            # Try to determine if this is short-term or long-term based on other indicators
+                            # If it has importance_level field, it's likely long-term curated
+                            if search_result.get("data", {}).get("importance_level"):
+                                search_result["source"] = "long_term"
+                            else:
+                                search_result["source"] = "short_term"
+                        elif "conversation" in result_type:
+                            search_result["source"] = "conversation"
+                        elif result_type in ("appointment", "reminder"):
+                            search_result["source"] = "schedule"
+                        else:
+                            search_result["source"] = "unknown"
 
             elif tool_name in ("create_memory", "tool_create_memory_post"):
                 # create_memory accepts: content, memory_type, importance_level, tags, source_conversation_id, memory_bank, user_id, model_id, source
@@ -2342,6 +1697,140 @@ class FridayMemoryMCPServer:
                 filtered_args["source"] = source
                 result = await self._protected_tool_call(self.memory_system.update_memory(**filtered_args))
 
+            elif tool_name in ("get_conversation_context", "tool_get_conversation_context_post"):
+                # get_conversation_context accepts: memory_id, mode, user_id, model_id
+                allowed_args = {"memory_id", "mode", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                
+                # Get mode parameter (default: snippet)
+                mode = filtered_args.get("mode", "snippet")
+                memory_id = filtered_args.get("memory_id")
+                
+                if not memory_id:
+                    result = {
+                        "error": "memory_id is required",
+                        "success": False
+                    }
+                else:
+                    try:
+                        from friday_memory_system import ConversationDatabase, get_base_path
+                        from pathlib import Path
+                        conv_db = ConversationDatabase(
+                            str(Path(get_base_path()) / "memory_data" / "conversations.db")
+                        )
+                        
+                        # Look up memory in memory_conversation_links
+                        links = await conv_db.execute_query(
+                            "SELECT conversation_id, metadata FROM memory_conversation_links WHERE memory_id = ? LIMIT 1",
+                            (memory_id,)
+                        )
+                        
+                        if not links:
+                            result = {
+                                "error": "no linked conversation found for this memory",
+                                "memory_id": memory_id,
+                                "success": False
+                            }
+                        else:
+                            link_record = links[0]
+                            conversation_id = link_record.get("conversation_id")
+                            link_metadata = link_record.get("metadata", {})
+                            if isinstance(link_metadata, str):
+                                import json
+                                try:
+                                    link_metadata = json.loads(link_metadata)
+                                except:
+                                    link_metadata = {}
+                            memory_timestamp = link_metadata.get("timestamp", None)
+                            
+                            # Query messages from this conversation
+                            messages = await conv_db.execute_query(
+                                "SELECT id, role, content, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp",
+                                (conversation_id,)
+                            )
+                            
+                            if mode == "snippet":
+                                # 4 messages before and 4 after the memory's timestamp
+                                snippet_messages = []
+                                if memory_timestamp:
+                                    found_idx = None
+                                    for idx, msg in enumerate(messages):
+                                        if msg.get("timestamp") == memory_timestamp:
+                                            found_idx = idx
+                                            break
+                                    if found_idx is not None:
+                                        start_idx = max(0, found_idx - 4)
+                                        end_idx = min(len(messages), found_idx + 5)
+                                        snippet_messages = messages[start_idx:end_idx]
+                                    else:
+                                        # If exact match not found, take last 8
+                                        snippet_messages = messages[-8:] if len(messages) >= 8 else messages
+                                else:
+                                    snippet_messages = messages[-8:] if len(messages) >= 8 else messages
+                                
+                                result = {
+                                    "mode": "snippet",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "message_count": len(snippet_messages),
+                                    "messages": [{"role": m.get("role"), "content": m.get("content"), "timestamp": m.get("timestamp")} for m in snippet_messages],
+                                    "success": True
+                                }
+                            
+                            elif mode == "summary":
+                                # Count, date range, first and last messages
+                                first_msg = messages[0] if messages else None
+                                last_msg = messages[-1] if messages else None
+                                date_range = None
+                                if first_msg and last_msg:
+                                    date_range = f"{first_msg.get('timestamp', 'unknown')} to {last_msg.get('timestamp', 'unknown')}"
+                                
+                                result = {
+                                    "mode": "summary",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "total_messages": len(messages),
+                                    "date_range": date_range,
+                                    "first_message": {"role": first_msg.get("role"), "content": first_msg.get("content")[:200]} if first_msg else None,
+                                    "last_message": {"role": last_msg.get("role"), "content": last_msg.get("content")[:200]} if last_msg else None,
+                                    "success": True
+                                }
+                            
+                            elif mode == "full":
+                                # All messages chronologically
+                                result = {
+                                    "mode": "full",
+                                    "conversation_id": conversation_id,
+                                    "memory_id": memory_id,
+                                    "message_count": len(messages),
+                                    "messages": [{"role": m.get("role"), "content": m.get("content"), "timestamp": m.get("timestamp")} for m in messages],
+                                    "success": True
+                                }
+                            else:
+                                result = {
+                                    "error": f"unknown mode: {mode}",
+                                    "success": False
+                                }
+                    except Exception as e:
+                        logger.error(f"Error retrieving conversation context: {e}\n{traceback.format_exc()}")
+                        result = {
+                            "error": str(e),
+                            "memory_id": memory_id,
+                            "success": False
+                        }
+            elif tool_name in ("search_memories_by_date", "tool_search_memories_by_date_post"):
+                allowed_args = {"start_date", "end_date", "query", "limit", "database_filter", "memory_bank", "tags", "user_id", "model_id"}
+                filtered_args = {k: v for k, v in arguments.items() if k in allowed_args}
+                if user_id:
+                    filtered_args["user_id"] = filtered_args.get("user_id") or user_id
+                if model_id:
+                    filtered_args["model_id"] = filtered_args.get("model_id") or model_id
+                result = await self._protected_tool_call(self.memory_system.search_memories_by_date(**filtered_args))
+                
             elif tool_name in ("get_recent_context", "tool_get_recent_context_post"):
                 # get_recent_context accepts: limit, session_id, days_back, user_id, model_id
                 allowed_args = {"limit", "session_id", "days_back", "user_id", "model_id"}
@@ -2579,6 +2068,8 @@ class FridayMemoryMCPServer:
             # -----------------------------------------------------------------
             elif tool_name == "get_system_health":
                 result = await self._protected_tool_call(self.memory_system.get_system_health(source=source))
+            elif tool_name == "get_error_summary":
+                result = await self._protected_tool_call(self.memory_system.get_error_summary(source=source))
             elif tool_name == "save_development_session":
                 # save_development_session accepts: workspace_path, active_files, git_branch, session_summary, user_id, model_id
                 allowed_args = {"workspace_path", "active_files", "git_branch", "session_summary", "user_id", "model_id"}
@@ -2827,6 +2318,10 @@ class FridayMemoryMCPServer:
     async def cleanup(self):
         """Cleanup resources when server stops with timeout protection"""
         try:
+            # Release maintenance claim
+            if hasattr(self, '_maintenance_coordinator'):
+                self._maintenance_coordinator.release_claim()
+            
             # Cancel HTTP server task if still running
             if self._http_server_task and not self._http_server_task.done():
                 self._http_server_task.cancel()
@@ -2997,6 +2492,7 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 memory_bank = body.get("memory_bank", "General")
                 conversation_id = body.get("conversation_id") or body.get("source_conversation_id")
                 model_id = body.get("model_id")
+                short_term_memory_id = body.get("memory_id")  # Optional: for link provenance
                 
                 # Extract model_id from [Model: ...] tag if not provided
                 if not model_id:
@@ -3022,6 +2518,31 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 else:
                     tags = ["promoted"]
                 
+                # Look up existing links for link provenance (if short-term memory_id provided)
+                provenance_metadata = {}
+                if short_term_memory_id and mcp_server.memory_system.conversations_db:
+                    try:
+                        old_links = await mcp_server.memory_system.conversations_db.get_memory_conversation_links(
+                            memory_id=short_term_memory_id
+                        )
+                        if old_links:
+                            provenance_metadata = {
+                                "previous_link_count": len(old_links),
+                                "previous_link_ids": [l["link_id"] for l in old_links],
+                                "previous_conversation_ids": list(set(
+                                    l["conversation_id"] for l in old_links if l.get("conversation_id")
+                                )),
+                                "previous_link_types": list(set(
+                                    l["link_type"] for l in old_links if l.get("link_type")
+                                )),
+                            }
+                            logger.debug(
+                                f"Found {len(old_links)} previous link(s) for memory {short_term_memory_id}, "
+                                f"carrying forward provenance metadata"
+                            )
+                    except Exception as prov_err:
+                        logger.debug(f"Link provenance lookup note (non-blocking): {prov_err}")
+                
                 # Call create_memory with promoted importance level (8-9)
                 # Use 8 as default for promoted memories (high but not critical)
                 # Store memory with memory_bank category for future enrichment
@@ -3039,7 +2560,7 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                     wait_for_embedding=True  # Ensure embedding completes for promoted memories
                 )
                 
-                # Link memory to conversation if provided
+                # Link memory to conversation if provided (with FK stub support for OpenWebUI chat_id UUIDs)
                 link_id = None
                 if conversation_id and memory_id:
                     try:
@@ -3049,12 +2570,16 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                             link_type="promoted_from_short_term",
                             link_strength=1.0,
                             source_system="openwebui_promotion",
+                            stub_user_id=user_id,
+                            stub_model_id=model_id,
                             metadata={
                                 "memory_bank": memory_bank,
                                 "promoted_at": datetime.now(timezone.utc).isoformat(),
                                 "tags": tags,
                                 "original_importance": 5,
-                                "promotion_importance": 8
+                                "promotion_importance": 8,
+                                "short_term_memory_id": short_term_memory_id,
+                                **({"link_provenance": provenance_metadata} if provenance_metadata else {}),
                             }
                         )
                         logger.debug(f"✅ Linked promoted memory {memory_id} to conversation {conversation_id}")
@@ -3164,6 +2689,121 @@ async def start_http_server(mcp_server: FridayMemoryMCPServer, host: str = "127.
                 logger.error(f"❌ Error cleaning up memories: {e}")
                 raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
             
+        # -------- MCP over Streamable HTTP (native, replaces mcpo) --------
+        from uuid import uuid4
+        from mcp.server.models import InitializationOptions
+        from mcp.server import NotificationOptions
+        from mcp.server.streamable_http import StreamableHTTPServerTransport
+        import anyio
+
+        class MCPStreamableSessionManager:
+            """Manages Streamable HTTP sessions for the MCP server."""
+
+            def __init__(self, server, api_key):
+                self.server = server
+                self.api_key = api_key
+                self._transports: dict[str, StreamableHTTPServerTransport] = {}
+                self._task_group = None
+
+            async def start(self):
+                self._task_group = await anyio.create_task_group().__aenter__()
+
+            async def stop(self):
+                if self._task_group:
+                    await self._task_group.__aexit__(None, None, None)
+                    self._task_group = None
+
+            async def handle_request(self, scope, receive, send):
+                request = Request(scope, receive)
+                session_id = request.headers.get("Mcp-Session-Id")
+
+                if session_id and session_id in self._transports:
+                    await self._transports[session_id].handle_request(scope, receive, send)
+                    return
+
+                if session_id is None:
+                    new_id = uuid4().hex
+                    transport = StreamableHTTPServerTransport(
+                        mcp_session_id=new_id,
+                    )
+                    self._transports[new_id] = transport
+
+                    async def run_server(*, task_status):
+                        async with transport.connect() as streams:
+                            read_stream, write_stream = streams
+                            task_status.started()
+                            try:
+                                await self.server.run(
+                                    read_stream,
+                                    write_stream,
+                                    InitializationOptions(
+                                        server_name="friday-memory",
+                                        server_version="1.0.0",
+                                        capabilities=self.server.get_capabilities(
+                                            notification_options=NotificationOptions(),
+                                            experimental_capabilities={}
+                                        )
+                                    ),
+                                    stateless=False,
+                                )
+                            finally:
+                                if transport.mcp_session_id in self._transports and not transport.is_terminated:
+                                    del self._transports[transport.mcp_session_id]
+
+                    await self._task_group.start(run_server)
+                    await transport.handle_request(scope, receive, send)
+                else:
+                    from starlette.responses import Response
+                    response = Response("Invalid session", status_code=400)
+                    await response(scope, receive, send)
+
+        session_manager = MCPStreamableSessionManager(mcp_server.server, API_KEY)
+
+        @app.on_event("startup")
+        async def start_mcp_streamable():
+            await session_manager.start()
+
+        @app.on_event("shutdown")
+        async def stop_mcp_streamable():
+            await session_manager.stop()
+
+        class MCPASGIHandler:
+            def __init__(self, mgr, key):
+                self.mgr = mgr
+                self.key = key
+
+            async def __call__(self, scope, receive, send):
+                headers = dict(scope.get("headers", []))
+                api_key = None
+                hdr = headers.get(b"x-api-key")
+                if hdr:
+                    api_key = hdr.decode()
+                if not api_key:
+                    auth = headers.get(b"authorization", b"").decode()
+                    if auth.startswith("Bearer "):
+                        api_key = auth[7:]
+                if not api_key:
+                    qs = scope.get("query_string", b"").decode()
+                    for param in qs.split("&"):
+                        if param.startswith("api_key="):
+                            api_key = param[8:]
+                            break
+                if api_key != self.key:
+                    from starlette.responses import PlainTextResponse
+                    resp = PlainTextResponse("Forbidden", status_code=403)
+                    await resp(scope, receive, send)
+                    return
+                await self.mgr.handle_request(scope, receive, send)
+
+        from starlette.routing import Route
+        app.router.routes.append(
+            Route(
+                "/mcp/sse",
+                endpoint=MCPASGIHandler(session_manager, API_KEY),
+                methods=["GET", "POST", "DELETE"],
+            )
+        )
+
         # Create and start server
         config = uvicorn.Config(app, host=host, port=port, log_level="info")
         server = uvicorn.Server(config)
@@ -3188,6 +2828,15 @@ async def main():
     srv = FridayMemoryMCPServer()
     logger.debug("Server initialized, starting stdio interface for LM Studio...")
     
+    # Claim maintenance ownership — if we win, start background services
+    from task_coordinator import TaskCoordinator
+    srv._maintenance_coordinator = TaskCoordinator()
+    if srv._maintenance_coordinator.setup_claim(str(srv.memory_data_dir)):
+        logger.info("MCP server won maintenance claim — starting background services")
+        asyncio.create_task(srv.memory_system.background_main())
+    else:
+        logger.info("Short-term plugin owns maintenance — MCP server skipping background services")
+    
     # Start HTTP API server in background
     # Port will be auto-detected and fallback to backups if needed
     srv._http_server_task = asyncio.create_task(
@@ -3197,19 +2846,55 @@ async def main():
     try:
         from mcp.server.lowlevel.server import InitializationOptions, NotificationOptions
         async with stdio_server() as (read_stream, write_stream):
-            await srv.server.run(
-                read_stream,
-                write_stream,
-                InitializationOptions(
-                    server_name="friday-memory",
-                    server_version="1.0.0",
-                    capabilities=srv.server.get_capabilities(
-                        notification_options=NotificationOptions(),
-                        experimental_capabilities={}
+            # Run MCP server and file monitor concurrently on the main event loop
+            server_task = asyncio.create_task(
+                srv.server.run(
+                    read_stream,
+                    write_stream,
+                    InitializationOptions(
+                        server_name="friday-memory",
+                        server_version="1.0.0",
+                        capabilities=srv.server.get_capabilities(
+                            notification_options=NotificationOptions(),
+                            experimental_capabilities={}
+                        )
                     )
                 )
             )
+            monitor_task = asyncio.create_task(srv._check_and_reload_modules())
+            
+            # Wait for either the server to stop or a file change to trigger restart
+            done, pending = await asyncio.wait(
+                [server_task, monitor_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # Cancel whatever is still running
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, SystemExit):
+                    pass
+            
+            # Re-raise SystemExit if the monitor triggered a restart
+            # (legacy path only; new ServerRestartSignal passes through to outer handler)
+            for task in done:
+                try:
+                    task.result()
+                except SystemExit:
+                    raise
 
+    except (SystemExit, ServerRestartSignal):
+        logger.info("Server restart triggered by file change")
+        await srv.cleanup()
+        # Clean up port info on shutdown
+        port_manager.cleanup_port_info()
+        # Exit cleanly at outermost level for supervisor auto-restart.
+        # sys.exit() is safe here because we are not inside an asyncio task --
+        # we are at the top-level event loop handler.
+        import sys
+        sys.exit(0)
     except Exception:
         logger.exception("Server error")
         await srv.cleanup()

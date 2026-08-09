@@ -1,3 +1,9 @@
+{
+    log {
+        format console
+    }
+}
+
 fridayonline.bounceme.net {
     tls "/media/nate/Friday/Friday/certs/friday.pem" "/media/nate/Friday/Friday/certs/friday.key"
 	
@@ -56,6 +62,10 @@ fridayonline.bounceme.net {
             Access-Control-Allow-Credentials "true"
         }
         handle_path /lmstudio* {
+            @no_auth {
+                not header Authorization "Bearer {env.LMS_API_KEY}"
+            }
+            respond @no_auth 401
             reverse_proxy 192.168.1.50:1234
         }
 
@@ -75,7 +85,44 @@ fridayonline.bounceme.net {
             reverse_proxy 127.0.0.1:3000
         }
 
+        # ---------- SearXNG ----------
+	@preflight_searxng {
+	    method OPTIONS
+	    path /searxng*
+	}
+	header @preflight_searxng {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Methods "GET,POST,OPTIONS"
+	    Access-Control-Allow-Headers "*"
+	    Access-Control-Allow-Credentials "true"
+	}
+	respond @preflight_searxng 204
 
+        handle_path /searxng* {
+	    basic_auth {
+	        nate $2a$14$nN1.ZpX0N3toEq0OEMYfJe188vXco3mNnRNom43uIcJDeXUcLPeIe
+	    }
+            reverse_proxy 127.0.0.1:8081
+        }
+
+        # ---------- Block reflected CORS on embeddings endpoint ----------
+	@embed_preflight {
+	    method OPTIONS
+	    path /embed*
+	}
+	header @embed_preflight {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Methods "GET,POST,OPTIONS"
+	    Access-Control-Allow-Headers "*"
+	    Access-Control-Allow-Credentials "true"
+	}
+	respond @embed_preflight 204
+
+	@embed path /embed*
+	header @embed {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Credentials "true"
+	}
 
         # ---------- Default: proxy OpenWebUI ----------
         # Handles browser requests (no auth) and OpenWebUI MCPO requests (specific bearer token)
@@ -85,3 +132,4 @@ fridayonline.bounceme.net {
             }
         }
     }
+}

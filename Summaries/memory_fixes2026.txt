@@ -1,0 +1,26 @@
+Complete Session Summary - May 3, 2026
+
+Bugs Fixed:
+
+  Import loop never ran - friday_memory_mcp_server.py:309 - Indented inside an except block, moved outside so it always starts
+  clean_promoted_memories valve missing - Valves class - Added the bool Field, was causing AttributeError in the promotion loop
+  Cache invalidation was pass - _execute_memory_operation UPDATE/DELETE paths - Ported reverse-index system (_memory_to_cache_keys) for precise invalidation
+  get_local_timezone NameError - Core identity handler - Replaced with self.get_formatted_datetime().isoformat()
+  Bare except: in utils.py - utils.py:15 - Changed to except Exception:
+  ConversationDatabase path mismatch - 5 sites in short-term plugin - All now resolve via _get_conversation_db() using Friday's base path instead of OpenWebUI's CWD
+  pydantic v2 deprecation - PAM settings.py:188 - Changed to support both model_dump() and dict()
+
+Features Built:
+
+  Error injection system - 20-entry deque buffer captures failures at 6 error sites, drains into [System Notes] section during context injection
+  get_error_summary MCP tool - Friday can query errors on demand without waiting for injection
+  Embedding reuse during promotion - Extracts existing embedding from memory_embeddings before delete, passes to create_memory (no LM Studio call)
+  Marker parsing in create_memory - Parses [Tags:], [Memory Bank:], [Model:], [Importance:] from content as fallbacks for structured columns, skips double-wrapping
+  Retroactive conversation linking - New step 8 in database maintenance run_maintenance(), scans unlinked archived memories and scores against messages by word overlap
+
+Cleaned Up:
+
+  Removed /memory command stubs (list_banks, assign_bank, generic catch-all)
+  Removed stale ISSUE 2 FIX / ISSUE 3 FIX comments
+  Created PAM migration file (ai_memory_normalization_migration.py)
+  Fixed pruning path to pass user_id, model_id, source (was breaking isolation)

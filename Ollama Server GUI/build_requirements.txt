@@ -1,7 +1,0 @@
-# Build Requirements
-pyinstaller>=6.0.0
-
-# Runtime Requirements (for reference - these get bundled into executable)
-dearpygui>=1.10.1
-requests>=2.31.0
-psutil>=5.9.0

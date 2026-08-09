@@ -1,0 +1,3 @@
+OpenWebUI features list.
+1. Proper refreshing. if check connection is pressed, and finds a good connection, it refreshes the model list automatically.
+

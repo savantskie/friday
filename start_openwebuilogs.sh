@@ -1,6 +1,8 @@
 #!/bin/bash
-echo "Starting OpenWebUI logs..."
-echo "Press Ctrl+C to stop the server"
+echo -ne "\033]0;OpenWebUI Logs\007"
+echo "Starting openwebui logs..."
+echo "Press Ctrl+C to stop"
 echo "========================================="
 
-docker logs -f open-webui
+sudo journalctl -u open-webui -f
+

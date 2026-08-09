@@ -63,6 +63,12 @@ import hashlib
 from utils import parse_timestamp
 from database_maintenance import DatabaseMaintenance
 
+# User ID alias map: resolves common name strings to canonical OpenWebUI UUID
+USER_ID_ALIASES = {
+    "nate": "9d08cfbb-b8ca-484d-bd37-c5c383c1e5d6",
+    "Nate": "9d08cfbb-b8ca-484d-bd37-c5c383c1e5d6",
+}
+
 # Configure logging with minimal output
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -330,8 +336,11 @@ class ConversationDatabase(DatabaseManager):
                     conversation_id TEXT NOT NULL,
                     memory_id TEXT,
                     status TEXT NOT NULL,
+                    processing_type TEXT,
                     priority INTEGER DEFAULT 5,
                     attempts INTEGER DEFAULT 0,
+                    message_count INTEGER DEFAULT 0,
+                    marked_processed INTEGER DEFAULT 0,
                     last_attempt TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -344,9 +353,10 @@ class ConversationDatabase(DatabaseManager):
                     log_id TEXT PRIMARY KEY,
                     conversation_id TEXT NOT NULL,
                     memory_id TEXT,
-                    action TEXT NOT NULL,
+                    processing_type TEXT NOT NULL,
                     status TEXT NOT NULL,
-                    error_message TEXT,
+                    action TEXT NOT NULL,
+                    reason TEXT,
                     result_metadata TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
@@ -363,6 +373,9 @@ class ConversationDatabase(DatabaseManager):
                 "status": "error",
                 "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
             }
+        
+        # Resolve user_id aliases to canonical form
+        user_id = USER_ID_ALIASES.get(user_id, user_id)
         
         timestamp = datetime.now(get_local_timezone()).isoformat()
         message_id = str(uuid.uuid4())
@@ -439,7 +452,7 @@ class ConversationDatabase(DatabaseManager):
             "duplicate": False
         }
     
-    async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7, user_id: str = None, model_id: str = None) -> List[Dict]:
+    async def get_recent_messages(self, limit: int = 10, session_id: str = None, days_back: int = 7, user_id: str = None, model_id: str = None) -> Union[List[Dict], Dict]:
         """Get recent messages, optionally filtered by session and within specified days.
         If model_id is None, queries all models for that user (cross-model fallback).
         """
@@ -449,6 +462,22 @@ class ConversationDatabase(DatabaseManager):
                 "status": "error",
                 "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
             }
+        
+        # Resolve user_id aliases to canonical form
+        user_id = USER_ID_ALIASES.get(user_id, user_id)
+        
+        # One-time normalization of existing alias entries in the database
+        if not getattr(self, '_user_id_normalized', False):
+            try:
+                for alias, canonical in USER_ID_ALIASES.items():
+                    if alias != canonical:
+                        await self.execute_query(
+                            "UPDATE conversations SET user_id = ? WHERE user_id = ?",
+                            (canonical, alias)
+                        )
+                self._user_id_normalized = True
+            except Exception:
+                pass
         
         # Calculate cutoff date
         from datetime import datetime, timedelta
@@ -478,23 +507,60 @@ class ConversationDatabase(DatabaseManager):
 
     async def link_memory_to_conversation(self, memory_id: str, conversation_id: str, 
                                          link_type: str = 'direct', link_strength: float = 1.0,
-                                         source_system: str = 'processed_from_chat', metadata: dict = None) -> str:
+                                         source_system: str = 'processed_from_chat', metadata: dict = None,
+                                         stub_user_id: str = None, stub_model_id: str = None) -> str:
         """
         Link a memory to a conversation.
         
         Args:
             memory_id: UUID of the memory
-            conversation_id: UUID of the conversation
+            conversation_id: UUID of the conversation (or OpenWebUI chat_id UUID)
             link_type: 'direct', 'related', or 'enhanced'
             link_strength: 0.0-1.0 confidence score
             source_system: 'openwebui_import', 'processed_from_chat', 'manual', 'enhanced'
             metadata: Optional JSON metadata for link
+            stub_user_id: If provided, auto-create a stub conversation entry if none exists
+            stub_model_id: If provided with stub_user_id, auto-create a stub conversation entry
         
         Returns:
             link_id: UUID of the created link
+        
+        Note:
+            If stub_user_id is provided and the conversation_id doesn't exist in the
+            conversations table, a minimal stub entry is auto-created to satisfy the
+            foreign key constraint. This enables linking to OpenWebUI chat_id UUIDs
+            without requiring a pre-existing conversation row.
         """
         link_id = str(uuid.uuid4())
         timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        # Auto-create stub conversation entry for FK compliance if needed
+        if stub_user_id:
+            try:
+                existing = await self.execute_query(
+                    "SELECT conversation_id FROM conversations WHERE conversation_id = ?",
+                    (conversation_id,)
+                )
+                if not existing:
+                    import uuid as _uuid
+                    stub_session_id = str(_uuid.uuid4())
+                    # Create stub session first (satisfies FK: conversation.session_id -> sessions.session_id)
+                    await self.execute_update(
+                        """INSERT OR IGNORE INTO sessions
+                           (session_id, start_timestamp, context)
+                           VALUES (?, ?, ?)""",
+                        (stub_session_id, timestamp, "auto-created for memory link FK compliance")
+                    )
+                    # Create stub conversation (satisfies FK: memory_conversation_links.conversation_id -> conversations.conversation_id)
+                    await self.execute_update(
+                        """INSERT OR IGNORE INTO conversations
+                           (conversation_id, session_id, start_timestamp, user_id, model_id)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (conversation_id, stub_session_id, timestamp,
+                         stub_user_id, stub_model_id or "friday")
+                    )
+            except Exception as stub_err:
+                logger.debug(f"Conversation stub note (non-blocking): {stub_err}")
         
         await self.execute_update(
             """INSERT INTO memory_conversation_links 
@@ -539,6 +605,106 @@ class ConversationDatabase(DatabaseManager):
         
         rows = await self.execute_query(query, tuple(params))
         return [dict(row) for row in rows]
+
+    async def link_conversations(self, source_conversation_id: str, related_conversation_id: str,
+                                relationship_type: str = 'same_session', confidence_score: float = 1.0,
+                                matching_method: str = None, metadata: dict = None) -> str:
+        """
+        Link two conversations (e.g., OpenWebUI chat linked to LM Studio import).
+        
+        Args:
+            source_conversation_id: Primary conversation ID (typically OpenWebUI canonical)
+            related_conversation_id: Related conversation ID (e.g., from file import)
+            relationship_type: 'same_session', 'related_topic', 'continuation', etc.
+            confidence_score: 0.0-1.0 confidence level of the match
+            matching_method: How match was determined ('content_similarity', 'timestamp_proximity', 'manual')
+            metadata: Optional metadata with breadcrumbs
+        
+        Returns:
+            relationship_id: UUID of the created relationship
+        """
+        relationship_id = str(uuid.uuid4())
+        timestamp = datetime.now(get_local_timezone()).isoformat()
+        
+        # Ensure metadata includes breadcrumbs and confidence info
+        if metadata is None:
+            metadata = {}
+        metadata.setdefault('created_at_timestamp', timestamp)
+        metadata.setdefault('matching_method', matching_method)
+        metadata.setdefault('confidence_score', confidence_score)
+        metadata.setdefault('validated_at', None)  # Pending validation
+        
+        await self.execute_update(
+            """INSERT INTO conversation_relationships 
+               (relationship_id, source_conversation_id, related_conversation_id, relationship_type, 
+                created_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (relationship_id, source_conversation_id, related_conversation_id, relationship_type,
+             timestamp, json.dumps(metadata))
+        )
+        
+        logger.debug(f"Linked conversations: {source_conversation_id} <-> {related_conversation_id} "
+                    f"(type={relationship_type}, confidence={confidence_score:.2f})")
+        return relationship_id
+
+    async def resolve_source_conversation_id(self, source_conversation_id: str, user_id: str = None) -> str:
+        """
+        Resolve generic source_conversation_id to actual conversation_id.
+        
+        Handles patterns like:
+        - "openwebui_user_<uuid>" -> Find first LM Studio conversation for that user
+        - "current_session" -> Find most recent conversation
+        - UUID already -> Return as-is
+        
+        Args:
+            source_conversation_id: Source format string or UUID
+            user_id: User context for resolution
+        
+        Returns:
+            conversation_id: Actual UUID or None if cannot resolve
+        """
+        if not source_conversation_id:
+            return None
+        
+        # If it looks like a UUID (36 chars with 4 dashes), assume it's already a conversation_id
+        if len(source_conversation_id) == 36 and source_conversation_id.count('-') == 4:
+            return source_conversation_id
+        
+        # Handle "current_session" - get most recent conversation
+        if source_conversation_id == "current_session":
+            if user_id:
+                result = await self.execute_query(
+                    """SELECT conversation_id FROM conversations 
+                       WHERE user_id = ? ORDER BY start_timestamp DESC LIMIT 1""",
+                    (user_id,)
+                )
+                if result:
+                    return result[0]['conversation_id']
+            return None
+        
+        # Handle "openwebui_user_<uuid>" patterns - find first conversation for that user in test/friday mode
+        if source_conversation_id.startswith("openwebui_user_"):
+            # Extract user context from pattern if possible
+            result = await self.execute_query(
+                """SELECT conversation_id FROM conversations 
+                   WHERE user_id = 'test' OR user_id = ? 
+                   ORDER BY start_timestamp DESC LIMIT 1""",
+                (user_id or "unknown",)
+            )
+            if result:
+                return result[0]['conversation_id']
+            return None
+        
+        # Handle composite OpenWebUI IDs: "{chat_id}_{user_id}_{model_id}"
+        # Extract the UUID portion (first segment which is the OpenWebUI chat_id)
+        if '_' in source_conversation_id:
+            parts = source_conversation_id.split('_')
+            potential_uuid = parts[0]
+            if len(potential_uuid) == 36 and potential_uuid.count('-') == 4:
+                return potential_uuid
+        
+        # If we can't resolve it, return None
+        return None
 
     async def queue_conversation_for_processing(self, conversation_id: str, 
                                                processing_type: str, priority: int = 5) -> str:
@@ -705,19 +871,21 @@ class AIMemoryDatabase(DatabaseManager):
             cur = conn.execute("PRAGMA table_info(curated_memories)")
             current_columns = [row[1] for row in cur.fetchall()]
 
-            # Add missing columns if needed
-            if "user_id" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN user_id TEXT")
-            if "model_id" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
-            if "memory_bank" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN memory_bank TEXT DEFAULT 'General'")
-            if "source" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN source TEXT DEFAULT 'direct'")
-            if "embedding_dimension" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN embedding_dimension INTEGER")
-            if "updated_at" not in current_columns:
-                conn.execute("ALTER TABLE curated_memories ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            # Only try to ALTER if table exists (current_columns will be non-empty)
+            if current_columns:
+                # Add missing columns to existing table
+                if "user_id" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN user_id TEXT")
+                if "model_id" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN model_id TEXT DEFAULT 'Friday'")
+                if "memory_bank" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN memory_bank TEXT DEFAULT 'General'")
+                if "source" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN source TEXT DEFAULT 'direct'")
+                if "embedding_dimension" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN embedding_dimension INTEGER")
+                if "updated_at" not in current_columns:
+                    conn.execute("ALTER TABLE curated_memories ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
 
             # Detect incomplete schema (older versions)
             needs_migration = False
@@ -768,7 +936,7 @@ class AIMemoryDatabase(DatabaseManager):
                     )
                 logger.warning(f"Restored {len(old_rows)} curated memories after migration.")
             else:
-                # Ensure table exists if missing entirely
+                # Ensure table exists if missing entirely or if we just did migration
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS curated_memories (
                         memory_id TEXT PRIMARY KEY,
@@ -801,6 +969,33 @@ class AIMemoryDatabase(DatabaseManager):
                 ON curated_memories (memory_bank, importance_level)
             """)
 
+            # Add core_identity_processed_until column to curated_memories
+            cur = conn.execute("PRAGMA table_info(curated_memories)")
+            current_columns = [row[1] for row in cur.fetchall()]
+            if "core_identity_processed_until" not in current_columns:
+                conn.execute("ALTER TABLE curated_memories ADD COLUMN core_identity_processed_until TEXT")
+                logger.info("Added core_identity_processed_until column to curated_memories")
+
+            # Create core_identity table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS core_identity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    content TEXT NOT NULL,
+                    metadata TEXT,
+                    last_generated_at TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, model_id)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_core_identity_user_model
+                ON core_identity (user_id, model_id)
+            """)
+
             conn.commit()
 
     
@@ -815,6 +1010,7 @@ class AIMemoryDatabase(DatabaseManager):
         user_id: str = "",
         model_id: str = "",
         source: str = "direct",
+        embedding: Any = None,
     ) -> str:
 
         """Create a new curated memory with embedded metadata and optional source tracking"""
@@ -831,16 +1027,27 @@ class AIMemoryDatabase(DatabaseManager):
         if model_id and model_id != "Friday":  # Only embed if not default
             formatted_content = f"{formatted_content} [Model: {model_id}]"
         
+        # Serialize embedding to blob if provided (avoids re-embedding promoted memories)
+        embedding_blob = None
+        if embedding is not None:
+            try:
+                import pickle
+                embedding_blob = pickle.dumps(embedding)
+            except Exception as e:
+                logger.warning(f"Failed to serialize embedding for memory {memory_id}: {e}")
+        
         await self.execute_update(
             """INSERT INTO curated_memories 
             (memory_id, timestamp_created, timestamp_updated, source_conversation_id,
-                memory_type, content, importance_level, tags, memory_bank, user_id, model_id, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                source_message_ids,
+                memory_type, content, importance_level, tags, memory_bank, user_id, model_id, source, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 memory_id,
                 timestamp,
                 timestamp,
                 source_conversation_id,
+                None,
                 memory_type,
                 formatted_content,
                 importance_level,
@@ -849,6 +1056,7 @@ class AIMemoryDatabase(DatabaseManager):
                 user_id,
                 model_id,
                 source,
+                embedding_blob,
             ),
         )
 
@@ -856,7 +1064,7 @@ class AIMemoryDatabase(DatabaseManager):
         return memory_id
     
     async def update_memory(self, memory_id: str, content: str = None, 
-                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None, source: str = None) -> bool:
+                          importance_level: int = None, tags: List[str] = None, user_id: str = None, model_id: str = None, source: str = "direct") -> Union[bool, Dict]:
         """Update an existing memory"""
         
         if not user_id or not model_id:
@@ -880,6 +1088,10 @@ class AIMemoryDatabase(DatabaseManager):
         if tags is not None:
             updates.append("tags = ?")
             params.append(json.dumps(tags))
+        
+        if source is not None:
+            updates.append("source = ?")
+            params.append(source)
         
         params.append(memory_id)
         params.append(user_id)
@@ -1109,8 +1321,9 @@ class ScheduleDatabase(DatabaseManager):
             # --- MIGRATION LOGIC FOR REMINDERS TABLE ---
             reminders_expected = [
                 'reminder_id', 'timestamp_created', 'due_datetime', 'content', 'priority_level',
-                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'embedding', 'created_at',
-                'user_id', 'model_id'
+                'completed', 'is_completed', 'completed_at', 'source_conversation_id', 'conversation_title',
+                'urgency_level', 'notification_sent_at', 'notification_status', 'escalation_count',
+                'last_escalated_at', 'embedding', 'created_at', 'user_id', 'model_id'
             ]
             cur = conn.execute("PRAGMA table_info(reminders)")
             current_columns = [row[1] for row in cur.fetchall()]
@@ -1135,6 +1348,12 @@ class ScheduleDatabase(DatabaseManager):
                         is_completed INTEGER DEFAULT 0,
                         completed_at TEXT,
                         source_conversation_id TEXT,
+                        conversation_title TEXT,
+                        urgency_level INTEGER DEFAULT 1,
+                        notification_sent_at TEXT,
+                        notification_status TEXT CHECK(notification_status IN ('pending', 'sent', 'read', 'dismissed')),
+                        escalation_count INTEGER DEFAULT 0,
+                        last_escalated_at TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         user_id TEXT NOT NULL DEFAULT 'unknown',
@@ -1155,6 +1374,14 @@ class ScheduleDatabase(DatabaseManager):
                                 row_dict[col] = row_dict.get('completed', 0)  # Copy from completed field
                             elif col == 'completed_at':
                                 row_dict[col] = None  # No completion timestamp for migrated reminders
+                            elif col == 'conversation_title':
+                                row_dict[col] = None  # Will be populated on next interaction
+                            elif col == 'urgency_level':
+                                row_dict[col] = 1  # Default to low urgency
+                            elif col == 'notification_sent_at' or col == 'notification_status' or col == 'last_escalated_at':
+                                row_dict[col] = None  # These will be set by escalation process
+                            elif col == 'escalation_count':
+                                row_dict[col] = 0  # Start with no escalations
                             else:
                                 row_dict[col] = None
                     conn.execute(
@@ -1171,13 +1398,39 @@ class ScheduleDatabase(DatabaseManager):
                         content TEXT NOT NULL,
                         priority_level INTEGER DEFAULT 5,
                         completed INTEGER DEFAULT 0,
+                        is_completed INTEGER DEFAULT 0,
+                        completed_at TEXT,
                         source_conversation_id TEXT,
+                        conversation_title TEXT,
+                        urgency_level INTEGER DEFAULT 1,
+                        notification_sent_at TEXT,
+                        notification_status TEXT CHECK(notification_status IN ('pending', 'sent', 'read', 'dismissed')),
+                        escalation_count INTEGER DEFAULT 0,
+                        last_escalated_at TEXT,
                         embedding BLOB,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         user_id TEXT NOT NULL DEFAULT 'unknown',
                         model_id TEXT NOT NULL DEFAULT 'unknown'
                     )
                 """)
+            conn.commit()
+            
+            # --- CREATE REMINDER_NOTIFICATIONS TRACKING TABLE ---
+            # This table tracks active notification states separately from reminders
+            # Uses composite key (reminder_id, urgency_level) to allow one entry per urgency tier per reminder
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS reminder_notifications (
+                    notification_id TEXT PRIMARY KEY,
+                    reminder_id TEXT NOT NULL,
+                    urgency_level INTEGER NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    user_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    UNIQUE(reminder_id, urgency_level, user_id, model_id),
+                    FOREIGN KEY (reminder_id) REFERENCES reminders(reminder_id)
+                )
+            """)
             conn.commit()
     
     async def create_appointment(self, title: str, scheduled_datetime: str, 
@@ -1285,7 +1538,7 @@ class ScheduleDatabase(DatabaseManager):
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
                             recurrence_end_date: str = None, user_id: str = None,
-                            model_id: str = None, source: str = "direct") -> Union[str, List[str]]:
+                            model_id: str = None, source: str = "direct", conversation_title: str = None) -> Union[str, List[str]]:
         """Create a new reminder or multiple recurring reminders"""
         
         # If no recurrence pattern, create a single reminder
@@ -1295,9 +1548,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id, user_id, model_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id)
             )
             
             return reminder_id
@@ -1357,9 +1610,9 @@ class ScheduleDatabase(DatabaseManager):
             
             await self.execute_update(
                 """INSERT INTO reminders 
-                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, user_id, model_id) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id, user_id, model_id)
+                   (reminder_id, timestamp_created, due_datetime, content, priority_level, source_conversation_id, conversation_title, user_id, model_id) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (reminder_id, timestamp, current_dt.isoformat(), content, priority_level, source_conversation_id, conversation_title, user_id, model_id)
             )
             
             reminder_ids.append(reminder_id)
@@ -1705,7 +1958,8 @@ class VSCodeProjectDatabase(DatabaseManager):
     
     async def store_development_conversation(self, content: str, session_id: str = None,
                                           chat_context_id: str = None, decisions_made: str = None,
-                                          code_changes: Dict = None) -> str:
+                                          code_changes: Dict = None, user_id: str = None, model_id: str = None,
+                                          source: str = "direct") -> str:
         """Store a development conversation from VS Code
         
         Args:
@@ -1714,6 +1968,9 @@ class VSCodeProjectDatabase(DatabaseManager):
             chat_context_id: Optional VS Code chat context ID
             decisions_made: Summary of decisions made in conversation
             code_changes: Dictionary of files changed and their changes
+            user_id: User ID for scoping
+            model_id: Model ID for scoping
+            source: Source of the tool call (default: direct)
         """
         conversation_id = str(uuid.uuid4())
         timestamp = get_current_timestamp()
@@ -1722,17 +1979,21 @@ class VSCodeProjectDatabase(DatabaseManager):
         if not session_id:
             session_id = await self.save_development_session(
                 workspace_path=os.getcwd(),  # Current workspace
-                session_summary="Auto-created session for development conversation"
+                session_summary="Auto-created session for development conversation",
+                user_id=user_id or "unknown",
+                model_id=model_id or "unknown",
+                source=source
             )
         
         # Store conversation
         await self.execute_update(
             """INSERT INTO development_conversations 
                (conversation_id, session_id, timestamp, chat_context_id,
-                conversation_content, decisions_made, code_changes)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                conversation_content, decisions_made, code_changes, user_id, model_id, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (conversation_id, session_id, timestamp, chat_context_id,
-             content, decisions_made, json.dumps(code_changes) if code_changes else None)
+             content, decisions_made, json.dumps(code_changes) if code_changes else None,
+             user_id or "unknown", model_id or "unknown", source)
         )
         
         return conversation_id
@@ -2219,12 +2480,17 @@ class ConversationFileMonitor:
                         role=role,
                         session_id=session_id,
                         conversation_id=conversation_id,
+                        user_id="test",
+                        model_id="test",
                         metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                     )
-                    if session_id is None:
+                    if isinstance(result, dict) and "error" not in result and session_id is None:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
-                    imported_count += 1
+                    if isinstance(result, dict) and "error" not in result:
+                        imported_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store message from Character.ai import: {result['error']}")
             logger.info(f"Imported {imported_count} Character.ai messages from {file_path}")
         except Exception as e:
             logger.error(f"Error importing Character.ai conversation {file_path}: {e}")
@@ -2276,12 +2542,17 @@ class ConversationFileMonitor:
                         role=role,
                         session_id=session_id,
                         conversation_id=conversation_id,
+                        user_id="test",
+                        model_id="test",
                         metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                     )
-                    if session_id is None:
+                    if isinstance(result, dict) and "error" not in result and session_id is None:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
-                    imported_count += 1
+                    if isinstance(result, dict) and "error" not in result:
+                        imported_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store message from Local.ai import: {result['error']}")
             logger.info(f"Imported {imported_count} Local.ai messages from {file_path}")
         except Exception as e:
             logger.error(f"Error importing Local.ai conversation {file_path}: {e}")
@@ -2317,12 +2588,17 @@ class ConversationFileMonitor:
                         role="unknown",
                         session_id=session_id,
                         conversation_id=conversation_id,
+                        user_id="test",
+                        model_id="test",
                         metadata={**metadata, "content_hash": content_hash}
                     )
-                    if session_id is None:
+                    if isinstance(result, dict) and "error" not in result and session_id is None:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
-                    imported_count += 1
+                    if isinstance(result, dict) and "error" not in result:
+                        imported_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store message from text-generation-webui import: {result['error']}")
             logger.info(f"Imported {imported_count} text-generation-webui messages from {file_path}")
         except Exception as e:
             logger.error(f"Error importing text-generation-webui conversation {file_path}: {e}")
@@ -2383,12 +2659,17 @@ class ConversationFileMonitor:
                         role=role,
                         session_id=session_id,
                         conversation_id=conversation_id,
+                        user_id="test",
+                        model_id="test",
                         metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                     )
-                    if session_id is None:
+                    if isinstance(result, dict) and "error" not in result and session_id is None:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
-                    imported_count += 1
+                    if isinstance(result, dict) and "error" not in result:
+                        imported_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store message from LM Studio import: {result['error']}")
             logger.info(f"Imported {imported_count} new messages from LM Studio conversation {file_path} (skipped {len(messages) - imported_count} duplicates)")
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error in LM Studio file {file_path}: {e}")
@@ -2535,6 +2816,8 @@ class ConversationFileMonitor:
                     role=role,
                     session_id=session_id,
                     conversation_id=conversation_id,
+                    user_id="test",
+                    model_id="test",
                     metadata={
                         **metadata, 
                         "imported_id": msg_id, 
@@ -2543,10 +2826,13 @@ class ConversationFileMonitor:
                         "model_name": msg.get("model_name")
                     }
                 )
-                if session_id is None:
+                if isinstance(result, dict) and "error" not in result and session_id is None:
                     session_id = result["session_id"]
                     conversation_id = result["conversation_id"]
-                imported_count += 1
+                if isinstance(result, dict) and "error" not in result:
+                    imported_count += 1
+                elif isinstance(result, dict) and "error" in result:
+                    logger.error(f"Failed to store message from Ollama import: {result['error']}")
         
         return imported_count
     """Monitors conversation files from various chat applications and imports them to memory"""
@@ -3955,12 +4241,17 @@ class ConversationFileMonitor:
                         role=role,
                         session_id=session_id,
                         conversation_id=conversation_id,
+                        user_id="test",
+                        model_id="test",
                         metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                     )
-                    if session_id is None:
+                    if isinstance(result, dict) and "error" not in result and session_id is None:
                         session_id = result["session_id"]
                         conversation_id = result["conversation_id"]
-                    imported_count += 1
+                    if isinstance(result, dict) and "error" not in result:
+                        imported_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store message from JSON import: {result['error']}")
             logger.info(f"Imported {imported_count} messages from {file_path}")
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {file_path}: {e}")
@@ -4013,12 +4304,17 @@ class ConversationFileMonitor:
                                 role=role,
                                 session_id=session_id,
                                 conversation_id=conversation_id,
+                                user_id="test",
+                                model_id="test",
                                 metadata={**metadata, "imported_id": msg_id, "imported_timestamp": timestamp, "content_hash": content_hash}
                             )
-                            if session_id is None:
+                            if isinstance(result, dict) and "error" not in result and session_id is None:
                                 session_id = result["session_id"]
                                 conversation_id = result["conversation_id"]
-                            message_count += 1
+                            if isinstance(result, dict) and "error" not in result:
+                                message_count += 1
+                            elif isinstance(result, dict) and "error" in result:
+                                logger.error(f"Failed to store message from JSONL import: {result['error']}")
                     except json.JSONDecodeError:
                         continue  # Skip invalid JSON lines
             logger.info(f"Imported {message_count} messages from {file_path}")
@@ -4130,10 +4426,13 @@ class ConversationFileMonitor:
                             duplicate = True
                         if not duplicate:
                             result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                            if session_id is None:
+                            if isinstance(result, dict) and "error" not in result and session_id is None:
                                 session_id = result["session_id"]
                                 conversation_id = result["conversation_id"]
-                            message_count += 1
+                            if isinstance(result, dict) and "error" not in result:
+                                message_count += 1
+                            elif isinstance(result, dict) and "error" in result:
+                                logger.error(f"Failed to store text message from import: {result['error']}")
                     current_message = [line[line.find(":")+1:].strip()]
                     current_role = "assistant"
                 else:
@@ -4146,8 +4445,11 @@ class ConversationFileMonitor:
                     "SELECT content FROM messages WHERE content = ?", (msg_content,)
                 )
                 if not existing:
-                    await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
-                    message_count += 1
+                    result = await self._save_text_message(current_message, current_role, session_id, conversation_id, metadata)
+                    if isinstance(result, dict) and "error" not in result:
+                        message_count += 1
+                    elif isinstance(result, dict) and "error" in result:
+                        logger.error(f"Failed to store final text message from import: {result['error']}")
             logger.info(f"Imported {message_count} messages from {file_path}")
         except Exception as e:
             logger.error(f"Error importing text conversation {file_path}: {e}")
@@ -4161,6 +4463,8 @@ class ConversationFileMonitor:
                 role=role,
                 session_id=session_id,
                 conversation_id=conversation_id,
+                user_id="test",
+                model_id="test",
                 metadata=metadata
             )
 
@@ -4837,11 +5141,11 @@ class FridayMemorySystem:
         # ...other background tasks as needed...
     
     async def _periodic_maintenance_loop(self):
-        """Run database maintenance periodically every 24 hours"""
+        """Run database maintenance periodically every 4 hours"""
         while True:
             try:
-                # Wait 24 hours before running maintenance again
-                await asyncio.sleep(86400)  # 86400 seconds = 24 hours
+                # Wait 4 hours before running maintenance again
+                await asyncio.sleep(14400)  # 14400 seconds = 4 hours
                 logger.info("⏰ Running periodic database maintenance...")
                 await self.run_database_maintenance()
             except asyncio.CancelledError:
@@ -4851,7 +5155,7 @@ class FridayMemorySystem:
                 logger.error(f"Error in periodic maintenance loop: {e}")
                 # Continue the loop even if maintenance fails
     
-    async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None) -> Dict:
+    async def get_appointments(self, limit: int = 5, days_ahead: int = 30, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """Get recent appointments from the schedule database"""
         
         if not user_id or not model_id:
@@ -4860,7 +5164,7 @@ class FridayMemorySystem:
                 "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
             }
         
-        result = await self.schedule_db.get_appointments(limit, days_ahead, user_id, model_id)
+        result = await self.schedule_db.get_appointments(limit, days_ahead, user_id, model_id, source)
         
         if result.get("status") != "success":
             return {
@@ -4946,6 +5250,10 @@ class FridayMemorySystem:
             except Exception as e:
                 logger.error(f"Error initializing file monitor: {e}")
                 raise
+        
+        # Initialize reminder escalation background task
+        self._escalation_task = None
+        self._escalation_running = False
     
     # === Embedding Configuration Management ===
     def _capture_embedding_config(self) -> Dict[str, Any]:
@@ -5168,7 +5476,7 @@ class FridayMemorySystem:
         def _select_by_due(due: str):
             with sqlite3.connect(str(db_path)) as conn:
                 cur = conn.execute(
-                    "SELECT reminder_id, title, due_datetime "
+                    "SELECT reminder_id, conversation_title, due_datetime "
                     "FROM reminders "
                     "WHERE due_datetime = ? AND (completed IS NULL OR completed = 0) AND user_id = ? AND model_id = ?",
                     (due, user_id, model_id)
@@ -5229,7 +5537,7 @@ class FridayMemorySystem:
 
         # Multiple matches — return options and instruct caller to pass selection_id on the next call.
         options = [
-            {"reminder_id": row[0], "title": row[1], "due_datetime": row[2]}
+            {"reminder_id": row[0], "conversation_title": row[1], "due_datetime": row[2]}
             for row in matches
         ]
         return {
@@ -5343,6 +5651,186 @@ class FridayMemorySystem:
             ]
         }
 
+    async def _escalate_due_reminders(self, grace_period_minutes: int = 15) -> Dict[str, int]:
+        """
+        Background process to escalate reminder notifications as deadline approaches.
+        Calculates urgency levels and manages reminder_notifications entries.
+        
+        Urgency levels:
+        - 1: upcoming (> 4 hours away)
+        - 3: soon (1-4 hours away)
+        - 5: urgent (< 1 hour away)
+        
+        Returns count of escalations and cleanups performed.
+        """
+        import uuid
+        from datetime import datetime, timedelta
+        
+        try:
+            now = datetime.now(get_local_timezone())
+            escalations_count = 0
+            cleanups_count = 0
+            
+            # Query all non-completed reminders
+            all_reminders = await self.schedule_db.execute_query(
+                "SELECT reminder_id, due_datetime, user_id, model_id FROM reminders WHERE completed = 0 AND is_completed = 0"
+            )
+            
+            if not all_reminders:
+                logger.debug("No active reminders to escalate")
+                return {"escalations": 0, "cleanups": 0}
+            
+            for reminder_row in all_reminders:
+                try:
+                    reminder_id = reminder_row[0]
+                    due_datetime_str = reminder_row[1]
+                    user_id = reminder_row[2]
+                    model_id = reminder_row[3]
+                    
+                    # Parse due datetime
+                    if due_datetime_str.endswith('Z'):
+                        due_dt = datetime. fromisoformat(due_datetime_str[:-1]).replace(tzinfo=pytz.UTC)
+                    else:
+                        due_dt = datetime.fromisoformat(due_datetime_str)
+                        if due_dt.tzinfo is None:
+                            due_dt = get_local_timezone().localize(due_dt)
+                    
+                    time_until_due = due_dt - now
+                    grace_period = timedelta(minutes=grace_period_minutes)
+                    
+                    # Determine urgency level based on time remaining
+                    if time_until_due < timedelta(hours=0):  # Past due
+                        if time_until_due < -grace_period:  # Past grace period
+                            # Clean up this reminder's notifications
+                            await self.schedule_db.execute_update(
+                                "DELETE FROM reminder_notifications WHERE reminder_id = ? AND user_id = ? AND model_id = ?",
+                                (reminder_id, user_id, model_id)
+                            )
+                            cleanups_count += 1
+                        else:  # Still in grace period
+                            urgency_level = 5  # Keep as urgent
+                    elif time_until_due < timedelta(hours=1):
+                        urgency_level = 5  # Urgent
+                    elif time_until_due < timedelta(hours=4):
+                        urgency_level = 3  # Soon
+                    else:
+                        urgency_level = 1  # Upcoming
+                    
+                    # Skip cleanup for past reminders still in grace period - they should remain urgent
+                    if time_until_due >= -grace_period:
+                        # Check if notification already exists for this urgency level
+                        existing = await self.schedule_db.execute_query(
+                            "SELECT notification_id FROM reminder_notifications WHERE reminder_id = ? AND urgency_level = ? AND user_id = ? AND model_id = ?",
+                            (reminder_id, urgency_level, user_id, model_id)
+                        )
+                        
+                        if not existing:
+                            # Create new notification entry for this urgency level
+                            notification_id = str(uuid.uuid4())
+                            now_iso = get_current_timestamp()
+                            await self.schedule_db.execute_update(
+                                """INSERT INTO reminder_notifications (notification_id, reminder_id, urgency_level, created_at, updated_at, user_id, model_id)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                (notification_id, reminder_id, urgency_level, now_iso, now_iso, user_id, model_id)
+                            )
+                            escalations_count += 1
+                            logger.debug(f"Created notification for reminder {reminder_id} at urgency level {urgency_level}")
+                        else:
+                            # Update timestamp of existing notification
+                            await self.schedule_db.execute_update(
+                                "UPDATE reminder_notifications SET updated_at = ? WHERE reminder_id = ? AND urgency_level = ? AND user_id = ? AND model_id = ?",
+                                (get_current_timestamp(), reminder_id, urgency_level, user_id, model_id)
+                            )
+                
+                except Exception as e:
+                    logger.warning(f"Error processing reminder {reminder_row[0]} during escalation: {e}")
+                    continue
+            
+            logger.info(f"Reminder escalation complete: {escalations_count} escalations, {cleanups_count} cleanups")
+            return {"escalations": escalations_count, "cleanups": cleanups_count}
+            
+        except Exception as e:
+            logger.error(f"Error in _escalate_due_reminders: {e}\n{traceback.format_exc()}")
+            return {"escalations": 0, "cleanups": 0, "error": str(e)}
+
+    async def get_active_reminders_for_injection(self, user_id: str = None, model_id: str = None) -> Dict:
+        """
+        Get active reminders grouped by urgency tier for context injection into conversations.
+        Used to build the [Active Reminders] section in the conversation context.
+        
+        Returns dict with keys: "urgent", "soon", "upcoming" containing reminder details.
+        """
+        try:
+            if not user_id or not model_id:
+                return {}
+            
+            now = datetime.now(get_local_timezone())
+            
+            # Query all non-completed reminders that have active notifications
+            reminders = await self.schedule_db.execute_query(
+                """SELECT r.reminder_id, r.content, r.due_datetime, r.priority_level, r.conversation_title, n.urgency_level
+                   FROM reminders r
+                   INNER JOIN reminder_notifications n ON r.reminder_id = n.reminder_id
+                   WHERE r.completed = 0 AND r.is_completed = 0 AND r.user_id = ? AND r.model_id = ?
+                   ORDER BY r.due_datetime ASC""",
+                (user_id, model_id)
+            )
+            
+            if not reminders:
+                return {}
+            
+            # Group by urgency level
+            grouped = {"urgent": [], "soon": [], "upcoming": []}
+            urgency_names = {5: "urgent", 3: "soon", 1: "upcoming"}
+            
+            for reminder in reminders:
+                try:
+                    reminder_id = reminder[0]
+                    content = reminder[1]
+                    due_datetime_str = reminder[2]
+                    priority = reminder[3]
+                    conversation_title = reminder[4]
+                    urgency_level = reminder[5]
+                    
+                    # Calculate time until due
+                    if due_datetime_str.endswith('Z'):
+                        due_dt = datetime.fromisoformat(due_datetime_str[:-1]).replace(tzinfo=pytz.UTC)
+                    else:
+                        due_dt = datetime.fromisoformat(due_datetime_str)
+                        if due_dt.tzinfo is None:
+                            due_dt = get_local_timezone().localize(due_dt)
+                    
+                    time_until_due = due_dt - now
+                    
+                    # Format time until due
+                    if time_until_due.total_seconds() < 0:
+                        time_str = f"OVERDUE {abs(time_until_due.total_seconds() // 60):.0f}m ago"
+                    elif time_until_due.total_seconds() < 3600:
+                        time_str = f"{time_until_due.total_seconds() / 60:.0f}m"
+                    elif time_until_due.total_seconds() < 86400:
+                        time_str = f"{time_until_due.total_seconds() / 3600:.1f}h"
+                    else:
+                        time_str = f"{time_until_due.total_seconds() / 86400:.1f}d"
+                    
+                    # Format reminder for display
+                    reminder_display = f"{content}"
+                    if conversation_title:
+                        reminder_display += f" (from: {conversation_title})"
+                    reminder_display += f" • Due in {time_str}"
+                    
+                    urgency_name = urgency_names.get(urgency_level, "upcoming")
+                    grouped[urgency_name].append(reminder_display)
+                    
+                except Exception as e:
+                    logger.warning(f"Error formatting reminder for injection: {e}")
+                    continue
+            
+            return grouped
+            
+        except Exception as e:
+            logger.error(f"Error in get_active_reminders_for_injection: {e}\n{traceback.format_exc()}")
+            return {}
+
     async def reschedule_reminder(self, reminder_id: str, new_due_datetime: str, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """Reschedule a reminder to a new due datetime"""
         
@@ -5429,8 +5917,9 @@ class FridayMemorySystem:
             }
         
         now_local = datetime.now(get_local_timezone())
+        start_of_today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff_local = now_local + timedelta(days=days_ahead)
-        now_epoch = int(now_local.timestamp())
+        now_epoch = int(start_of_today.timestamp())
         cutoff_epoch = int(cutoff_local.timestamp())
         
         # Build query based on whether model_id filtering is requested
@@ -5645,8 +6134,8 @@ class FridayMemorySystem:
                 model_name = chat_info['model']
                 chat_data = chat_info['chat_data']
                 
-                # Extract conversation_id with user_id + model isolation
-                conversation_id = f"{user_id}_{model_name}"
+                # Use real OpenWebUI chat_id UUID for conversation isolation
+                conversation_id = str(chat_id)
                 
                 # Process messages from chat JSON
                 history = chat_data.get('history', {})
@@ -6074,7 +6563,24 @@ class FridayMemorySystem:
             logger.error(f"Error getting system health: {e}")
         
         return health_data
-    
+
+    async def get_error_summary(self, user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
+        """Read persisted error buffer from the short-term memory plugin for reporting."""
+        error_data = {
+            "status": "ok",
+            "error_counters": {},
+            "recent_errors": [],
+        }
+        error_buffer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Logs", "error_buffer.json")
+        try:
+            if os.path.exists(error_buffer_path):
+                with open(error_buffer_path, "r") as f:
+                    error_data["recent_errors"] = json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading error buffer: {e}")
+            error_data["status"] = "error"
+        return error_data
+
     async def _get_system_metrics(self) -> Dict:
         """Get actual system metrics: CPU, RAM, and GPU/VRAM usage"""
         metrics = {
@@ -6156,41 +6662,39 @@ class FridayMemorySystem:
             except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
                 pass  # NVIDIA not available, will try AMD
             
-            # Try AMD GPUs (rocm-smi)
+# Try AMD GPUs (rocm-smi - combined flags produce single valid JSON blob)
             try:
                 import subprocess
                 result = subprocess.run(
-                    ["rocm-smi", "--json"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["rocm-smi", "--showmeminfo", "vram", "--showtemp", "--showuse", "--showproductname", "--json"],
+                    capture_output=True, text=True, timeout=10
                 )
-                
                 if result.returncode == 0:
-                    import json
                     rocm_data = json.loads(result.stdout)
-                    
-                    # rocm-smi --json returns data keyed by GPU index
-                    for gpu_index in sorted(rocm_data.keys()):
-                        if gpu_index == "system_management_version":
-                            continue  # Skip metadata
-                        
-                        gpu_info = rocm_data[gpu_index]
-                        
-                        # Extract memory info
-                        total_mem = gpu_info.get("gpu_memory_total_mb", 0)
-                        used_mem = gpu_info.get("gpu_memory_used_mb", 0)
-                        mem_percent = (used_mem / total_mem * 100) if total_mem > 0 else 0
-                        
+                    for card_key in sorted(rocm_data.keys()):
+                        idx  = int(card_key.replace("card", ""))
+                        card = rocm_data[card_key]
+
+                        total_b  = int(card.get("VRAM Total Memory (B)", 0))
+                        used_b   = int(card.get("VRAM Total Used Memory (B)", 0))
+                        total_mb = total_b // (1024 * 1024)
+                        used_mb  = used_b  // (1024 * 1024)
+                        mem_pct  = round(used_mb / total_mb * 100, 1) if total_mb > 0 else 0.0
+
+                        gfx_ver  = card.get("GFX Version", "")
+                        gpu_name = f"{card.get('Card Series', f'AMD GPU {idx}')} ({gfx_ver})" if gfx_ver else card.get("Card Series", f"AMD GPU {idx}")
+
+                        temp_edge = card.get("Temperature (Sensor edge) (C)")
+
                         gpu_devices.append({
                             "type": "AMD",
-                            "index": int(gpu_index),
-                            "name": gpu_info.get("gpu_name", f"AMD GPU {gpu_index}"),
-                            "memory_total_mb": total_mem,
-                            "memory_used_mb": used_mem,
-                            "memory_used_percent": round(mem_percent, 1),
-                            "utilization_percent": gpu_info.get("gpu_utilization", 0),
-                            "temperature_c": gpu_info.get("temperature_edge", None)
+                            "index": idx,
+                            "name": gpu_name,
+                            "memory_total_mb": total_mb,
+                            "memory_used_mb": used_mb,
+                            "memory_used_percent": mem_pct,
+                            "utilization_percent": int(card.get("GPU use (%)", 0)),
+                            "temperature_c": float(temp_edge) if temp_edge is not None else None
                         })
             except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
                 pass  # AMD ROCm not available
@@ -6231,6 +6735,9 @@ class FridayMemorySystem:
                 "status": "error",
                 "error": "MISSING REQUIRED PARAMETERS: user_id and model_id are required for all operations. Do not use defaults. Provide the actual user identifier and your model name from the system prompt."
             }
+        
+        # Resolve user_id aliases to canonical form
+        user_id = USER_ID_ALIASES.get(user_id, user_id)
         
         result = await self.conversations_db.store_message(
             content, role, session_id, conversation_id, metadata, user_id, model_id, source
@@ -6286,11 +6793,24 @@ class FridayMemorySystem:
         }
     
     # AI Memory operations
+    async def link_memory_to_conversation(self, memory_id: str, conversation_id: str,
+                                         link_type: str = 'direct', link_strength: float = 1.0,
+                                         source_system: str = 'processed_from_chat', metadata: dict = None,
+                                         stub_user_id: str = None, stub_model_id: str = None) -> str:
+        """Proxy to conversations_db.link_memory_to_conversation with FK stub support."""
+        return await self.conversations_db.link_memory_to_conversation(
+            memory_id=memory_id, conversation_id=conversation_id,
+            link_type=link_type, link_strength=link_strength,
+            source_system=source_system, metadata=metadata,
+            stub_user_id=stub_user_id, stub_model_id=stub_model_id
+        )
+
     async def create_memory(self, content: str, memory_type: str = None,
                           importance_level: int = 5, tags: List[str] = None,
                           source_conversation_id: str = None, memory_bank: str = "General",
                           user_id: str = None, model_id: str = None, source: str = "direct",
-                          wait_for_embedding: bool = False) -> Dict:
+                          wait_for_embedding: bool = False,
+                          embedding: Any = None) -> Dict:
         """Create a curated memory.
         
         Args:
@@ -6305,8 +6825,53 @@ class FridayMemorySystem:
         
         memory_id = await self.ai_memory_db.create_memory(
             content, memory_type, importance_level, tags, source_conversation_id,
-            memory_bank=memory_bank, user_id=user_id, model_id=model_id, source=source
+            memory_bank=memory_bank, user_id=user_id, model_id=model_id, source=source,
+            embedding=embedding
         )
+        
+        # Auto-link memory to conversation if source_conversation_id provided
+        # Skip auto-linking during promotion — the MCP promote endpoint creates
+        # a richer link with link_type="promoted_from_short_term" and full metadata
+        if source_conversation_id and source != "openwebui_promotion":
+            try:
+                # Resolve source_conversation_id to actual conversation_id
+                actual_conversation_id = await self.conversations_db.resolve_source_conversation_id(
+                    source_conversation_id, user_id=user_id
+                )
+                
+                if actual_conversation_id:
+                    # Calculate link_strength from importance_level (normalize 1-10 to 0.0-1.0)
+                    link_strength = min(importance_level / 10.0, 1.0)
+                    
+                    # Create breadcrumb metadata
+                    link_metadata = {
+                        "source_method": source if source else "direct_memory_creation",
+                        "extracted_at": datetime.now(get_local_timezone()).isoformat(),
+                        "triggered_by": "memory_elevation" if source == "openwebui_promotion" else "direct_storage",
+                        "importance_level": importance_level,
+                        "source_conversation_context": source_conversation_id,
+                        "user_id": user_id,
+                        "model_id": model_id,
+                        "memory_bank": memory_bank
+                    }
+                    
+                    # Link memory to conversation
+                    link_id = await self.conversations_db.link_memory_to_conversation(
+                        memory_id=memory_id,
+                        conversation_id=actual_conversation_id,
+                        link_type="direct",
+                        link_strength=link_strength,
+                        source_system="memory_extraction",
+                        metadata=link_metadata
+                    )
+                    logger.info(f"Linked memory {memory_id} to conversation {actual_conversation_id} "
+                               f"(strength={link_strength:.2f}, link_id={link_id})")
+                else:
+                    logger.debug(f"Could not resolve source_conversation_id '{source_conversation_id}' "
+                                f"to conversation_id for linking. Memory created but not linked.")
+            except Exception as link_error:
+                logger.error(f"Failed to link memory {memory_id} to conversation: {link_error}")
+                # Don't fail the memory creation if linking fails - log and continue
         
         if wait_for_embedding:
             # Wait for embedding to complete (used during promotion)
@@ -6385,13 +6950,13 @@ class FridayMemorySystem:
                                recurrence_pattern: str = None,
                                recurrence_count: int = None,
                                recurrence_end_date: str = None, user_id: str = None,
-                               model_id: str = None) -> Dict:
+                               model_id: str = None, source: str = "direct") -> Dict:
         """Create an appointment, optionally recurring"""
         
         appointment_result = await self.schedule_db.create_appointment(
             title, scheduled_datetime, description, location, source_conversation_id,
             recurrence_pattern, recurrence_count, recurrence_end_date,
-            user_id=user_id, model_id=model_id
+            user_id=user_id, model_id=model_id, source=source
         )
         
         # Handle the result based on whether it's a single ID or list of IDs
@@ -6419,13 +6984,29 @@ class FridayMemorySystem:
                             priority_level: int = 5, source_conversation_id: str = None,
                             recurrence_pattern: str = None, recurrence_count: int = None,
                             recurrence_end_date: str = None, user_id: str = None,
-                            model_id: str = None) -> Dict:
+                            model_id: str = None, source: str = "direct") -> Dict:
         """Create a reminder or multiple recurring reminders"""
+        
+        # Lookup conversation title if source_conversation_id is provided
+        conversation_title = None
+        if source_conversation_id:
+            try:
+                conversation_result = await self.conversations_db.execute_query(
+                    """SELECT COALESCE(topic_summary, '[Untitled Conversation]') as title
+                       FROM conversations 
+                       WHERE conversation_id = ?""",
+                    (source_conversation_id,)
+                )
+                if conversation_result:
+                    conversation_title = conversation_result[0][0]
+                    logger.debug(f"Retrieved conversation title '{conversation_title}' for reminder")
+            except Exception as e:
+                logger.warning(f"Could not retrieve conversation title for {source_conversation_id}: {e}")
         
         reminder_result = await self.schedule_db.create_reminder(
             content, due_datetime, priority_level, source_conversation_id,
             recurrence_pattern, recurrence_count, recurrence_end_date,
-            user_id=user_id, model_id=model_id
+            user_id=user_id, model_id=model_id, source=source, conversation_title=conversation_title
         )
         
         # Handle embedding generation for single or multiple reminders
@@ -6448,11 +7029,13 @@ class FridayMemorySystem:
     
     # VS Code project operations
     async def save_development_session(self, workspace_path: str, active_files: List[str] = None,
-                                     git_branch: str = None, session_summary: str = None) -> Dict:
+                                     git_branch: str = None, session_summary: str = None,
+                                     user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """Save development session"""
         
         session_id = await self.vscode_db.save_development_session(
-            workspace_path, active_files, git_branch, session_summary
+            workspace_path, active_files, git_branch, session_summary,
+            user_id, model_id, source
         )
         
         return {
@@ -6462,11 +7045,13 @@ class FridayMemorySystem:
     
     async def store_project_insight(self, content: str, insight_type: str = None,
                                   related_files: List[str] = None, importance_level: int = 5,
-                                  source_conversation_id: str = None) -> Dict:
+                                  source_conversation_id: str = None,
+                                  user_id: str = None, model_id: str = None, source: str = "direct") -> Dict:
         """Store project insight"""
         
         insight_id = await self.vscode_db.store_project_insight(
-            content, insight_type, related_files, importance_level, source_conversation_id
+            content, insight_type, related_files, importance_level, source_conversation_id,
+            user_id, model_id, source
         )
         
         # Generate and store embedding for the insight content
@@ -6718,9 +7303,9 @@ class FridayMemorySystem:
         # Store the code context
         await self.vscode_db.execute_update(
             """INSERT INTO code_context 
-               (context_id, timestamp, file_path, function_name, description, user_id, model_id) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description, user_id, model_id)
+               (context_id, timestamp, file_path, function_name, description, user_id, model_id, source) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (context_id, datetime.now(get_local_timezone()).isoformat(), file_path, function_name, description, user_id, model_id, source)
         )
         
         # Generate and store embedding for the description
@@ -7271,6 +7856,10 @@ Return JSON:
                 "count": 0
             }
         
+        # Resolve user_id aliases to canonical form
+        if user_id:
+            user_id = USER_ID_ALIASES.get(user_id, user_id)
+        
         # Generate embedding for the search query
         query_embedding = await self.embedding_service.generate_embedding(query)
         if not query_embedding:
@@ -7377,11 +7966,32 @@ Return JSON:
         # Sort all results by similarity score and return top results
         all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
         
+        # Add source attribution to each result for transparency
+        final_results = []
+        for result in all_results[:limit]:
+            result_type = result.get("type", "").lower()
+            
+            # Determine source based on result type and fields
+            if "ai_memory" in result_type or result_type == "memory":
+                # Distinguish between long-term curated and short-term memories
+                if result.get("data", {}).get("importance_level"):
+                    result["source"] = "long_term"
+                else:
+                    result["source"] = "short_term"
+            elif "conversation" in result_type:
+                result["source"] = "conversation"
+            elif result_type in ("appointment", "reminder"):
+                result["source"] = "schedule"
+            else:
+                result["source"] = "unknown"
+            
+            final_results.append(result)
+        
         return {
             "status": "success",
             "query": query,
-            "results": all_results[:limit],
-            "count": len(all_results[:limit]),
+            "results": final_results,
+            "count": len(final_results),
             "filters": {
                 "min_importance": min_importance,
                 "max_importance": max_importance,
@@ -7407,6 +8017,7 @@ Return JSON:
                 "query": f"memory_id:{memory_id}",
                 "results": [{
                     "type": "ai_memory",
+                    "source": "long_term",
                     "similarity_score": 1.0,  # Perfect match for direct lookup
                     "data": {
                         "memory_id": memory["memory_id"],
@@ -7434,6 +8045,7 @@ Return JSON:
                 "query": f"memory_id:{memory_id}",
                 "results": [{
                     "type": "conversation",
+                    "source": "conversation",
                     "similarity_score": 1.0,
                     "data": {
                         "message_id": msg["message_id"],
@@ -7459,6 +8071,7 @@ Return JSON:
                 "query": f"memory_id:{memory_id}",
                 "results": [{
                     "type": "appointment",
+                    "source": "schedule",
                     "similarity_score": 1.0,
                     "data": {
                         "appointment_id": appt["appointment_id"],
@@ -7484,6 +8097,7 @@ Return JSON:
                 "query": f"memory_id:{memory_id}",
                 "results": [{
                     "type": "reminder",
+                    "source": "schedule",
                     "similarity_score": 1.0,
                     "data": {
                         "reminder_id": rem["reminder_id"],
@@ -8420,7 +9034,7 @@ Return JSON:
             "requested_by": {"user_id": user_id, "model_id": model_id}
         }
     
-    async def export_all_tool_calls(self, output_filename: str = None, user_id: str = "unknown", model_id: str = "system") -> Dict:
+    async def export_all_tool_calls(self, output_filename: str = None, user_id: str = "unknown", model_id: str = "system", source: str = "direct") -> Dict:
         """Export all tool calls from current and archived databases to a text file.
         
         This tool is for LORA training dataset generation. It exports all tool calls
@@ -8430,6 +9044,7 @@ Return JSON:
             output_filename: Optional custom filename. Defaults to timestamp-based name.
             user_id: User requesting the export (for logging)
             model_id: Model ID (defaults to 'system')
+            source: Source of the tool call (default: direct)
         
         Returns:
             Dictionary with status, file path, and count of exported tool calls
@@ -8920,8 +9535,9 @@ Performance Assessment:"""
     async def run_database_maintenance(self, force: bool = False) -> Dict:
         """Run database maintenance including cleanup and optimization"""
         try:
+            if hasattr(self, 'db_maintenance') and self.db_maintenance is not None:
+                return await self.db_maintenance.run_maintenance(force)
             from database_maintenance import DatabaseMaintenance
-            
             maintenance = DatabaseMaintenance(self)
             return await maintenance.run_maintenance(force)
             

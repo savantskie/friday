@@ -1,0 +1,128 @@
+{
+    log {
+        format console
+    }
+}
+
+fridayonline.bounceme.net {
+    tls "/media/nate/Friday/Friday/certs/friday.pem" "/media/nate/Friday/Friday/certs/friday.key"
+	
+	# Security headers, and securing mcpo (add-only)
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+
+    # Route ordering: specific paths first, then default OWUI
+    route {
+        # ---------- MCPo (tools) over same-origin HTTPS ----------
+        @preflight_mcp {
+            method OPTIONS
+            path /mcpo*
+        }
+        header @preflight_mcp {
+            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+            Access-Control-Allow-Headers "*"
+            Access-Control-Allow-Credentials "true"
+        }
+        respond @preflight_mcp 204
+
+        @mcp path /mcpo*
+        header @mcp {
+            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+            Access-Control-Allow-Credentials "true"
+        }
+
+        handle_path /mcpo* {
+            reverse_proxy 192.168.1.50:12345
+        }
+
+
+
+        # ---------- LM Studio via same-origin HTTPS ----------
+        @preflight_lms {
+            method OPTIONS
+            path /lmstudio*
+        }
+        header @preflight_lms {
+            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+            Access-Control-Allow-Headers "*"
+            Access-Control-Allow-Credentials "true"
+        }
+        respond @preflight_lms 204
+
+        @lms path /lmstudio*
+        header @lms {
+            Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+            Access-Control-Allow-Credentials "true"
+        }
+        handle_path /lmstudio* {
+            reverse_proxy 192.168.1.50:1234
+        }
+
+	# ---------- Block reflected CORS on API endpoints ----------
+	@api_preflight {
+	    method OPTIONS
+	    path /v1/*
+	}
+	header @api_preflight {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Methods "GET,POST,OPTIONS"
+	    Access-Control-Allow-Headers "*"
+	    Access-Control-Allow-Credentials "true"
+	}
+	respond @api_preflight 204
+
+	@api path /v1/*
+	header @api {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Credentials "true"
+	}
+
+        # --- OWUI STATIC ASSETS MUST BE HERE ---
+        @static_app path /_app/*
+        handle @static_app {
+            reverse_proxy 127.0.0.1:3000
+        }
+
+        @static_assets path /assets/*
+        handle @static_assets {
+            reverse_proxy 127.0.0.1:3000
+        }
+
+        @static_build path /build/*
+        handle @static_build {
+            reverse_proxy 127.0.0.1:3000
+        }
+
+	# ---------- SearXNG ----------
+	@preflight_searxng {
+	    method OPTIONS
+	    path /searxng*
+	}
+	header @preflight_searxng {
+	    Access-Control-Allow-Origin "https://fridayonline.bounceme.net"
+	    Access-Control-Allow-Methods "GET,POST,OPTIONS"
+	    Access-Control-Allow-Headers "*"
+	    Access-Control-Allow-Credentials "true"
+	}
+	respond @preflight_searxng 204
+
+        handle_path /searxng* {
+            reverse_proxy 127.0.0.1:8081
+        }
+
+        # ---------- Default: proxy OpenWebUI ----------
+        # Handles browser requests (no auth) and OpenWebUI MCPO requests (specific bearer token)
+        reverse_proxy 127.0.0.1:3000 {
+            transport http {
+                versions 1.1
+            }
+        }
+    }
+}

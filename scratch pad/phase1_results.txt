@@ -1,0 +1,202 @@
+
+================================================================================
+PHASE 1 INVESTIGATION: Conversation Linking System
+================================================================================
+
+████████████████████████████████████████████████████████████████████████████████
+█  SECTION 1: OpenWebUI Database (webui.db)
+████████████████████████████████████████████████████████████████████████████████
+
+================================================================================
+TABLE SCHEMA: conversations
+Database: /media/nate/Friday/OpenWebUI/data/webui.db
+================================================================================
+
+Columns in conversations:
+
+--------------------------------------------------------------------------------
+All tables in webui.db:
+--------------------------------------------------------------------------------
+
+================================================================================
+List all tables
+Database: /media/nate/Friday/OpenWebUI/data/webui.db
+Query: SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;
+================================================================================
+
+Columns: ['name']
+
+Results (35 rows):
+  Row 0: {'name': 'access_grant'}
+  Row 1: {'name': 'alembic_version'}
+  Row 2: {'name': 'api_key'}
+  Row 3: {'name': 'auth'}
+  Row 4: {'name': 'channel'}
+  Row 5: {'name': 'channel_file'}
+  Row 6: {'name': 'channel_member'}
+  Row 7: {'name': 'channel_webhook'}
+  Row 8: {'name': 'chat'}
+  Row 9: {'name': 'chat_file'}
+  ... and 25 more rows
+
+================================================================================
+Sample conversations (first 5)
+Database: /media/nate/Friday/OpenWebUI/data/webui.db
+Query: SELECT * FROM conversations LIMIT 5;
+================================================================================
+
+✗ ERROR: no such table: conversations
+
+================================================================================
+Total conversations count
+Database: /media/nate/Friday/OpenWebUI/data/webui.db
+Query: SELECT COUNT(*) as total_conversations FROM conversations;
+================================================================================
+
+✗ ERROR: no such table: conversations
+
+████████████████████████████████████████████████████████████████████████████████
+█  SECTION 2: FMS Database (conversations.db)
+████████████████████████████████████████████████████████████████████████████████
+
+================================================================================
+TABLE SCHEMA: conversation_relationships
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+================================================================================
+
+Columns in conversation_relationships:
+
+================================================================================
+conversation_relationships row count
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT COUNT(*) as total_relationships FROM conversation_relationships;
+================================================================================
+
+✗ ERROR: no such table: conversation_relationships
+
+================================================================================
+Sample conversation_relationships (first 5)
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT * FROM conversation_relationships LIMIT 5;
+================================================================================
+
+✗ ERROR: no such table: conversation_relationships
+
+--------------------------------------------------------------------------------
+
+================================================================================
+TABLE SCHEMA: conversations
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+================================================================================
+
+Columns in conversations:
+  - conversation_id: TEXT (PK=True, NOT NULL=False)
+  - session_id: TEXT (PK=False, NOT NULL=True)
+  - start_timestamp: TEXT (PK=False, NOT NULL=True)
+  - end_timestamp: TEXT (PK=False, NOT NULL=False)
+  - topic_summary: TEXT (PK=False, NOT NULL=False)
+  - embedding: BLOB (PK=False, NOT NULL=False)
+  - created_at: TEXT (PK=False, NOT NULL=False)
+
+================================================================================
+Total conversations in FMS
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT COUNT(*) as total FROM conversations;
+================================================================================
+
+Columns: ['total']
+
+Results (1 rows):
+  Row 0: {'total': 0}
+
+================================================================================
+Sample FMS conversations (first 3)
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT * FROM conversations LIMIT 3;
+================================================================================
+
+✓ Query returned 0 rows
+
+--------------------------------------------------------------------------------
+
+================================================================================
+TABLE SCHEMA: messages
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+================================================================================
+
+Columns in messages:
+  - message_id: TEXT (PK=True, NOT NULL=False)
+  - conversation_id: TEXT (PK=False, NOT NULL=True)
+  - timestamp: TEXT (PK=False, NOT NULL=True)
+  - role: TEXT (PK=False, NOT NULL=True)
+  - content: TEXT (PK=False, NOT NULL=True)
+  - metadata: TEXT (PK=False, NOT NULL=False)
+  - embedding: BLOB (PK=False, NOT NULL=False)
+  - created_at: TEXT (PK=False, NOT NULL=False)
+
+================================================================================
+FMS messages stats
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT 
+              COUNT(*) as total,
+              COUNT(DISTINCT session_id) as unique_sessions,
+              COUNT(DISTINCT conversation_id) as unique_conversations,
+              COUNT(DISTINCT user_id) as unique_users,
+              COUNT(DISTINCT model_id) as unique_models
+           FROM messages;
+================================================================================
+
+✗ ERROR: no such column: session_id
+
+================================================================================
+Sample FMS messages with user/model info
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT 
+              message_id, conversation_id, session_id, 
+              user_id, model_id, role, 
+              substr(content, 1, 50) as content_preview
+           FROM messages 
+           LIMIT 5;
+================================================================================
+
+✗ ERROR: no such column: session_id
+
+████████████████████████████████████████████████████████████████████████████████
+█  SECTION 3: Matching Analysis
+████████████████████████████████████████████████████████████████████████████████
+
+================================================================================
+Sessions with multiple conversations (fragmentation check)
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT 
+              session_id, 
+              COUNT(DISTINCT conversation_id) as num_conversations,
+              COUNT(*) as total_messages
+           FROM messages
+           GROUP BY session_id
+           HAVING num_conversations > 1
+           LIMIT 5;
+================================================================================
+
+✗ ERROR: no such column: session_id
+
+================================================================================
+Messages with NULL user_id or model_id
+Database: /media/nate/Friday/Friday/data/memory/Memories/conversations.db
+Query: SELECT 
+              user_id, model_id, COUNT(*) as message_count
+           FROM messages
+           WHERE user_id IS NULL OR model_id IS NULL
+           GROUP BY user_id, model_id;
+================================================================================
+
+✗ ERROR: no such column: user_id
+
+================================================================================
+PHASE 1 INVESTIGATION COMPLETE
+================================================================================
+
+See results above for:
+1. OpenWebUI conversation structure
+2. FMS conversation_relationships state
+3. Current data consistency issues

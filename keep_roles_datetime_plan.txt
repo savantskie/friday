@@ -1,0 +1,295 @@
+Plan: Dynamic Context Preservation via message_spans + New datetime Role
+
+GOALS
+
+1. Give the main chat model (Gemma4) awareness of current time without modifying the system prompt
+2. Dynamically preserve system + identity tokens during context shift by replacing the flat --keep flag with a message_spans-based calculation
+3. --keep CLI flag becomes unnecessary
+
+KEY DISCOVERY: TEMPLATE BYPASSES AUTOPARSER
+
+Our custom template at /media/nate/Friday/Friday/gemma4_prompt_template.jinja is intercepted before the autoparser runs. At common/chat.cpp:2990-2998:
+
+if (src.find("'<|tool_call>call:'") != std::string::npos) {
+    return common_chat_params_init_gemma4(tmpl, params);  // autoparser never called
+}
+
+Our template contains '<|tool_call>call:' (line 286) and {#- OpenAI Chat Completions: (line 313), so it routes to common_chat_params_init_gemma4 at chat.cpp:1279. That function hardcodes only two delimiters at chat.cpp:1294-1297:
+
+data.message_delimiters = {
+    { COMMON_CHAT_ROLE_USER,      "<|turn>user"  },
+    { COMMON_CHAT_ROLE_ASSISTANT, "<|turn>model" },
+};
+
+Result: message_spans only has USER and ASSISTANT spans. System, identity, and all custom roles are lumped into UNKNOWN.
+
+Correct fix point: common_chat_params_init_gemma4 at chat.cpp:1294 -- add system and identity delimiters there, alongside the existing user/assistant entries.
+
+INVESTIGATION SUMMARY: ROLE-AWARE KV CACHE
+
+The core idea is to replace the flat --keep N flag (which preserves N raw tokens from the start) with a role-aware mechanism that pinpoints exact message boundaries. This uses llama.cpp's existing message_spans system (common/chat.h:157-191), which scans the rendered token stream for delimiter sequences and maps token positions to roles.
+
+What was found:
+- Our custom Jinja template bypasses the autoparser entirely -- it's intercepted by the Gemma4 specialized handler at chat.cpp:2990-2998, which hardcodes only user and assistant delimiters
+- System and all custom roles (identity, summary, reminders, memories) are lumped into UNKNOWN spans
+- The fix: add delimiters for system and identity to common_chat_params_init_gemma4 at chat.cpp:1294
+- The split() function at chat.cpp:152 does exact token-sequence matching -- each span cleanly covers from one role's delimiter to the next, giving precise role-level boundaries
+- A new --keep-roles flag (e.g., --keep-roles system,identity) allows specifying which roles to preserve dynamically, without hardcoding role names in the C++ code
+
+Key behaviors:
+- --keep-roles system,identity pins through end of identity span (system + identity tokens preserved, everything else shiftable)
+- --keep-roles system pins only system tokens (identity + everything else shiftable)
+- --keep-roles not specified falls back to existing --keep N behavior
+- If --keep-roles is specified but no spans match, loud warning to log + keep_roles_error.log, full-context fallback
+
+CHANGE LIST -- LLAMA.CPP (PRIVATE FORK)
+
+1. Add COMMON_CHAT_ROLE_IDENTITY to enum
+
+File: common/chat.h (line ~151)
+
+enum common_chat_role {
+    COMMON_CHAT_ROLE_UNKNOWN,
+    COMMON_CHAT_ROLE_SYSTEM,
+    COMMON_CHAT_ROLE_ASSISTANT,
+    COMMON_CHAT_ROLE_USER,
+    COMMON_CHAT_ROLE_TOOL,
+    COMMON_CHAT_ROLE_IDENTITY,  // new
+};
+
+2. Add identity string mapping
+
+File: common/chat.cpp
+- common_chat_role_from_string (line ~95): add if (role == "identity") { return COMMON_CHAT_ROLE_IDENTITY; }
+- common_chat_role_to_string (line ~103): add case COMMON_CHAT_ROLE_IDENTITY: return "identity";
+
+3. Add system and identity delimiters to Gemma4 handler
+
+File: common/chat.cpp, function common_chat_params_init_gemma4 (line ~1294)
+
+data.message_delimiters = {
+    { COMMON_CHAT_ROLE_USER,      "<|turn>user"     },
+    { COMMON_CHAT_ROLE_ASSISTANT, "<|turn>model"    },
+    { COMMON_CHAT_ROLE_SYSTEM,    "<|turn>system"   },  // add
+    { COMMON_CHAT_ROLE_IDENTITY,  "<|turn>identity" },  // add
+};
+
+Delimiter strings confirmed: no trailing \n. The Gemma4 pre-tokenizer splits on \n, so <|turn> tokenizes as one special token and identity/user/system/model as BPE subwords. The \n after the role name in rendered output is a separate token and becomes the first token of each content span.
+
+4. Dynamic n_keep from message_spans via --keep-roles flag
+
+Files: multiple -- add a new CLI flag --keep-roles that accepts a comma-separated list of role names (e.g., --keep-roles system,identity). The context shift logic uses it to dynamically pin the end of the last matching role span.
+
+4a. Add --keep-roles CLI flag
+
+File: common/arg.cpp -- define the new flag alongside the existing --keep arg
+
+add_opt(common_arg(
+    {"--keep-roles"}, "LIST",
+    "comma-separated list of role names to preserve during context shift (e.g. 'system,identity'). "
+    "When set, overrides --keep by calculating n_keep from message_spans. "
+    "(default: empty, disabled)",
+    [](common_params & params, const std::string & value) {
+        params.keep_roles = common_split_string(value, ',');
+    }
+));
+
+4b. Add keep_roles to params structs
+
+File: common/common.h -- add to common_params struct:
+std::vector<std::string> keep_roles;  // role names to preserve during context shift
+
+File: tools/server/server-task.h -- add to task_params struct:
+std::vector<std::string> keep_roles;  // mirrors common_params::keep_roles
+
+4c. Wire keep_roles into task params
+
+File: tools/server/server-context.cpp -- in the task creation / schema eval path, copy keep_roles from the server params into task.params.keep_roles. This is near where n_keep and n_discard are already passed through (around line 4077, inside eval_llama_cmpl_schema or similar).
+
+4d. Dynamic n_keep calculation in context shift
+
+File: tools/server/server-context.cpp, pre_decode() (line ~2862)
+
+Replace the current flat n_keep line with logic that checks --keep-roles first, falls back to --keep:
+
+// Calculate n_keep from message_spans if --keep-roles is specified
+int n_keep;
+const auto & keep_roles = slot.task->params.keep_roles;
+if (!keep_roles.empty()) {
+    // Build a set of common_chat_role values to match
+    std::set<common_chat_role> keep_role_set;
+    for (const auto & role_name : keep_roles) {
+        keep_role_set.insert(common_chat_role_from_string(role_name));
+    }
+    // Find the end of the last span matching any keep role
+    const auto & spans = slot.task->params.message_spans;
+    size_t keep_end = 0;
+    for (const auto & span : spans.spans) {
+        if (keep_role_set.count(span.role)) {
+            keep_end = std::max(keep_end, span.pos + span.len);
+        }
+    }
+    if (keep_end > 0) {
+        n_keep = (int)keep_end;
+    } else {
+        // Span detection failed -- log warning, do NOT silently fall back to --keep
+        std::string roles_str;
+        for (size_t i = 0; i < keep_roles.size(); i++) {
+            if (i > 0) roles_str += ",";
+            roles_str += keep_roles[i];
+        }
+        std::string spans_str;
+        for (const auto & s : spans.spans) {
+            if (!spans_str.empty()) spans_str += "; ";
+            spans_str += common_chat_role_to_string(s.role) + "@" + std::to_string(s.pos) + "+" + std::to_string(s.len);
+        }
+        int turn_num = slot.n_past;
+        std::string warn_msg = "keep_roles detection failed: roles=" + roles_str
+            + ", spans=[" + spans_str + "], turn=" + std::to_string(turn_num)
+            + ", keeping full context as fallback";
+        SRV_WRN("%s\n", warn_msg.c_str());
+        // Also write to dedicated log file
+        static std::mutex log_mutex;
+        std::lock_guard<std::mutex> lock(log_mutex);
+        FILE * flog = fopen("keep_roles_error.log", "a");
+        if (flog) {
+            fprintf(flog, "[%s] %s\n", common_current_time_string().c_str(), warn_msg.c_str());
+            fclose(flog);
+        }
+        // Fallback: keep full context (n_ctx - 4) so behavior is safe but failure is visible
+        n_keep = std::min(slot.n_ctx - 4, slot.task->n_tokens());
+    }
+} else {
+    n_keep = slot.task->params.n_keep < 0 ? slot.task->n_tokens() : slot.task->params.n_keep;
+}
+
+The existing add_bos_token adjustment and std::min(slot.n_ctx - 4, n_keep) clamping remain in place after this.
+
+Behavior summary:
+- --keep-roles specified + spans found: pin through end of last matching span
+- --keep-roles specified + no spans found: loud warning to both normal log + keep_roles_error.log, fallback to full-context keep
+- --keep-roles not specified: use --keep value as before (existing behavior)
+
+4e. Usage
+
+# Preserve system + identity during context shift
+--keep-roles system,identity
+
+# Preserve only system (default behavior of --keep N)
+--keep-roles system
+
+# Preserve system + identity + datetime (if datetime is ever added to delimiters)
+--keep-roles system,identity,datetime
+
+The --keep flag stays as a fallback for when --keep-roles is not specified or when span detection fails (e.g., message_spans is empty or no matching spans found).
+
+5. Add datetime role to Jinja template
+
+File: /media/nate/Friday/Friday/gemma4_prompt_template.jinja (line ~259)
+
+Add between the reminders elif block and the final elif message['role'] != 'tool' fallthrough:
+
+{%- elif message['role'] == 'datetime' -%}
+    {{- '<|turn>datetime\n' -}}
+    {{- message['content'] | trim -}}
+    {{- '\n<turn|>\n' -}}
+
+Same pattern as all existing custom roles (lines 220-259).
+
+CHANGE LIST -- FMS
+
+6. Add datetime to ORDER and inject in inlet
+
+File: /media/nate/Friday/Friday/friday_memory_short_term.py
+
+A) ORDER list (line 6834):
+ORDER = ["datetime", "identity", "summary", "reminders", "memories"]
+
+B) Inlet injection (around line 5174, before identity injection):
+
+# --- Current DateTime Injection --- #
+try:
+    now = self.get_formatted_datetime()
+    tzname = now.tzname() or "UTC"
+    datetime_str = f"Current date and time: {now.strftime('%A, %B %d, %Y')}, {now.strftime('%I:%M:%S %p')} {tzname}"
+    self._insert_before_last_user(body, "datetime", datetime_str)
+except Exception as e:
+    logger.debug(f"Datetime injection skipped: {e}")
+
+Seconds precision so the model can see time passing between turns.
+
+7. Port to upgrade folder
+
+Same changes in /media/nate/Friday/Friday/Friday_Memory_System_Update/friday_memory_short_term.py for the upgrade path.
+
+WHAT THE RENDERED PROMPT LOOKS LIKE
+
+<|turn>system
+...system prompt...
+<turn|>
+<|turn>datetime
+Current date and time: Wednesday, July 29, 2026, 11:28:47 PM CDT
+<turn|>
+<|turn>identity
+[Personality]...[Relationship]...[Principles]...
+<turn|>
+<|turn>summary
+[Earlier Conversation Summary]...
+<turn|>
+<|turn>reminders
+...active reminders...
+<turn|>
+<|turn>memories
+...relevant memories...
+<turn|>
+<|turn>user
+[latest user message]
+...
+
+ROLE DESCRIPTIONS IN SYSTEM PROMPT (OPTIONAL)
+
+Since the system prompt is set once at model load time and never changes, the KV cache for it is built once and never invalidated. This means we can describe the custom roles in the system prompt with no cache cost -- as long as it's part of the initial static prompt, not appended dynamically each turn.
+
+The model already handles all custom roles correctly from the self-describing content alone (proven in production), but adding explicit descriptions makes their purpose unmistakable:
+
+Available context sections appear in labeled role blocks:
+  <|turn>datetime  -- current date and time
+  <|turn>identity  -- core identity, personality, relationship context
+  <|turn>summary   -- conversation summary for long chats
+  <|turn>reminders -- active reminders with due dates
+  <|turn>memories  -- relevant stored memories about the user
+
+This is optional and does not affect any of the implementation changes. The existing roles already work without it, and datetime follows the same pattern.
+
+KV CACHE BEHAVIOR AFTER CHANGES
+
+- System + identity: Pinned during context shift (n_keep = end of last identity span)
+- datetime: Changes every turn (~30 tokens diff). LCP matches everything before and after. --cache-reuse 256 chunk matching reuses identity, summary, reminders, memories, conversation tokens.
+- Summary, reminders, memories: Stable between turns, fully cache-reusable.
+- System prompt: Never modified -- full KV cache hit.
+- --keep flag: No longer needed. Remove from the llama-server launch command.
+
+FILES MODIFIED
+
+- common/chat.h -- Add COMMON_CHAT_ROLE_IDENTITY to enum
+- common/chat.cpp -- Role string mappings + delimiters in init_gemma4
+- common/arg.cpp -- Add --keep-roles CLI flag definition
+- common/common.h -- Add keep_roles field to common_params
+- tools/server/server-task.h -- Add keep_roles field to task_params
+- tools/server/server-context.cpp -- Wire keep_roles into task params + dynamic n_keep from message_spans
+- gemma4_prompt_template.jinja -- Add datetime role block
+- friday_memory_short_term.py -- ORDER + inlet injection
+- Friday_Memory_System_Update/friday_memory_short_term.py -- Same FMS changes
+- llama-server launch script -- Replace --keep 6793 with --keep-roles system,identity
+
+VERIFICATION (MANUAL -- NATE HANDLES TESTING)
+
+1. Restart llama.cpp server (template + code changes) with --keep-roles system,identity instead of --keep 6793
+2. Reload FMS plugin in OpenWebUI (inlet changes)
+3. Send a test message, check llama.cpp logs for:
+   - Correct message_spans identifying system and identity spans
+   - Context shift showing n_keep = end of identity span
+4. Ask "what time is it?" -- confirm model responds with the current time
+5. After many messages (exceeding 131072 tokens), verify context shift preserves system + identity in KV cache
+6. Test --keep-roles system alone (only system pinned, identity shiftable)
+7. Verify --keep fallback works when --keep-roles is omitted

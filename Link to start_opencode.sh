@@ -1,0 +1,1 @@
+/media/nate/Friday/Friday/start_opencode.sh

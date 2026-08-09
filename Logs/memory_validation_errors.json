@@ -1,6 +1,6 @@
 {
   "resolved": false,
-  "last_updated": "2026-02-17T10:23:03.411669Z",
+  "last_updated": "2026-07-29T20:37:15.313745Z",
   "active_errors": [
     {
       "error_type": "invalid_json",
@@ -26,10 +26,10 @@
       "error_type": "invalid_json",
       "model_card": "friday",
       "first_occurrence": "2025-12-14T19:29:33.770734Z",
-      "last_occurrence": "2026-02-16T07:56:46.882238Z",
-      "attempt_count": 65,
+      "last_occurrence": "2026-04-16T01:10:14.539319Z",
+      "attempt_count": 66,
       "details": "Failed to parse JSON: Expecting value: line 1 column 1 (char 0). Output: ```json\n{\n  \"status\": \"success\",\n  \"reason\": \"Technical state, intent_signal, and context extracted with correct memory banks\",\n  \"memories\": [\n    {\n      \"operation\": \"NEW\",\n      \"content\": \"User h",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User provided a tool call example and assistant responded with",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Technical context, user preferences, and assistant observation",
       "turn_window": null
     },
     {
@@ -86,10 +86,10 @@
       "error_type": "llm_call_failed",
       "model_card": "friday",
       "first_occurrence": "2026-01-06T20:48:46.218844Z",
-      "last_occurrence": "2026-02-16T08:03:36.495411Z",
-      "attempt_count": 2,
+      "last_occurrence": "2026-07-13T21:34:49.247689Z",
+      "attempt_count": 14,
       "details": "Error: LLM API (openai_compatible) returned 400: {\"error\":\"Model unloaded.\"}",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User direction and model action extracted from conversation\",\n",
+      "example_memory": "[Connect call failed ('192.168.1.50', 8080)]",
       "turn_window": null
     },
     {
@@ -116,20 +116,20 @@
       "error_type": "missing_character_tag",
       "model_card": "friday",
       "first_occurrence": "2026-02-14T18:22:57.573636Z",
-      "last_occurrence": "2026-02-15T06:49:08.511259Z",
-      "attempt_count": 3,
+      "last_occurrence": "2026-07-29T20:37:15.313745Z",
+      "attempt_count": 4,
       "details": "Memory 1 in 'Character' bank must have character_[name] tag",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Explicit sexual and abusive content involving a minor was prov",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Extracted significant character traits and relationship contex",
       "turn_window": null
     },
     {
       "error_type": "wrong_bank",
       "model_card": "friday",
       "first_occurrence": "2026-02-15T01:38:50.916177Z",
-      "last_occurrence": "2026-02-17T10:23:03.411669Z",
-      "attempt_count": 3,
+      "last_occurrence": "2026-03-13T02:01:00.175620Z",
+      "attempt_count": 21,
       "details": "Memory 0 has invalid bank: Persona. Valid banks: Character, Character_Interaction, Context, General, Patterns, Personal, Preferences, Projects, Research, Tasks, Technical, Temporary, Work",
-      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"User expressed intimate preference and emotional context; assi",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Relationship dynamics and sexual preferences extracted from us",
       "turn_window": null
     },
     {
@@ -166,10 +166,20 @@
       "error_type": "wrong_bank",
       "model_card": "Friday",
       "first_occurrence": "2026-02-15T06:44:10.298045Z",
-      "last_occurrence": "2026-02-15T06:44:10.298045Z",
-      "attempt_count": 1,
+      "last_occurrence": "2026-03-01T19:06:17.391602Z",
+      "attempt_count": 2,
       "details": "Memory 0 has invalid bank: Adult_Content. Valid banks: Character, Character_Interaction, Context, General, Patterns, Personal, Preferences, Projects, Research, Tasks, Technical, Temporary, Work",
-      "example_memory": "{\"status\": \"success\", \"reason\": \"Sexual content and user-directed requests extracted with appropriat",
+      "example_memory": "{\n  \"status\": \"success\",\n  \"reason\": \"Intimate family dynamics and sexual context extracted from use",
+      "turn_window": null
+    },
+    {
+      "error_type": "llm_call_failed",
+      "model_card": "Friday",
+      "first_occurrence": "2026-02-25T21:21:54.458842Z",
+      "last_occurrence": "2026-06-09T16:16:18.386885Z",
+      "attempt_count": 14,
+      "details": "Error: LLM API (openai_compatible) returned 400: {\n    \"error\": {\n        \"message\": \"Failed to load model \\\"ministral-3-3b-instruct-2512\\\". Error: Operation canceled.\",\n        \"type\": \"invalid_request_error\",\n        \"param\": \"model\",\n        \"code\": null\n    }\n}",
+      "example_memory": "[Connect call failed ('192.168.1.50', 8080)]",
       "turn_window": null
     }
   ],
